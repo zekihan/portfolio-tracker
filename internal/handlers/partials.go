@@ -12,7 +12,7 @@ import (
 func (handler *Handler) holdingForm(ctx *gin.Context) {
 	var holding models.Holding
 
-	holding.BaseCurrency = "TRY"
+	holding.BaseCurrency = currencyTRY
 	holding.AssetType = models.AssetTypeStock
 
 	if ctx.Param("id") != "" {

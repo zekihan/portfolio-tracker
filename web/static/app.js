@@ -41,15 +41,18 @@ const PortfolioApp = (function() {
   // Initialize app
   function init(options = {}) {
     state.displayCurrency = options.displayCurrency || document.documentElement.dataset.currency || 'TRY';
-    state.theme = localStorage.getItem('theme') || 'system';
+    state.theme = localStorage.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
     
     applyTheme(state.theme);
     initThemeToggle();
     initCurrencySwitcher();
+    initDisplaySettings();
+    initSources();
     initMobileMenu();
     initDropdowns();
     initToasts();
     initCharts();
+    initHistory();
     initTableInteractions();
     initModalHandling();
     initPullToRefresh();
@@ -88,6 +91,8 @@ const PortfolioApp = (function() {
       const next = current === 'dark' ? 'light' : 'dark';
       localStorage.setItem('theme', next);
       applyTheme(next);
+      const themeSelect = document.getElementById('dark-mode');
+      if (themeSelect) themeSelect.value = next;
       updateToggle();
     });
 
@@ -99,6 +104,96 @@ const PortfolioApp = (function() {
         applyTheme('system');
         updateToggle();
       }
+    });
+  }
+
+  function initDisplaySettings() {
+    const currency = document.getElementById('display-currency');
+    currency?.addEventListener('change', async () => {
+      currency.disabled = true;
+      try {
+        const response = await fetch('/api/settings/currency', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currency: currency.value })
+        });
+        if (!response.ok) throw new Error('Unable to save currency');
+        const url = new URL(window.location.href);
+        url.searchParams.set('currency', currency.value);
+        window.location.assign(url.href);
+      } catch (error) {
+        currency.value = state.displayCurrency;
+        currency.disabled = false;
+        showToast(error.message, 'error');
+      }
+    });
+    const theme = document.getElementById('dark-mode');
+    if (theme) theme.value = localStorage.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
+    theme?.addEventListener('change', async () => {
+      theme.disabled = true;
+      try {
+        const response = await fetch('/api/settings/dark-mode', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: theme.value })
+        });
+        if (!response.ok) throw new Error('Unable to save theme');
+        localStorage.setItem('theme', theme.value);
+        applyTheme(theme.value);
+        document.getElementById('themeToggle')?.setAttribute('aria-pressed', document.documentElement.dataset.theme === 'dark');
+        showToast('Theme saved', 'success');
+      } catch (error) {
+        theme.value = localStorage.getItem('theme') || 'system';
+        showToast(error.message, 'error');
+      } finally { theme.disabled = false; }
+    });
+  }
+
+  function initSources() {
+    if (!document.querySelector('.sources-page')) return;
+    async function request(url, method, data) {
+      const response = await fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        ...(data ? { body: JSON.stringify(data) } : {})
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.success === false) throw new Error(body.error || 'Request failed');
+      return body;
+    }
+    document.querySelector('.sources-page').addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-test-provider], [data-test-mapping], [data-save-mapping], #refresh-prices');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        if (button.id === 'refresh-prices') {
+          await request('/api/sources/refresh', 'POST');
+          window.location.reload();
+          return;
+        }
+        const row = button.closest('tr');
+        const provider = button.dataset.testProvider || row.querySelector('.provider-select').value;
+        const instrumentId = row.querySelector('.instrument-input, .provider-test-instrument').value.trim();
+        if (button.hasAttribute('data-save-mapping')) {
+          await request(`/api/holdings/${row.dataset.holdingId}/provider`, 'PUT', { provider, instrumentId });
+          showToast('Price source saved', 'success');
+        } else {
+          if (!provider || !instrumentId) throw new Error('Choose a provider and enter an instrument ID first.');
+          const result = await request('/api/sources/test', 'POST', { provider, instrumentId });
+          showToast(`${provider}: ${formatCurrency(result.price, result.currency)}`, 'success');
+        }
+      } catch (error) { showToast(error.message, 'error'); }
+      finally { button.disabled = false; }
+    });
+    const interval = document.getElementById('refresh-interval');
+    let savedInterval = interval.value;
+    interval.addEventListener('change', async () => {
+      interval.disabled = true;
+      try {
+        await request('/api/settings/refresh-interval', 'PATCH', { interval: Number(interval.value) });
+        savedInterval = interval.value;
+        showToast('Refresh interval saved', 'success');
+      } catch (error) {
+        interval.value = savedInterval;
+        showToast(error.message, 'error');
+      } finally { interval.disabled = false; }
     });
   }
 
@@ -266,8 +361,9 @@ const PortfolioApp = (function() {
   }
 
   function loadPortfolioChart(range) {
+    if (!document.getElementById('portfolio-chart')) return;
     const daysMap = { '1y': 365, '6m': 180, '3m': 90, '1m': 30 };
-    const days = daysMap[range] || 365;
+    const days = document.getElementById('date-range')?.value || daysMap[range] || 365;
     
     fetch(`/api/history/chart?days=${days}`)
       .then(r => r.json())
@@ -287,7 +383,7 @@ const PortfolioApp = (function() {
     const valuesTry = data.map(d => d.value_try);
     const valuesUsd = data.map(d => d.value_usd);
 
-    const isUSD = state.displayCurrency === 'USD';
+    const isUSD = (document.getElementById('filter-currency')?.value || state.displayCurrency) === 'USD';
     const values = isUSD ? valuesUsd : valuesTry;
     const currency = isUSD ? 'USD' : 'TRY';
 
@@ -319,6 +415,7 @@ const PortfolioApp = (function() {
   }
 
   function loadAllocationChart(type) {
+    if (!document.getElementById('allocation-chart')) return;
     const params = new URLSearchParams({ type, currency: state.displayCurrency });
     fetch(`/api/dashboard/allocation?${params}`)
       .then(r => r.json())
@@ -404,6 +501,106 @@ const PortfolioApp = (function() {
       tab.classList.toggle('active', tab.dataset.alloc === type);
       tab.setAttribute('aria-selected', tab.dataset.alloc === type);
     });
+  }
+
+  function initHistory() {
+    const range = document.getElementById('date-range');
+    if (!range) return;
+    const currency = document.getElementById('filter-currency');
+    const select = document.getElementById('holding-select');
+    const basket = document.getElementById('holding-basket');
+    const location = document.getElementById('holding-location');
+    let holdings = [];
+    let offset = 0;
+    let holdingRequest = 0;
+    const updateCharts = () => { loadPortfolioChart(); loadHolding(); };
+    range.addEventListener('change', updateCharts);
+    currency.addEventListener('change', updateCharts);
+    document.getElementById('reset-filters').addEventListener('click', () => {
+      range.value = '365';
+      currency.value = state.displayCurrency;
+      updateCharts();
+    });
+    const updateHoldings = () => {
+      const selected = select.value;
+      select.replaceChildren(new Option('Select a holding...', ''));
+      holdings.filter(holding => (!basket.value || holding.basket === basket.value) &&
+        (!location.value || holding.location === location.value)).forEach(holding => {
+        select.add(new Option(holding.name, String(holding.id)));
+      });
+      select.value = selected;
+      loadHolding();
+    };
+    basket.addEventListener('change', updateHoldings);
+    location.addEventListener('change', updateHoldings);
+    select.addEventListener('change', loadHolding);
+    fetch('/api/holdings').then(response => {
+      if (!response.ok) throw new Error('Unable to load holdings');
+      return response.json();
+    }).then(data => { holdings = data || []; updateHoldings(); })
+      .catch(error => showToast(error.message, 'error'));
+
+    async function loadHolding() {
+      const request = ++holdingRequest;
+      state.charts.holding?.destroy();
+      state.charts.holding = null;
+      if (!select.value) return;
+      try {
+        const response = await fetch(`/api/history/holding/${select.value}?days=${range.value}`);
+        if (!response.ok) throw new Error('Unable to load holding history');
+        const data = await response.json();
+        if (request !== holdingRequest) return;
+        state.charts.holding = new Chart(document.getElementById('holding-chart'), {
+          type: 'line',
+          data: {
+            labels: data.map(point => new Date(point.timestamp).toLocaleDateString()),
+            datasets: [{ label: `Holding value (${currency.value})`,
+              data: data.map(point => currency.value === 'USD' ? point.value_usd : point.value_try),
+              borderColor: CHART_COLORS[0], tension: 0.1 }]
+          },
+          options: getChartOptions(currency.value)
+        });
+      } catch (error) { showToast(error.message, 'error'); }
+    }
+
+    const first = document.getElementById('first-page');
+    const previous = document.getElementById('prev-page');
+    const next = document.getElementById('next-page');
+    first.addEventListener('click', () => loadSnapshots(0));
+    previous.addEventListener('click', () => loadSnapshots(Math.max(0, offset - 50)));
+    next.addEventListener('click', () => loadSnapshots(offset + 50));
+    async function loadSnapshots(nextOffset) {
+      [first, previous, next].forEach(button => { button.disabled = true; });
+      try {
+        const response = await fetch(`/api/history/snapshots?limit=51&offset=${nextOffset}`);
+        if (!response.ok) throw new Error('Unable to load snapshots');
+        const snapshots = (await response.json()) || [];
+        const body = document.getElementById('snapshots-tbody');
+        body.replaceChildren();
+        snapshots.slice(0, 50).forEach(snapshot => {
+          const row = body.insertRow();
+          [new Date(snapshot.timestamp).toISOString().replace('T', ' ').slice(0, 19),
+            formatCurrency(snapshot.total_value_try, 'TRY'), snapshot.usd_try_rate,
+            snapshot.stale_count, snapshot.failed_count, ''].forEach(value => {
+            row.insertCell().textContent = value;
+          });
+        });
+        if (!snapshots.length) {
+          const cell = body.insertRow().insertCell();
+          cell.colSpan = 6;
+          cell.textContent = 'No snapshots yet. History appears after the next scheduled snapshot.';
+        }
+        offset = nextOffset;
+        document.getElementById('page-info').textContent = `Page ${offset / 50 + 1}`;
+        next.disabled = snapshots.length <= 50;
+      } catch (error) {
+        showToast(error.message, 'error');
+        next.disabled = false;
+      } finally {
+        first.disabled = previous.disabled = offset === 0;
+      }
+    }
+    loadSnapshots(0);
   }
 
   function getChartOptions(currency) {
@@ -557,7 +754,7 @@ const PortfolioApp = (function() {
     } else if (field === 'quantity' || field === 'est_price') {
       input = document.createElement('input');
       input.type = 'number';
-      input.step = '0.01';
+      input.step = 'any';
       input.min = '0';
     } else {
       input = document.createElement('input');
@@ -565,8 +762,8 @@ const PortfolioApp = (function() {
     }
 
     const numericField = field === 'quantity' || field === 'est_price';
-    const editValue = numericField ? currentValue.replace(/[₺$,\s]/g, '') : currentValue;
-    input.value = currentValue === '—' ? '' : editValue;
+    const editValue = numericField ? (td.dataset.sortValue ?? currentValue.replace(/[₺$,\s]/g, '')) : currentValue;
+    input.value = numericField ? editValue : currentValue;
     input.className = 'inline-edit-input';
     input.style.cssText = 'width: 100%; padding: 4px 8px; border: 1px solid var(--border-focus); border-radius: 4px; background: var(--bg-primary); font-family: inherit; font-size: inherit;';
 
@@ -578,9 +775,10 @@ const PortfolioApp = (function() {
     let finished = false;
     const save = () => {
       if (finished) return;
+      if (!input.reportValidity()) return;
       finished = true;
       const newValue = input.value.trim();
-      if (newValue !== currentValue && (newValue !== '' || !numericField)) {
+      if (newValue !== String(editValue) && (newValue !== '' || !numericField)) {
         // Send update via HTMX
         const url = `/api/holdings/${holdingId}`;
         const data = { [field]: field === 'quantity' || field === 'est_price' ? parseFloat(newValue) : newValue };
@@ -594,8 +792,10 @@ const PortfolioApp = (function() {
           // Display the new value only after the server accepts the update.
           if (numericField) td.dataset.sortValue = newValue;
           td.textContent = formatDisplayValue(newValue, field);
+          if (numericField) window.location.reload();
         }).catch(() => {
           td.textContent = currentValue;
+          showToast('Unable to save this value. Please try again.', 'error');
         });
       } else {
         td.textContent = currentValue;

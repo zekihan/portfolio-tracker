@@ -78,7 +78,7 @@ func lt(a, b float64) bool {
 
 func formatCurrency(n float64, currency string) string {
 	symbol := "₺"
-	if currency == "USD" {
+	if currency == currencyUSD {
 		symbol = "$"
 	}
 
@@ -218,7 +218,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 // Holdings API.
 func (handler *Handler) getHoldings(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", "TRY")
+	displayCurrency := ctx.DefaultQuery("currency", currencyTRY)
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
@@ -414,7 +414,7 @@ func (handler *Handler) deleteHolding(ctx *gin.Context) {
 // Dashboard API.
 func (handler *Handler) getDashboard(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", "TRY")
+	displayCurrency := ctx.DefaultQuery("currency", currencyTRY)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
@@ -428,7 +428,7 @@ func (handler *Handler) getDashboard(ctx *gin.Context) {
 
 func (handler *Handler) getAllocation(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", "TRY")
+	displayCurrency := ctx.DefaultQuery("currency", currencyTRY)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
@@ -697,7 +697,7 @@ func (handler *Handler) updateCurrency(ctx *gin.Context) {
 		return
 	}
 
-	if req.Currency != "TRY" && req.Currency != "USD" {
+	if req.Currency != currencyTRY && req.Currency != currencyUSD {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid currency"})
 
 		return
@@ -779,14 +779,14 @@ func (handler *Handler) updateRefreshInterval(ctx *gin.Context) {
 // Page handlers (server-rendered with HTMX).
 func (handler *Handler) pageDashboard(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", "TRY")
+	displayCurrency := handler.pageCurrency(ctx)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
 		data = &models.DashboardData{} //nolint:exhaustruct_v5 // Empty struct for error fallback
 	}
 
-	ctx.HTML(http.StatusOK, "dashboard.html", gin.H{
+	handler.renderPage(ctx, "dashboard.html", gin.H{
 		"Data":            data,
 		"DisplayCurrency": displayCurrency,
 		"Title":           titleDashboard, //nolint:goconst // Map key is required
@@ -795,7 +795,7 @@ func (handler *Handler) pageDashboard(ctx *gin.Context) {
 
 func (handler *Handler) pageHoldings(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", "TRY")
+	displayCurrency := handler.pageCurrency(ctx)
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
@@ -812,8 +812,18 @@ func (handler *Handler) pageHoldings(ctx *gin.Context) {
 		locations = []string{}
 	}
 
-	ctx.HTML(http.StatusOK, "holdings.html", gin.H{
+	coverage := 0
+
+	for i := range holdings {
+		if holdings[i].EstPrice > 0 {
+			coverage++
+		}
+	}
+
+	handler.renderPage(ctx, "holdings.html", gin.H{
 		"Holdings":        holdings,
+		"CoverageCount":   coverage,
+		"TotalHoldings":   len(holdings),
 		"DisplayCurrency": displayCurrency,
 		"Baskets":         baskets,
 		"Locations":       locations,
@@ -823,7 +833,7 @@ func (handler *Handler) pageHoldings(ctx *gin.Context) {
 
 func (handler *Handler) pageHistory(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", "TRY")
+	displayCurrency := handler.pageCurrency(ctx)
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
 	if err != nil || days < 1 || days > 36500 {
@@ -848,7 +858,7 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 	// Hardcoded from the model's AssetType constants.
 	assetTypes := []string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"}
 
-	ctx.HTML(http.StatusOK, "history.html", gin.H{
+	handler.renderPage(ctx, "history.html", gin.H{
 		"ChartData":       chartData,
 		"DisplayCurrency": displayCurrency,
 		"Days":            days,
@@ -870,7 +880,7 @@ func (handler *Handler) pageSources(ctx *gin.Context) {
 		mapping = []price.HoldingProviderMapping{}
 	}
 
-	ctx.HTML(http.StatusOK, "sources.html", gin.H{
+	handler.renderPage(ctx, "sources.html", gin.H{
 		"Providers": providers,
 		"Mapping":   mapping,
 		"Title":     titleSources,
@@ -883,7 +893,7 @@ func (handler *Handler) pageSettings(ctx *gin.Context) {
 		settings = models.Settings{} //nolint:exhaustruct_v5 // Empty struct for error fallback
 	}
 
-	ctx.HTML(http.StatusOK, "settings.html", gin.H{
+	handler.renderPage(ctx, "settings.html", gin.H{
 		"Settings": settings,
 		"Title":    titleSettings,
 	})

@@ -10,7 +10,7 @@
         <div class="filter-grid">
             <div class="filter-group">
                 <label for="date-range">Date Range</label>
-                <select id="date-range" class="form-select" hx-get="/api/history/chart" hx-target="#portfolio-chart" hx-include="[name='basket'],[name='location'],[name='asset_type'],[name='currency']" hx-vals='js:{days: document.getElementById("date-range").value}'>
+                <select id="date-range" class="form-select">
                     <option value="365" {{if eq .Days 365}}selected{{end}}>1 Year</option>
                     <option value="180" {{if eq .Days 180}}selected{{end}}>6 Months</option>
                     <option value="90" {{if eq .Days 90}}selected{{end}}>3 Months</option>
@@ -19,29 +19,8 @@
                 </select>
             </div>
             <div class="filter-group">
-                <label for="filter-basket">Basket</label>
-                <select id="filter-basket" name="basket" class="form-select" hx-get="/api/history/chart" hx-target="#portfolio-chart" hx-include="[name='date-range'],[name='location'],[name='asset_type'],[name='currency']">
-                    <option value="">All Baskets</option>
-                    {{range .Baskets}}<option value="{{.}}">{{.}}</option>{{end}}
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="filter-location">Location</label>
-                <select id="filter-location" name="location" class="form-select" hx-get="/api/history/chart" hx-target="#portfolio-chart" hx-include="[name='date-range'],[name='basket'],[name='asset_type'],[name='currency']">
-                    <option value="">All Locations</option>
-                    {{range .Locations}}<option value="{{.}}">{{.}}</option>{{end}}
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="filter-asset-type">Asset Type</label>
-                <select id="filter-asset-type" name="asset_type" class="form-select" hx-get="/api/history/chart" hx-target="#portfolio-chart" hx-include="[name='date-range'],[name='basket'],[name='location'],[name='currency']">
-                    <option value="">All Types</option>
-                    {{range .AssetTypes}}<option value="{{.}}">{{.}}</option>{{end}}
-                </select>
-            </div>
-            <div class="filter-group">
                 <label for="filter-currency">Currency</label>
-                <select id="filter-currency" name="currency" class="form-select" hx-get="/api/history/chart" hx-target="#portfolio-chart" hx-include="[name='date-range'],[name='basket'],[name='location'],[name='asset_type']">
+                <select id="filter-currency" name="currency" class="form-select">
                     <option value="TRY" {{if eq .DisplayCurrency "TRY"}}selected{{end}}>TRY</option>
                     <option value="USD" {{if eq .DisplayCurrency "USD"}}selected{{end}}>USD</option>
                 </select>
@@ -66,21 +45,21 @@
         <div class="filter-grid" style="margin-bottom: 1rem;">
             <div class="filter-group">
                 <label for="holding-select">Holding</label>
-                <select id="holding-select" class="form-select" hx-get="/partials/holding-history-chart" hx-target="#holding-chart" hx-include="[name='holding-basket'],[name='holding-location']">
+                <select id="holding-select" class="form-select">
                     <option value="">Select a holding...</option>
-                    <!-- Populated via HTMX -->
+                    <!-- Populated from holdings. -->
                 </select>
             </div>
             <div class="filter-group">
                 <label for="holding-basket">Basket</label>
-                <select id="holding-basket" name="holding-basket" class="form-select" hx-get="/partials/holding-options" hx-target="#holding-select" hx-include="[name='holding-location']">
+                <select id="holding-basket" name="holding-basket" class="form-select">
                     <option value="">All Baskets</option>
                     {{range .Baskets}}<option value="{{.}}">{{.}}</option>{{end}}
                 </select>
             </div>
             <div class="filter-group">
                 <label for="holding-location">Location</label>
-                <select id="holding-location" name="holding-location" class="form-select" hx-get="/partials/holding-options" hx-target="#holding-select" hx-include="[name='holding-basket']">
+                <select id="holding-location" name="holding-location" class="form-select">
                     <option value="">All Locations</option>
                     {{range .Locations}}<option value="{{.}}">{{.}}</option>{{end}}
                 </select>
@@ -106,16 +85,16 @@
                         <th scope="col">Notes</th>
                     </tr>
                 </thead>
-                <tbody id="snapshots-tbody" hx-get="/api/history/snapshots" hx-trigger="load, portfolio-updated from:body" hx-target="this" hx-swap="innerHTML">
-                    <!-- Loaded via HTMX -->
+                <tbody id="snapshots-tbody">
+                    <tr><td colspan="6">Loading snapshots…</td></tr>
                 </tbody>
             </table>
         </div>
         <div class="pagination">
-            <button class="btn btn-ghost btn-sm" hx-get="/api/history/snapshots?offset=0" hx-target="#snapshots-tbody" hx-swap="innerHTML">First</button>
-            <button class="btn btn-ghost btn-sm" id="prev-page" disabled hx-get="/api/history/snapshots?offset=0" hx-target="#snapshots-tbody" hx-swap="innerHTML">Previous</button>
+            <button class="btn btn-ghost btn-sm" id="first-page" disabled>First</button>
+            <button class="btn btn-ghost btn-sm" id="prev-page" disabled>Previous</button>
             <span id="page-info">Page 1</span>
-            <button class="btn btn-ghost btn-sm" id="next-page" hx-get="/api/history/snapshots?offset=50" hx-target="#snapshots-tbody" hx-swap="innerHTML">Next</button>
+            <button class="btn btn-ghost btn-sm" id="next-page" disabled>Next</button>
         </div>
     </section>
 </div>

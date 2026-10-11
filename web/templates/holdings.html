@@ -24,10 +24,10 @@
                     <th scope="col" data-sort="current_price" class="numeric">Price</th>
                     <th scope="col" data-sort="est_price" class="numeric editable">Est. Price</th>
                     <th scope="col">Curr</th>
-                    <th scope="col" class="numeric">Total</th>
-                    <th scope="col" class="numeric editable">Est. Total</th>
-                    <th scope="col" class="numeric">Norm {{.DisplayCurrency}}</th>
-                    <th scope="col" class="numeric editable">Est. Norm</th>
+                    <th scope="col" class="numeric">Total ({{.DisplayCurrency}})</th>
+                    <th scope="col" class="numeric">Est. Total ({{.DisplayCurrency}})</th>
+                    <th scope="col" class="numeric">Unit ({{.DisplayCurrency}})</th>
+                    <th scope="col" class="numeric editable">Est. Unit</th>
                     <th scope="col" class="editable">Basket</th>
                     <th scope="col" class="editable">Location</th>
                     <th scope="col" class="editable">Notes</th>
@@ -52,28 +52,28 @@
             </thead>
             <tbody id="holdings-tbody">
                 {{range .Holdings}}
-                {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}
-                {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{end}}
+                {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}{{$unit := .NormPriceTRY}}
+                {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{$unit = .NormPriceUSD}}{{end}}
                 <tr class="holding-row {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
-                    <td class="editable-cell" data-field="name">{{.Name}}</td>
-                    <td class="editable-cell" data-field="ticker">{{.Ticker}}</td>
-                    <td class="numeric editable-cell" data-field="quantity" data-sort-value="{{.Quantity}}">{{formatNumber .Quantity}}</td>
+                    <td class="editable-cell" tabindex="0" data-field="name">{{.Name}}</td>
+                    <td class="editable-cell" tabindex="0" data-field="ticker">{{.Ticker}}</td>
+                    <td class="numeric editable-cell" tabindex="0" data-field="quantity" data-sort-value="{{.Quantity}}">{{formatNumber .Quantity}}</td>
                     <td class="numeric calculated-cell {{if .IsFailed}}price-failed{{else if .IsStale}}price-stale{{end}}" data-field="price" data-sort-value="{{.CurrentPrice}}">
                         {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}}
                         {{if .IsFailed}}<span class="badge badge-error">Failed</span>{{else if .IsStale}}<span class="badge badge-warning">Stale</span>{{end}}
                     </td>
-                    <td class="numeric editable-cell" data-field="est_price" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric editable-cell" tabindex="0" data-field="est_price" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
                     <td>{{.BaseCurrency}}</td>
                     <td class="numeric calculated-cell">{{if gt $total 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</td>
                     <td class="numeric calculated-cell">{{if gt $estimate 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt .NormPriceTRY 0}}{{formatCurrency .NormPriceTRY "TRY"}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt .NormEstTotalTRY 0}}{{formatCurrency .NormEstTotalTRY "TRY"}}{{else}}—{{end}}</td>
-                    <td class="editable-cell" data-field="basket">{{.Basket}}</td>
-                    <td class="editable-cell" data-field="location">{{.Location}}</td>
-                    <td class="editable-cell" data-field="notes">{{.Notes}}</td>
+                    <td class="numeric calculated-cell">{{if gt $unit 0}}{{formatCurrency $unit $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if and (gt .Quantity 0) (gt $estimate 0)}}{{formatCurrency (div $estimate .Quantity) $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="editable-cell" tabindex="0" data-field="basket">{{.Basket}}</td>
+                    <td class="editable-cell" tabindex="0" data-field="location">{{.Location}}</td>
+                    <td class="editable-cell" tabindex="0" data-field="notes">{{.Notes}}</td>
                     <td class="actions-cell">
                         <div class="dropdown">
-                            <button class="btn btn-ghost btn-sm dropdown-toggle" aria-expanded="false" aria-haspopup="true">
+                            <button class="btn btn-ghost btn-sm dropdown-toggle" aria-label="Actions for {{.Name}}" aria-expanded="false" aria-haspopup="true">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                             </button>
                             <div class="dropdown-menu" role="menu">
@@ -97,6 +97,8 @@
                         </div>
                     </td>
                 </tr>
+                {{else}}
+                <tr><td colspan="14"><div class="empty-state"><h3>No holdings yet</h3><p>Add your first holding to start tracking your portfolio.</p></div></td></tr>
                 {{end}}
             </tbody>
             <tfoot>
@@ -119,8 +121,8 @@
     <!-- Mobile Card View -->
     <div class="mobile-cards mobile-only" role="list" aria-label="Holdings cards">
         {{range .Holdings}}
-        {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}
-        {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{end}}
+        {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}{{$unit := .NormPriceTRY}}
+        {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{$unit = .NormPriceUSD}}{{end}}
         <article class="holding-card {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
             <header class="card-header">
                 <div>
@@ -128,7 +130,7 @@
                     <p class="meta">{{formatNumber .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</p>
                 </div>
                 <div class="dropdown">
-                    <button class="btn btn-ghost btn-sm dropdown-toggle" aria-expanded="false" aria-haspopup="true">
+                    <button class="btn btn-ghost btn-sm dropdown-toggle" aria-label="Actions for {{.Name}}" aria-expanded="false" aria-haspopup="true">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     </button>
                     <div class="dropdown-menu" role="menu">

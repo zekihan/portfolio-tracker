@@ -97,6 +97,8 @@ func TestPageRoutesRenderTheirOwnContent(t *testing.T) {
 	}
 
 	checkPopulatedHoldingCurrency(t, router)
+
+	checkSavedPageCurrency(t, router, services.NewSettingsService(database))
 }
 
 func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
@@ -126,9 +128,39 @@ func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
 				}
 			}
 
+			if !strings.Contains(body, "Estimated total covers 1 of 1 holdings") {
+				t.Error("missing coverage counts")
+			}
+
 			if strings.Contains(body, "$ 200.00") || strings.Contains(body, "$ 400.00") {
 				t.Error("TRY amounts mislabeled as USD")
 			}
 		})
+	}
+}
+
+func checkSavedPageCurrency(t *testing.T, router http.Handler, settings *services.SettingsService) {
+	t.Helper()
+
+	err := settings.SetDisplayCurrency(t.Context(), "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/", "/holdings", "/history", "/sources", "/settings"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(
+			response,
+			httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil),
+		)
+
+		body := response.Body.String()
+		if !strings.Contains(body, `data-currency="USD"`) {
+			t.Errorf("%s ignores saved currency", path)
+		}
+
+		if !strings.Contains(body, `aria-current="page"`) {
+			t.Errorf("%s has no active navigation link", path)
+		}
 	}
 }
