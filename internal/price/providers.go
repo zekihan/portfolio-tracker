@@ -119,6 +119,10 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("yahoo finance returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
