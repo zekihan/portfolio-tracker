@@ -607,11 +607,11 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 		"https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=usd",
 		url.QueryEscape(instrumentID),
 	)
-	if key := os.Getenv("COINGECKO_KEY"); key != "" {
-		url += "&x_cg_demo_api_key=" + key
-	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if key := os.Getenv("COINGECKO_KEY"); key != "" {
+		req.Header.Set("X-Cg-Demo-Api-Key", key)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
