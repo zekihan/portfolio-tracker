@@ -200,7 +200,7 @@ func (s *HoldingService) GetDashboardData(
 		return nil, err
 	}
 
-	var totalTRY, estTotalTRY float64
+	var totalTRY, totalUSD, estTotalTRY, estTotalUSD float64
 
 	staleCount, failedCount, coverageCount := 0, 0, 0
 	allocType := make(map[string]float64)
@@ -209,13 +209,11 @@ func (s *HoldingService) GetDashboardData(
 	allocCurr := make(map[string]float64)
 
 	for _, h := range holdings {
-		if displayCurrency == "USD" {
-			totalTRY += h.NormTotalUSD
-			estTotalTRY += h.NormEstTotalUSD
-		} else {
-			totalTRY += h.NormTotalTRY
-			estTotalTRY += h.NormEstTotalTRY
-		}
+		// Currency-specific totals must not depend on the allocation display currency.
+		totalTRY += h.NormTotalTRY
+		totalUSD += h.NormTotalUSD
+		estTotalTRY += h.NormEstTotalTRY
+		estTotalUSD += h.NormEstTotalUSD
 
 		if h.IsStale {
 			staleCount++
@@ -255,9 +253,9 @@ func (s *HoldingService) GetDashboardData(
 
 	return &models.DashboardData{
 		CurrentValueTRY:    totalTRY,
-		CurrentValueUSD:    totalTRY / usdTryRate,
+		CurrentValueUSD:    totalUSD,
 		EstimatedValueTRY:  estTotalTRY,
-		EstimatedValueUSD:  estTotalTRY / usdTryRate,
+		EstimatedValueUSD:  estTotalUSD,
 		USDTRYRate:         usdTryRate,
 		StaleCount:         staleCount,
 		FailedCount:        failedCount,
