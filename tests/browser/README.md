@@ -25,4 +25,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `table-sort-swaps.js` checks the ascending/descending/none direction control cycle before and after three real HTMX GET swaps, including a newly inserted table. Run on a fresh holdings page. This regression covers direction state and indicators, not row ordering; it performs no persisted writes.
 
+`inline-text.js` opens basket, location, and notes editors on a populated holdings page, verifies spaces, commas, and currency symbols survive, and checks Escape restores the text. It uses DOM-only fixtures, cancels without saving, and restores the original cells.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

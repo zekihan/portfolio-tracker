@@ -503,7 +503,7 @@ const PortfolioApp = (function() {
     if (field === 'basket' || field === 'location') {
       input = document.createElement('input');
       input.type = 'text';
-      input.list = `${field}-list`;
+      input.setAttribute('list', `${field}-list`);
       // Would need to fetch existing values for datalist
     } else if (field === 'quantity' || field === 'est_price') {
       input = document.createElement('input');
@@ -515,7 +515,9 @@ const PortfolioApp = (function() {
       input.type = 'text';
     }
 
-    input.value = currentValue === '—' ? '' : currentValue.replace(/[₺$,\s]/g, '');
+    const numericField = field === 'quantity' || field === 'est_price';
+    const editValue = numericField ? currentValue.replace(/[₺$,\s]/g, '') : currentValue;
+    input.value = currentValue === '—' ? '' : editValue;
     input.className = 'inline-edit-input';
     input.style.cssText = 'width: 100%; padding: 4px 8px; border: 1px solid var(--border-focus); border-radius: 4px; background: var(--bg-primary); font-family: inherit; font-size: inherit;';
 
