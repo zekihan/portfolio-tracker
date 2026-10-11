@@ -115,7 +115,7 @@ func NewYahooFinance() *YahooFinance {
 func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	url := fmt.Sprintf(
 		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1m&range=1d",
-		url.QueryEscape(instrumentID),
+		url.PathEscape(instrumentID),
 	)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
