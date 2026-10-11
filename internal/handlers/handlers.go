@@ -193,6 +193,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	api.PATCH("/settings/currency", handler.updateCurrency)
 	api.PATCH("/settings/dark-mode", handler.updateDarkMode)
 	api.PATCH("/settings/refresh-interval", handler.updateRefreshInterval)
+	api.DELETE("/settings/clear-all", handler.clearAllData)
 
 	// Page routes (server-rendered).
 	router.GET("/", handler.pageDashboard)
@@ -507,6 +508,19 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, points)
+}
+
+// clearAllData deletes all user data and asks the browser to reload the page.
+func (handler *Handler) clearAllData(ctx *gin.Context) {
+	err := handler.settingsSvc.ClearAllData(ctx.Request.Context())
+	if err != nil {
+		respondInternalError(ctx, err)
+
+		return
+	}
+
+	ctx.Header("HX-Refresh", "true")
+	ctx.Status(http.StatusOK)
 }
 
 // Price Sources API.
