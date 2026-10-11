@@ -133,6 +133,8 @@ func (s *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
 }
 
 func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) error {
+	var refreshErrors []error
+
 	for _, h := range holdings {
 		if h.PriceProvider == "" || h.PriceProvider == "Manual" {
 			continue
@@ -142,10 +144,14 @@ func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) err
 			continue
 		}
 
-		_, _ = s.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
+		_, err := s.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
+		if err != nil {
+			refreshErrors = append(refreshErrors,
+				fmt.Errorf("refresh %s/%s: %w", h.PriceProvider, h.InstrumentID, err))
+		}
 	}
 
-	return nil
+	return errors.Join(refreshErrors...)
 }
 
 func (s *Service) TestProvider(
