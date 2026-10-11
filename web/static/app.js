@@ -307,7 +307,8 @@ const PortfolioApp = (function() {
       state.charts.allocation.destroy();
     }
 
-    const allocation = data[`by_${type}`] || {};
+    const allocationKey = { location: 'by_loc', currency: 'by_curr' }[type] || `by_${type}`;
+    const allocation = data[allocationKey] || {};
     const labels = Object.keys(allocation);
     const values = Object.values(allocation);
     const total = values.reduce((a, b) => a + b, 0);
