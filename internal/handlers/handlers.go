@@ -87,7 +87,7 @@ func formatPercent(n float64) string {
 }
 
 func formatTime(t time.Time) string {
-	return t.Format("2006-01-02 15:04 UTC")
+	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 func toJSON(v any) string {
