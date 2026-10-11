@@ -185,7 +185,7 @@ const PortfolioApp = (function() {
     toggle.addEventListener('click', () => {
       const expanded = toggle.getAttribute('aria-expanded') === 'true';
       toggle.setAttribute('aria-expanded', !expanded);
-      nav.style.display = expanded ? 'none' : 'flex';
+      nav.classList.toggle('is-open', !expanded);
     });
   }
 

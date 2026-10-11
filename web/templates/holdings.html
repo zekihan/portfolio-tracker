@@ -102,12 +102,14 @@
             <tfoot>
                 <tr>
                     <td colspan="14" class="table-footer">
+                        <div class="table-footer-content">
                         <span id="coverage-badge">Estimated total covers {{.CoverageCount}} of {{.TotalHoldings}} holdings</span>
                         <button class="btn btn-ghost btn-sm" id="column-toggle" aria-expanded="false" aria-controls="column-menu">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             Columns
                         </button>
                         <div id="column-menu" class="dropdown-menu column-menu" role="menu" aria-hidden="true"></div>
+                        </div>
                     </td>
                 </tr>
             </tfoot>

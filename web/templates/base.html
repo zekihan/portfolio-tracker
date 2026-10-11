@@ -41,7 +41,7 @@
             </a>
         </div>
         
-        <nav class="header-nav" role="navigation" aria-label="Main navigation">
+        <nav id="mobile-nav" class="header-nav" role="navigation" aria-label="Main navigation">
             <a href="/" class="nav-link {{if eq .ActivePage "dashboard"}}active{{end}}" aria-current="{{if eq .ActivePage "dashboard"}}page{{end}}">Overview</a>
             <a href="/holdings" class="nav-link {{if eq .ActivePage "holdings"}}active{{end}}" aria-current="{{if eq .ActivePage "holdings"}}page{{end}}">Holdings</a>
             <a href="/history" class="nav-link {{if eq .ActivePage "history"}}active{{end}}" aria-current="{{if eq .ActivePage "history"}}page{{end}}">History</a>
