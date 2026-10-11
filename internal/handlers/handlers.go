@@ -159,7 +159,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	router.HTMLRender = newPageRenderer(funcs)
 
 	// API routes.
-	api := router.Group("/api")
+	api := router.Group("/api", requireJSONBody())
 
 	// Holdings.
 	api.GET("/holdings", handler.getHoldings)
