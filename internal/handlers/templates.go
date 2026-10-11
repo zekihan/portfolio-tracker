@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -82,6 +83,16 @@ func (handler *Handler) renderPage(ctx *gin.Context, name string, data gin.H) {
 	}
 
 	data["DisplayCurrency"] = handler.pageCurrency(ctx)
+	data["BuildInfo"] = "Development build"
+
+	if build, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range build.Settings {
+			if setting.Key == "vcs.revision" {
+				data["BuildInfo"] = setting.Value
+			}
+		}
+	}
+
 	data["ActivePage"] = strings.TrimSuffix(name, ".html")
 	ctx.HTML(http.StatusOK, name, data)
 }

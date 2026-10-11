@@ -278,6 +278,12 @@ func (handler *Handler) createHolding(ctx *gin.Context) {
 		return
 	}
 
+	if holding.ManualPrice.Valid && holding.ManualPrice.Float64 < 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "manual price must be nonnegative"})
+
+		return
+	}
+
 	err = handler.holdingSvc.Create(requestCtx, &holding)
 	if err != nil {
 		respondInternalError(ctx, err)

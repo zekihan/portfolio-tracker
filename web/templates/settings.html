@@ -60,7 +60,6 @@
     <section class="card" aria-labelledby="about-heading">
         <h2 id="about-heading">About</h2>
         <dl class="about-info">
-            <div><dt>Version</dt><dd>1.0.0</dd></div>
             <div><dt>Build</dt><dd>{{.BuildInfo}}</dd></div>
             <div><dt>License</dt><dd>MIT</dd></div>
             <div><dt>Repository</dt><dd><a href="https://github.com/zekihan/portfolio-tracker" target="_blank" rel="noopener">github.com/zekihan/portfolio-tracker</a></dd></div>
@@ -71,7 +70,7 @@
     <section class="card danger-zone" aria-labelledby="danger-heading">
         <h2 id="danger-heading">Danger Zone</h2>
         <div class="setting-group">
-            <button class="btn btn-danger" id="clear-all-data" hx-delete="/api/settings/clear-all" hx-confirm="This will delete ALL holdings, snapshots, and settings. Are you absolutely sure?" hx-target="#toast-container" hx-swap="beforeend">
+            <button class="btn btn-danger" id="clear-all-data">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"></polyline>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>

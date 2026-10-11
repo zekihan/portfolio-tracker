@@ -119,6 +119,20 @@ const PortfolioApp = (function() {
   }
 
   function initDisplaySettings() {
+    const clear = document.getElementById('clear-all-data');
+    clear?.addEventListener('click', async () => {
+      if (!window.confirm('This will delete ALL holdings, snapshots, and settings. Are you absolutely sure?')) return;
+      clear.disabled = true;
+      try {
+        const response = await fetch('/api/settings/clear-all', { method: 'DELETE' });
+        if (!response.ok) throw new Error('Unable to clear data');
+        localStorage.removeItem('theme');
+        window.location.assign('/settings');
+      } catch (error) {
+        clear.disabled = false;
+        showToast(error.message, 'error');
+      }
+    });
     const currency = document.getElementById('display-currency');
     currency?.addEventListener('change', async () => {
       currency.disabled = true;
@@ -999,6 +1013,11 @@ const PortfolioApp = (function() {
       const manual = form.hasAttribute('data-manual-price-form');
       const id = Number(form.dataset.id);
       const data = Object.fromEntries(new FormData(form));
+      if (!manual && !id && data.initial_manual_price !== undefined) {
+        const value = data.initial_manual_price;
+        data.manual_price = { Float64: Number(value), Valid: value !== '' };
+        delete data.initial_manual_price;
+      }
       const numericFields = manual ? ['price'] : ['quantity', 'est_price'];
       for (const field of numericFields) data[field] = Number(data[field]);
       const error = form.querySelector('.form-error');
@@ -1149,6 +1168,13 @@ document.addEventListener('change', async (event) => {
 
   if (!window.confirm('Restore will replace ALL current holdings, snapshots, and settings. Continue?')) return;
 
+  const button = document.getElementById('restore-btn');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  const label = button.textContent;
+  button.textContent = 'Restoring…';
+
   const form = new FormData();
   form.append('file', file);
 
@@ -1161,8 +1187,13 @@ document.addEventListener('change', async (event) => {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
 
-    window.location.reload();
+    localStorage.removeItem('theme');
+    window.location.assign('/settings');
   } catch (err) {
     window.PortfolioApp.showToast(err.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.textContent = label;
   }
 });

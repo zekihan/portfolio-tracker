@@ -61,6 +61,13 @@
                         <input type="text" id="instrument_id" name="instrument_id" class="form-input" value="{{.InstrumentID}}" placeholder="e.g., AAPL" autocomplete="off">
                     </div>
                 </div>
+                {{if not .ID}}
+                <div class="form-group">
+                    <label for="initial-manual-price">Manual Price (optional, in base currency)</label>
+                    <input id="initial-manual-price" name="initial_manual_price" class="form-input" type="number" min="0" step="any" value="{{if .ManualPrice.Valid}}{{.ManualPrice.Float64}}{{end}}">
+                    <p class="setting-note">Use a positive price for manually valued assets. Leave blank to use the provider.</p>
+                </div>
+                {{end}}
                 <div class="form-row">
                     <div class="form-group">
                         <label for="est_price">Est. Price (optional)</label>
