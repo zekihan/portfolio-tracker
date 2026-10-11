@@ -87,11 +87,11 @@ func (s *Service) GetPrice(
 
 	// Fetch fresh price.
 	price, err := getter.GetPrice(ctx, instrumentID)
-	if err != nil {
-		if ctx.Err() != nil {
-			return models.Price{}, ctx.Err()
-		}
+	if ctx.Err() != nil {
+		return models.Price{}, ctx.Err()
+	}
 
+	if err != nil {
 		s.recordFailure(providerName, err)
 		// Return stale cached data if available.
 		if cached != nil {
