@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -718,8 +720,14 @@ func NewManual() *Manual {
 }
 
 func (m *Manual) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	price := 0.0
-	fmt.Sscanf(instrumentID, "%f", &price)
+	price, err := strconv.ParseFloat(instrumentID, 64)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("parse manual price: %w", err)
+	}
+
+	if price < 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return models.Price{}, fmt.Errorf("invalid manual price: %s", instrumentID)
+	}
 
 	return models.Price{
 		Value:     price,
