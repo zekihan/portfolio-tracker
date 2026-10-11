@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -194,6 +196,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	api.PATCH("/settings/dark-mode", handler.updateDarkMode)
 	api.PATCH("/settings/refresh-interval", handler.updateRefreshInterval)
 	api.DELETE("/settings/clear-all", handler.clearAllData)
+	api.GET("/settings/backup", handler.downloadBackup)
 
 	// Page routes (server-rendered).
 	router.GET("/", handler.pageDashboard)
@@ -508,6 +511,32 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, points)
+}
+
+// downloadBackup sends a consistent SQLite copy of the database as a file download.
+func (handler *Handler) downloadBackup(ctx *gin.Context) {
+	dir, err := os.MkdirTemp("", "portfolio-backup-")
+	if err != nil {
+		respondInternalError(ctx, err)
+
+		return
+	}
+
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
+
+	backupPath := filepath.Join(dir, "backup.db")
+
+	err = handler.settingsSvc.Backup(ctx.Request.Context(), backupPath)
+	if err != nil {
+		respondInternalError(ctx, err)
+
+		return
+	}
+
+	filename := "portfolio-backup-" + time.Now().UTC().Format("20060102-150405") + ".db"
+	ctx.FileAttachment(backupPath, filename)
 }
 
 // clearAllData deletes all user data and asks the browser to reload the page.
