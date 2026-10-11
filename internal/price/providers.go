@@ -398,7 +398,7 @@ func NewPusulaPortfoy() *PusulaPortfoy {
 }
 
 func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.QueryEscape(instrumentID)
+	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.PathEscape(instrumentID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := p.client.Do(req)
@@ -452,7 +452,7 @@ func NewGarantiBBVA() *GarantiBBVA {
 }
 
 func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.garantibbva.com.tr/api/fund/" + url.QueryEscape(instrumentID)
+	url := "https://www.garantibbva.com.tr/api/fund/" + url.PathEscape(instrumentID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := g.client.Do(req)
