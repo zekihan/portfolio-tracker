@@ -24,7 +24,7 @@ type Holding struct {
 	PriceProvider   string          `json:"price_provider"             db:"price_provider"`
 	CurrentCurrency string          `json:"current_currency,omitempty" db:"-"`
 	InstrumentID    string          `json:"instrument_id"              db:"instrument_id"`
-	BaseCurrency    string          `json:"base_currency"              db:"base_currency"`
+	BaseCurrency    string          `json:"base_currency"              db:"base_currency"   binding:"oneof=TRY USD"`
 	Basket          string          `json:"basket"                     db:"basket"`
 	Location        string          `json:"location"                   db:"location"`
 	Notes           string          `json:"notes"                      db:"notes"`
