@@ -501,7 +501,7 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 
 // Price Sources API.
 func (handler *Handler) getProviders(ctx *gin.Context) {
-	health, err := handler.priceSvc.GetProviderHealth()
+	health, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
@@ -804,7 +804,7 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 }
 
 func (handler *Handler) pageSources(ctx *gin.Context) {
-	providers, err := handler.priceSvc.GetProviderHealth()
+	providers, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
 	if err != nil {
 		providers = []models.ProviderHealth{}
 	}

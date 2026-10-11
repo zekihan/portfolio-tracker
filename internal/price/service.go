@@ -285,9 +285,14 @@ func (s *Service) recordSuccess(provider string) {
 }
 
 func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
+	return s.GetProviderHealthContext(context.Background())
+}
+
+func (s *Service) GetProviderHealthContext(ctx context.Context) ([]models.ProviderHealth, error) {
 	var providers []models.Provider
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&providers,
 		"SELECT * FROM provider_registry WHERE enabled = 1 ORDER BY name",
 	)
@@ -305,7 +310,7 @@ func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
 		// Get last successful fetch from cache.
 		var lastOK sql.NullTime
 
-		err = s.db.Get(&lastOK, `
+		err = s.db.GetContext(ctx, &lastOK, `
 			SELECT fetched_at FROM price_cache
 			WHERE provider = ? AND error_count = 0
 			ORDER BY fetched_at DESC LIMIT 1
@@ -325,7 +330,8 @@ func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
 			// Get last error.
 			var lastErr string
 
-			err = s.db.Get(
+			err = s.db.GetContext(
+				ctx,
 				&lastErr,
 				"SELECT last_error FROM price_cache WHERE provider = ? ORDER BY fetched_at DESC LIMIT 1",
 				p.Name,
