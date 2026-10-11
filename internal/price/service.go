@@ -259,8 +259,9 @@ func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
 		var lastOK sql.NullTime
 
 		_ = s.db.Get(&lastOK, `
-			SELECT MAX(fetched_at) FROM price_cache 
+			SELECT fetched_at FROM price_cache
 			WHERE provider = ? AND error_count = 0
+			ORDER BY fetched_at DESC LIMIT 1
 		`, p.Name)
 
 		status := "✓ Active"
