@@ -127,8 +127,13 @@ func (s *HoldingService) GetWithPrices(
 	for _, h := range holdings {
 		hwp := models.HoldingWithPrice{Holding: h}
 
-		// Get current price.
-		if h.PriceProvider != "" && h.PriceProvider != "Manual" && h.InstrumentID != "" {
+		// A manual price overrides the configured automatic provider.
+		if h.ManualPrice.Valid && h.ManualPrice.Float64 > 0 {
+			hwp.CurrentPrice = h.ManualPrice.Float64
+			hwp.CurrentCurrency = h.BaseCurrency
+			hwp.PriceSource = "Manual"
+			hwp.PriceFetchedAt = h.ManualPriceAt.Time
+		} else if h.PriceProvider != "" && h.PriceProvider != "Manual" && h.InstrumentID != "" {
 			price, err := s.priceSvc.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
 			if err == nil {
 				hwp.CurrentPrice = price.Value
@@ -141,11 +146,6 @@ func (s *HoldingService) GetWithPrices(
 				hwp.PriceError = err.Error()
 				hwp.IsFailed = true
 			}
-		} else if h.ManualPrice.Valid && h.ManualPrice.Float64 > 0 {
-			hwp.CurrentPrice = h.ManualPrice.Float64
-			hwp.CurrentCurrency = h.BaseCurrency
-			hwp.PriceSource = "Manual"
-			hwp.PriceFetchedAt = h.ManualPriceAt.Time
 		}
 
 		// Normalize to TRY and USD.
