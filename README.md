@@ -46,6 +46,15 @@ Then visit http://localhost:8080
 - **Price cache** with TTL per provider
 - **Circuit breaker** after 3 consecutive failures
 
+## Authentication
+
+The application has no built-in authentication or authorization, by design.
+Run it behind a reverse proxy that handles authentication (for example
+OAuth2 Proxy, Authelia, or HTTP basic auth over TLS) and only expose the
+proxy. The API includes destructive endpoints (clearing all data and
+restoring from a backup), so the server must not be reachable without the
+proxy in front of it.
+
 ## Deployment
 
 ### Docker
