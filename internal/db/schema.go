@@ -150,6 +150,8 @@ func Open(dbPath string) (*sqlx.DB, error) {
 
 	migrateErr := migrate(db)
 	if migrateErr != nil {
+		_ = db.Close()
+
 		return nil, fmt.Errorf("migrate: %w", migrateErr)
 	}
 
