@@ -269,7 +269,10 @@ func (s *HoldingService) GetDashboardData(
 		}
 	}
 
-	providerHealth, _ := s.priceSvc.GetProviderHealth()
+	providerHealth, err := s.priceSvc.GetProviderHealthContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	usdTryRate, _ := s.priceSvc.GetUSDTTRYRate(ctx)
 
