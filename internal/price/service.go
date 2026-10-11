@@ -96,7 +96,11 @@ func (s *Service) GetPrice(
 	}
 
 	if err != nil {
-		s.recordFailure(providerName, err)
+		s.recordFailureContext(ctx, providerName, err)
+
+		if ctx.Err() != nil {
+			return models.Price{}, ctx.Err()
+		}
 		// Return stale cached data if available.
 		if cached != nil {
 			price = models.Price{
@@ -249,6 +253,10 @@ func (s *Service) cachePriceContext(
 }
 
 func (s *Service) recordFailure(provider string, err error) {
+	s.recordFailureContext(context.Background(), provider, err)
+}
+
+func (s *Service) recordFailureContext(ctx context.Context, provider string, err error) {
 	s.mu.Lock()
 	s.failures[provider]++
 	s.lastFail[provider] = time.Now()
@@ -262,7 +270,7 @@ func (s *Service) recordFailure(provider string, err error) {
 	s.mu.Unlock()
 
 	// Database waits must not block other providers' health state.
-	_, _ = s.db.Exec(`
+	_, _ = s.db.ExecContext(ctx, `
 		UPDATE price_cache SET error_count = error_count + 1, last_error = ?
 		WHERE provider = ?
 	`, err.Error(), provider)
