@@ -283,8 +283,14 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 		return models.Price{}, fmt.Errorf("API error: %s", result.Message)
 	}
 
-	price := 0.0
-	fmt.Sscanf(result.Price, "%f", &price)
+	price, err := strconv.ParseFloat(result.Price, 64)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("parse twelve data price: %w", err)
+	}
+
+	if price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return models.Price{}, fmt.Errorf("invalid twelve data price for %s", instrumentID)
+	}
 
 	currency := result.Currency
 	if currency == "" {
