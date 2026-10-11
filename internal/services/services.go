@@ -281,7 +281,8 @@ func (s *HoldingService) GetDashboardData(
 func (s *HoldingService) GetUniqueBaskets(ctx context.Context) ([]string, error) {
 	var baskets []string
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&baskets,
 		"SELECT DISTINCT basket FROM holdings WHERE basket != '' ORDER BY basket",
 	)
@@ -292,7 +293,8 @@ func (s *HoldingService) GetUniqueBaskets(ctx context.Context) ([]string, error)
 func (s *HoldingService) GetUniqueLocations(ctx context.Context) ([]string, error) {
 	var locations []string
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&locations,
 		"SELECT DISTINCT location FROM holdings WHERE location != '' ORDER BY location",
 	)
