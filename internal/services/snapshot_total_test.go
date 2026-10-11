@@ -63,7 +63,7 @@ func TestSnapshotRejectsOverflowingTotals(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			snapshots, err := service.GetSnapshots(t.Context(), 10, 0)
+			snapshots, err := service.GetSnapshots(t.Context(), 10, 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -612,7 +612,8 @@ const PortfolioApp = (function() {
     let holdings = [];
     let offset = 0;
     let holdingRequest = 0;
-    const updateCharts = () => { loadPortfolioChart(); loadHolding(); };
+    let snapshotRequest = 0;
+    const updateCharts = () => { loadPortfolioChart(); loadHolding(); loadSnapshots(0); };
     range.addEventListener('change', updateCharts);
     currency.addEventListener('change', updateCharts);
     document.getElementById('reset-filters').addEventListener('click', () => {
@@ -669,17 +670,20 @@ const PortfolioApp = (function() {
     previous.addEventListener('click', () => loadSnapshots(Math.max(0, offset - 50)));
     next.addEventListener('click', () => loadSnapshots(offset + 50));
     async function loadSnapshots(nextOffset) {
+      const request = ++snapshotRequest;
       [first, previous, next].forEach(button => { button.disabled = true; });
       try {
-        const response = await fetch(`/api/history/snapshots?limit=51&offset=${nextOffset}`);
+        const response = await fetch(`/api/history/snapshots?limit=51&offset=${nextOffset}&days=${range.value}`);
         if (!response.ok) throw new Error('Unable to load snapshots');
         const snapshots = (await response.json()) || [];
+        if (request !== snapshotRequest) return;
+        document.getElementById('snapshot-value-heading').textContent = `Value (${currency.value})`;
         const body = document.getElementById('snapshots-tbody');
         body.replaceChildren();
         snapshots.slice(0, 50).forEach(snapshot => {
           const row = body.insertRow();
           [new Date(snapshot.timestamp).toISOString().replace('T', ' ').slice(0, 19),
-            formatCurrency(snapshot.total_value_try, 'TRY'), snapshot.usd_try_rate,
+            formatCurrency(currency.value === 'USD' ? snapshot.total_value_usd : snapshot.total_value_try, currency.value), snapshot.usd_try_rate,
             snapshot.stale_count, snapshot.failed_count, ''].forEach(value => {
             row.insertCell().textContent = value;
           });
@@ -687,16 +691,17 @@ const PortfolioApp = (function() {
         if (!snapshots.length) {
           const cell = body.insertRow().insertCell();
           cell.colSpan = 6;
-          cell.textContent = 'No snapshots yet. History appears after the next scheduled snapshot.';
+          cell.textContent = 'No snapshots in this date range. History appears after the next scheduled snapshot.';
         }
         offset = nextOffset;
         document.getElementById('page-info').textContent = `Page ${offset / 50 + 1}`;
         next.disabled = snapshots.length <= 50;
       } catch (error) {
+        if (request !== snapshotRequest) return;
         showToast(error.message, 'error');
         next.disabled = false;
       } finally {
-        first.disabled = previous.disabled = offset === 0;
+        if (request === snapshotRequest) first.disabled = previous.disabled = offset === 0;
       }
     }
     loadSnapshots(0);

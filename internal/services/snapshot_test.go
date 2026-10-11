@@ -92,7 +92,7 @@ func TestSnapshotRequiresFXRate(t *testing.T) {
 				t.Errorf("snapshot error = %v, FX available: %v", err, available)
 			}
 
-			snapshots, err := service.GetSnapshots(t.Context(), 10, 0)
+			snapshots, err := service.GetSnapshots(t.Context(), 10, 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}

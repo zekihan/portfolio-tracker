@@ -59,3 +59,43 @@ func TestHoldingHistoryUSDValues(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotDateFilterPrecedesPagination(t *testing.T) {
+	t.Parallel()
+
+	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = database.Close() })
+
+	_, err = database.ExecContext(t.Context(), `INSERT INTO snapshots
+ (timestamp,total_value_try,total_value_usd,usd_try_rate,holdings_json)
+ VALUES (datetime('now','-20 days'),400,10,40,'[]'),
+ (datetime('now','-2 days'),800,20,40,'[]'),
+ (datetime('now','-1 day'),1200,30,40,'[]')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewSnapshotService(database, nil, nil)
+
+	snapshots, err := service.GetSnapshots(t.Context(), 1, 1, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(snapshots) != 1 || snapshots[0].TotalValueTRY != 800 {
+		t.Fatalf("unexpected filtered page: %+v", snapshots)
+	}
+
+	snapshots, err = service.GetSnapshots(t.Context(), 1, 2, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(snapshots) != 0 {
+		t.Fatalf("old snapshot appeared in date range: %+v", snapshots)
+	}
+}

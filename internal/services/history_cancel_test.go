@@ -37,7 +37,7 @@ func TestHistoryQueriesRespectCancellation(t *testing.T) {
 		name string
 	}{
 		{name: "snapshots", run: func() error {
-			_, queryErr := service.GetSnapshots(ctx, 10, 0)
+			_, queryErr := service.GetSnapshots(ctx, 10, 0, 0)
 
 			return queryErr
 		}},

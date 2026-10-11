@@ -479,7 +479,14 @@ func (handler *Handler) getSnapshots(ctx *gin.Context) {
 		return
 	}
 
-	snapshots, err := handler.snapshotSvc.GetSnapshots(requestCtx, limit, offset)
+	days, err := strconv.Atoi(ctx.DefaultQuery("days", "0"))
+	if err != nil || days < 0 || days > 36500 {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
+
+		return
+	}
+
+	snapshots, err := handler.snapshotSvc.GetSnapshots(requestCtx, limit, offset, days)
 	if err != nil {
 		respondInternalError(ctx, err)
 

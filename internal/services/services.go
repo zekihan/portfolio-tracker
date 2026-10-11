@@ -440,14 +440,17 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 
 func (s *SnapshotService) GetSnapshots(
 	ctx context.Context,
-	limit, offset int,
+	limit, offset, days int,
 ) ([]models.Snapshot, error) {
 	var snapshots []models.Snapshot
 
 	err := s.db.SelectContext(
 		ctx,
 		&snapshots,
-		"SELECT * FROM snapshots ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+		`SELECT * FROM snapshots WHERE (? = 0 OR timestamp >= ?)
+         ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+		days,
+		time.Now().UTC().AddDate(0, 0, -days),
 		limit,
 		offset,
 	)
