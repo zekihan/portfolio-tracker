@@ -25,7 +25,7 @@ const PortfolioApp = (function() {
 
   // Initialize app
   function init(options = {}) {
-    state.displayCurrency = options.displayCurrency || 'TRY';
+    state.displayCurrency = options.displayCurrency || document.documentElement.dataset.currency || 'TRY';
     state.theme = localStorage.getItem('theme') || 'system';
     
     applyTheme(state.theme);

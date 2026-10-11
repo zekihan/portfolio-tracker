@@ -60,6 +60,11 @@ func TestPageRoutesRenderTheirOwnContent(t *testing.T) {
 				t.Errorf("missing page-specific content %s", test.marker)
 			}
 
+			if strings.Contains(body, "PortfolioApp.init(") ||
+				strings.Count(body, `src="/static/app.js"`) != 1 {
+				t.Error("page must use only app.js automatic bootstrap")
+			}
+
 			if !strings.Contains(body, "</html>") {
 				t.Error("page rendering stopped before completing shared layout")
 			}
