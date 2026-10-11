@@ -113,35 +113,43 @@ const PortfolioApp = (function() {
     });
   }
 
-  async function loadCurrencyOptions() {
+  function loadCurrencyOptions() {
     const menu = document.getElementById('currency-menu');
     if (!menu) return;
 
-    try {
-      const response = await fetch('/api/settings');
-      const settings = await response.json();
-      
-      menu.innerHTML = `
-        <button class="dropdown-item ${settings.display_currency === 'TRY' ? 'active' : ''}" 
-                hx-patch="/api/settings/currency" 
-                hx-vals='{"currency": "TRY"}' 
-                hx-target="#toast-container" 
-                hx-swap="beforeend"
-                hx-on::after-request="closeDropdown()">
-          Turkish Lira (TRY)
-        </button>
-        <button class="dropdown-item ${settings.display_currency === 'USD' ? 'active' : ''}" 
-                hx-patch="/api/settings/currency" 
-                hx-vals='{"currency": "USD"}' 
-                hx-target="#toast-container" 
-                hx-swap="beforeend"
-                hx-on::after-request="closeDropdown()">
-          US Dollar (USD)
-        </button>
-      `;
-    } catch (e) {
-      console.error('Failed to load currency options:', e);
-    }
+    menu.replaceChildren();
+    [
+      { currency: 'TRY', label: 'Turkish Lira (TRY)' },
+      { currency: 'USD', label: 'US Dollar (USD)' }
+    ].forEach(({ currency, label }) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `dropdown-item ${state.displayCurrency === currency ? 'active' : ''}`;
+      button.dataset.currency = currency;
+      button.textContent = label;
+      menu.appendChild(button);
+    });
+
+    menu.querySelectorAll('button').forEach(button => {
+      button.addEventListener('click', () => {
+        const currency = button.dataset.currency;
+        button.disabled = true;
+        fetch('/api/settings/currency', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currency })
+        }).then(response => {
+          if (!response.ok) throw new Error(`Currency update failed: HTTP ${response.status}`);
+          closeDropdown();
+          const url = new URL(window.location.href);
+          url.searchParams.set('currency', currency);
+          window.location.assign(url.href);
+        }).catch(() => {
+          button.disabled = false;
+          showToast('Failed to update display currency', 'error');
+        });
+      });
+    });
   }
 
   function closeDropdown() {

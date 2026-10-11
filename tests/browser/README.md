@@ -35,4 +35,6 @@ Inline saves use `PATCH /api/holdings/:id` for name, ticker, basket, location, n
 
 `inline-lifecycle.js` checks that Enter followed by blur makes exactly one real PATCH request and Escape followed by blur makes none. It re-reads persistence and restores fixture notes in a finally block. Run ONLY on a disposable populated holdings database.
 
+`currency-switcher.js` runs in two phases on a disposable fixture: first run clicks the opposite currency; after navigation, run it again to verify persisted settings, page currency, and page path, then restore the original setting. Repeat from the other currency to test both directions. If verification fails, the second run still restores the setting in a finally block. It performs real settings writes.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.
