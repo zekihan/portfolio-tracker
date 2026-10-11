@@ -71,9 +71,9 @@ func TestPageRoutesRenderTheirOwnContent(t *testing.T) {
 	}
 
 	_, err = database.ExecContext(t.Context(), `INSERT INTO holdings
-		(name, asset_type, base_currency, quantity, est_price,
+		(name, asset_type, base_currency, quantity, est_price, manual_price,
 		 ticker, price_provider, instrument_id, basket, location, notes)
-		VALUES ('Example', 'Cash', 'TRY', 1, 100, '', '', '', '', '', '')`)
+		VALUES ('Example', 'Cash', 'TRY', 2, 200, 100, '', '', '', '', '', '')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,5 +85,41 @@ func TestPageRoutesRenderTheirOwnContent(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "100% (1/1)") ||
 		!strings.Contains(response.Body.String(), "</html>") {
 		t.Error("populated dashboard did not render coverage and complete layout")
+	}
+
+	checkPopulatedHoldingCurrency(t, router)
+}
+
+func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
+	t.Helper()
+
+	for _, test := range []struct {
+		currency string
+		total    string
+		estimate string
+	}{
+		{currency: "TRY", total: "₺ 200.00", estimate: "₺ 400.00"},
+		{currency: "USD", total: "$ 5.00", estimate: "$ 10.00"},
+	} {
+		t.Run("populated holdings "+test.currency, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(),
+				http.MethodGet, "/holdings?currency="+test.currency, nil))
+
+			body := response.Body.String()
+			if response.Code != http.StatusOK || !strings.Contains(body, "</html>") {
+				t.Error("populated holdings did not render complete document")
+			}
+
+			for _, value := range []string{test.total, test.estimate} {
+				if strings.Count(body, value) < 2 {
+					t.Errorf("missing desktop/mobile selected-currency value %q", value)
+				}
+			}
+
+			if strings.Contains(body, "$ 200.00") || strings.Contains(body, "$ 400.00") {
+				t.Error("TRY amounts mislabeled as USD")
+			}
+		})
 	}
 }
