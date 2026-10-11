@@ -125,6 +125,7 @@ func New(
 
 func (handler *Handler) SetupRoutes() *gin.Engine {
 	router := gin.Default()
+	router.Use(protectBrowserRequests())
 
 	setTrustedProxiesErr := router.SetTrustedProxies(nil)
 	if setTrustedProxiesErr != nil {

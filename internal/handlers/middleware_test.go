@@ -85,3 +85,55 @@ func TestRequireJSONBodyAllowsBodylessRequests(t *testing.T) {
 		t.Errorf("status = %d, want %d", response.Code, http.StatusOK)
 	}
 }
+
+func TestBrowserOriginProtection(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		method string
+		origin string
+		site   string
+		status int
+	}{
+		{"cross-site bodyless refresh", http.MethodPost, "https://attacker.example", "cross-site", 403},
+		{"cross-site delete", http.MethodDelete, "https://attacker.example", "cross-site", 403},
+		{"cross-origin legacy browser", http.MethodPost, "https://attacker.example", "", 403},
+		{"same-site different host", http.MethodPost, "https://other.example.com", "same-site", 403},
+		{"same-origin browser", http.MethodPost, "http://example.com", "same-origin", 204},
+		{"same-origin legacy browser", http.MethodPost, "http://example.com", "", 204},
+		{"non-browser client", http.MethodPost, "", "", 204},
+		{"navigation", http.MethodGet, "https://attacker.example", "cross-site", 204},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			router := gin.New()
+			router.Use(protectBrowserRequests())
+			router.Handle(
+				test.method,
+				"/write",
+				func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) },
+			)
+			request := httptest.NewRequestWithContext(
+				t.Context(),
+				test.method,
+				"http://example.com/write",
+				http.NoBody,
+			)
+			request.Header.Set("Origin", test.origin)
+			request.Header.Set("Sec-Fetch-Site", test.site)
+
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			if response.Code != test.status {
+				t.Errorf("status = %d, want %d", response.Code, test.status)
+			}
+
+			if response.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Error("missing MIME protection")
+			}
+		})
+	}
+}
