@@ -609,6 +609,7 @@ const PortfolioApp = (function() {
     document.addEventListener('touchstart', (e) => {
       if (window.scrollY === 0) {
         startY = e.touches[0].clientY;
+        currentY = startY;
         pulling = true;
       }
     }, { passive: true });
