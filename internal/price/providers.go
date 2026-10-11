@@ -547,6 +547,10 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result []struct {
@@ -559,6 +563,10 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 
 	for _, item := range result {
 		if strings.EqualFold(item.Symbol, instrumentID) {
+			if item.Price <= 0 {
+				return models.Price{}, fmt.Errorf("invalid tradingview price for %s", instrumentID)
+			}
+
 			return models.Price{
 				Value:     item.Price,
 				Currency:  "TRY",
@@ -600,6 +608,10 @@ func (t *TradingViewCrypto) GetPrice(
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result []struct {
@@ -612,6 +624,10 @@ func (t *TradingViewCrypto) GetPrice(
 
 	for _, item := range result {
 		if strings.EqualFold(item.Symbol, instrumentID) {
+			if item.Price <= 0 {
+				return models.Price{}, fmt.Errorf("invalid tradingview price for %s", instrumentID)
+			}
+
 			return models.Price{
 				Value:     item.Price,
 				Currency:  "USD",
