@@ -625,6 +625,13 @@ const PortfolioApp = (function() {
       }
     }, { passive: false });
 
+    document.addEventListener('touchcancel', () => {
+      if (!pulling) return;
+      pulling = false;
+      document.body.style.transform = 'translateY(0)';
+      document.body.style.transition = '';
+    });
+
     document.addEventListener('touchend', () => {
       if (!pulling) return;
       pulling = false;
