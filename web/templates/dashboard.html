@@ -116,11 +116,5 @@
     </section>
 </div>
 
-<!-- Chart initialization script -->
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        PortfolioApp.initCharts({{.Data | toJSON}});
-    });
-</script>
 {{end}}
 {{template "layout" .}}
