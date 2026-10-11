@@ -15,4 +15,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `allocation-views.js` exercises the public chart loader for Asset Type, Basket, Location, and Currency and compares each chart total with the corresponding API allocation. Run in TRY and USD using nonzero holdings with basket and location fields populated. It tests chart data loading/rendering, not tab click handling.
 
+`allocation-tabs.js` clicks each actual allocation button in TRY and USD, verifies the chart redraw and totals, and checks active/ARIA selection and absence of JSON in the canvas. Use a populated fixture with basket and location values.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

@@ -70,10 +70,10 @@
                 <header class="card-header">
                     <h3>Allocation</h3>
                     <div class="allocation-tabs" role="tablist" aria-label="Allocation breakdown">
-                        <button class="alloc-tab active" role="tab" aria-selected="true" data-alloc="type" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "type"}' hx-swap="innerHTML">Asset Type</button>
-                        <button class="alloc-tab" role="tab" aria-selected="false" data-alloc="basket" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "basket"}' hx-swap="innerHTML">Basket</button>
-                        <button class="alloc-tab" role="tab" aria-selected="false" data-alloc="location" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "location"}' hx-swap="innerHTML">Location</button>
-                        <button class="alloc-tab" role="tab" aria-selected="false" data-alloc="currency" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "currency"}' hx-swap="innerHTML">Currency</button>
+                        <button type="button" class="alloc-tab active" role="tab" aria-selected="true" data-alloc="type">Asset Type</button>
+                        <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="basket">Basket</button>
+                        <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="location">Location</button>
+                        <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="currency">Currency</button>
                     </div>
                 </header>
                 <div class="chart-container" style="height: 300px;">

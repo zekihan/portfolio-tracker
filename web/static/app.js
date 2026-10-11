@@ -235,7 +235,9 @@ const PortfolioApp = (function() {
 
   // Charts
   function initCharts() {
-    // Charts will be initialized when data loads
+    document.querySelectorAll('.alloc-tab').forEach(tab => {
+      tab.addEventListener('click', () => loadAllocationChart(tab.dataset.alloc));
+    });
   }
 
   function loadPortfolioChart(range) {
