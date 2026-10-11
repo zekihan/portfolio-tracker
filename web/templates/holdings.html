@@ -13,18 +13,23 @@
         </div>
     </header>
 
+    <div class="mobile-only holding-search">
+        <label for="mobile-holding-search">Filter by name</label>
+        <input type="search" id="mobile-holding-search" class="form-input" placeholder="Holding name">
+    </div>
     <p id="holdings-filter-status" role="status" aria-live="polite"></p>
+    <button type="button" class="btn btn-secondary btn-sm" id="reset-holding-filters" hidden>Reset filters</button>
 
     <!-- Desktop Table -->
     <div class="table-container desktop-only" role="region" aria-label="Holdings table" tabindex="0">
         <table class="holdings-table" id="holdings-table">
             <thead>
                 <tr>
-                    <th scope="col" data-sort="name">Name <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></th>
-                    <th scope="col" data-sort="ticker">Ticker</th>
-                    <th scope="col" data-sort="quantity" class="numeric">#</th>
-                    <th scope="col" data-sort="current_price" class="numeric">Price</th>
-                    <th scope="col" data-sort="est_price" class="numeric editable">Est. Price</th>
+                    <th scope="col" data-sort="name" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by name">Name <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button></th>
+                    <th scope="col" data-sort="ticker" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by ticker">Ticker</button></th>
+                    <th scope="col" data-sort="quantity" class="numeric" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by quantity">#</button></th>
+                    <th scope="col" data-sort="current_price" class="numeric" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by price">Price</button></th>
+                    <th scope="col" data-sort="est_price" class="numeric editable" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by estimated price">Est. Price</button></th>
                     <th scope="col">Curr</th>
                     <th scope="col" class="numeric">Total ({{.DisplayCurrency}})</th>
                     <th scope="col" class="numeric">Est. Total ({{.DisplayCurrency}})</th>

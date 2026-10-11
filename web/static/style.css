@@ -1477,3 +1477,19 @@ td.numeric { white-space: nowrap; }
 }
 .confirm-dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .confirm-dialog p { margin-block: var(--space-4); overflow-wrap: anywhere; }
+
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.holding-search { margin-bottom: var(--space-3); }
+.holding-search label { display: block; margin-bottom: var(--space-1); }
+.holding-search input { width: 100%; }
+#reset-holding-filters { margin-bottom: var(--space-3); }

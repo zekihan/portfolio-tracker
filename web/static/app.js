@@ -150,6 +150,7 @@ const PortfolioApp = (function() {
         const response = await fetch('/api/settings/clear-all', { method: 'DELETE' });
         if (!response.ok) throw new Error('Unable to clear data');
         localStorage.removeItem('theme');
+        sessionStorage.removeItem('portfolio-holding-filters');
         window.location.assign('/settings');
       } catch (error) {
         clear.disabled = false;
@@ -838,12 +839,14 @@ const PortfolioApp = (function() {
           th.classList.toggle('sort-desc', newDir === 'desc');
         }
         
+        th.setAttribute('aria-sort', newDir === 'none' ? 'none' : newDir === 'asc' ? 'ascending' : 'descending');
         sortTableRows(table, th, newDir);
 
         // Update other headers
         table.querySelectorAll('th[data-sort]').forEach(other => {
           if (other !== th) {
             other.classList.remove('sort-asc', 'sort-desc');
+            other.setAttribute('aria-sort', 'none');
           }
         });
       }
@@ -870,6 +873,12 @@ const PortfolioApp = (function() {
     const table = document.getElementById('holdings-table');
     if (!table) return;
     const filters = [...table.querySelectorAll('[data-filter]')];
+    const reset = document.getElementById('reset-holding-filters');
+    const mobileSearch = document.getElementById('mobile-holding-search');
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('portfolio-holding-filters') || '{}');
+      filters.forEach(input => { input.value = saved?.[input.dataset.filter] || ''; });
+    } catch { sessionStorage.removeItem('portfolio-holding-filters'); }
     const apply = () => {
       let visible = 0;
       table.querySelectorAll('tbody .holding-row').forEach(row => {
@@ -879,12 +888,24 @@ const PortfolioApp = (function() {
             value.toLocaleLowerCase().includes(input.value.trim().toLocaleLowerCase());
         });
         row.hidden = !matches;
+        const card = document.querySelector(`.holding-card[data-id="${row.dataset.id}"]`);
+        if (card) card.hidden = !matches;
         if (matches) visible++;
       });
-      document.getElementById('holdings-filter-status').textContent =
-        filters.some(input => input.value) ? `${visible} matching holdings` : '';
+      const active = filters.some(input => input.value);
+      document.getElementById('holdings-filter-status').textContent = active ? `${visible} matching holdings` : '';
+      reset.hidden = !active;
+      mobileSearch.value = filters.find(input => input.dataset.filter === 'name').value;
+      sessionStorage.setItem('portfolio-holding-filters', JSON.stringify(Object.fromEntries(
+        filters.map(input => [input.dataset.filter, input.value]))));
     };
     filters.forEach(input => input.addEventListener('input', apply));
+    mobileSearch.addEventListener('input', () => {
+      filters.find(input => input.dataset.filter === 'name').value = mobileSearch.value;
+      apply();
+    });
+    reset.addEventListener('click', () => { filters.forEach(input => { input.value = ''; }); apply(); });
+    apply();
     const toggle = document.getElementById('column-toggle');
     const menu = document.getElementById('column-menu');
     const headers = [...table.tHead.rows[0].cells];
@@ -1242,6 +1263,7 @@ window.PortfolioApp = PortfolioApp;
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
       localStorage.removeItem('theme');
+        sessionStorage.removeItem('portfolio-holding-filters');
       sessionStorage.setItem('portfolio-restore-success', 'Backup restored successfully.');
       window.location.assign('/settings');
     } catch (err) {
