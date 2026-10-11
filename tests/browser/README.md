@@ -19,4 +19,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `portfolio-tabs.js` clicks every portfolio time-range tab in TRY and USD, comparing point values and labels with the history API and checking active/ARIA selection. Seed snapshots 15, 60, 120, and 240 days ago so every range has a different point count. It rejects fixtures that cannot distinguish the four ranges.
 
+`chart-refresh-selection.js` runs on a freshly loaded dashboard. It dispatches the real `portfolio-updated` event, verifies default views remain selected, then clicks non-default tabs and requires a subsequent event to redraw both charts without resetting the selections. Run in TRY and USD.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

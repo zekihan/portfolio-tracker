@@ -648,9 +648,11 @@ const PortfolioApp = (function() {
   }
 
   function onPortfolioUpdated() {
-    // Refresh dashboard data
-    loadPortfolioChart('1y');
-    loadAllocationChart('type');
+    // Refresh the selected views rather than resetting the user's tabs.
+    const range = document.querySelector('.chart-tab[aria-selected="true"]')?.dataset.range || '1y';
+    const allocation = document.querySelector('.alloc-tab[aria-selected="true"]')?.dataset.alloc || 'type';
+    loadPortfolioChart(range);
+    loadAllocationChart(allocation);
   }
 
   // Utility functions
