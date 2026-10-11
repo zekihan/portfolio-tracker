@@ -148,6 +148,10 @@ func (s *HoldingService) GetWithPrices(
 			}
 		}
 
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		// Normalize to TRY and USD.
 		hwp.NormPriceTRY, hwp.NormPriceUSD = s.normalizePrice(
 			hwp.CurrentPrice,
