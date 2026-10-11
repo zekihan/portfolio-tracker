@@ -105,19 +105,36 @@ func (b *baseGetter) TTL() time.Duration { return b.ttl }
 func doGet(
 	ctx context.Context,
 	client *http.Client,
-	url string,
+	target string,
 	headers map[string]string,
 ) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", redactURLError(err))
 	}
 
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 
-	return client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, redactURLError(err)
+	}
+
+	return resp, nil
+}
+
+// redactURLError drops the request URL from *url.Error values. Provider URLs
+// can carry API keys in their query strings, and these messages are stored in
+// price_cache.last_error and returned by the sources test endpoint.
+// The wrapped cause is kept so errors.Is checks such as context.Canceled still work.
+func redactURLError(err error) error {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Errorf("%s request failed: %w", urlErr.Op, urlErr.Err)
+	}
+
+	return err
 }
 
 type YahooFinance struct{ baseGetter }
