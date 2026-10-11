@@ -38,7 +38,6 @@ formatters:
           replacement: 'a[b:]'
     gofumpt:
       module-path: github.com/zekihan/portfolio-tracker
-      extra.group-params: true
     goimports:
       local-prefixes:
         - github.com/zekihan/portfolio-tracker
