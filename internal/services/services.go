@@ -280,7 +280,7 @@ func (s *HoldingService) GetDashboardData(
 			failedCount++
 		}
 
-		if h.EstPrice > 0 || h.CurrentPrice > 0 {
+		if h.EstPrice > 0 {
 			coverageCount++
 		}
 

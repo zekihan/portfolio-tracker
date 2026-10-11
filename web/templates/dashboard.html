@@ -32,10 +32,13 @@
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="estimated-value-try">
-                        {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}
+                        {{if .Data.CoverageCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}—{{end}}
                     </div>
                     <div class="value-secondary" id="estimated-value-usd">
+                        {{if and .Data.CoverageCount (eq .Data.CoverageCount .Data.TotalHoldings)}}
                         Diff: {{if eq .DisplayCurrency "USD"}}{{formatCurrency (sub .Data.EstimatedValueUSD .Data.CurrentValueUSD) "USD"}}{{else}}{{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}{{end}}
+                        {{else if .Data.CoverageCount}}Partial estimate — add prices for the remaining holdings to compare totals.
+                        {{else}}Add estimated prices to your holdings to compare values.{{end}}
                     </div>
                 </div>
                 <footer class="card-footer">
