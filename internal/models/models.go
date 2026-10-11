@@ -8,40 +8,38 @@ import (
 type AssetType string
 
 const (
-	AssetTypeStock    AssetType = "Stock"
-	AssetTypeETF      AssetType = "ETF"
-	AssetTypeTRFund   AssetType = "TR Fund"
-	AssetTypeCrypto   AssetType = "Crypto"
-	AssetTypeGold     AssetType = "Gold"
-	AssetTypeCash     AssetType = "Cash"
+	AssetTypeStock  AssetType = "Stock"
+	AssetTypeETF    AssetType = "ETF"
+	AssetTypeTRFund AssetType = "TR Fund"
+	AssetTypeCrypto AssetType = "Crypto"
+	AssetTypeGold   AssetType = "Gold"
+	AssetTypeCash   AssetType = "Cash"
 )
 
 type Holding struct {
-	ID              int       `db:"id" json:"id"`
-	Name            string    `db:"name" json:"name"`
-	Ticker          string    `db:"ticker" json:"ticker"`
-	AssetType       AssetType `db:"asset_type" json:"asset_type"`
-	Quantity        float64   `db:"quantity" json:"quantity"`
-	PriceProvider   string    `db:"price_provider" json:"price_provider"`
-	InstrumentID    string    `db:"instrument_id" json:"instrument_id"`
-	BaseCurrency    string    `db:"base_currency" json:"base_currency"`
-	Basket          string    `db:"basket" json:"basket"`
-	Location        string    `db:"location" json:"location"`
-	Notes           string         `db:"notes" json:"notes"`
-	EstPrice        float64        `db:"est_price" json:"est_price"`
-	ManualPrice     sql.NullFloat64 `db:"manual_price" json:"manual_price"`
-	ManualPriceAt   sql.NullTime   `db:"manual_price_at" json:"manual_price_at"`
-	CreatedAt       time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
-
-	// Computed fields (not in DB)
-	CurrentPrice    float64   `db:"-" json:"current_price,omitempty"`
-	CurrentCurrency string    `db:"-" json:"current_currency,omitempty"`
-	PriceSource     string    `db:"-" json:"price_source,omitempty"`
-	PriceFetchedAt  time.Time `db:"-" json:"price_fetched_at,omitempty"`
-	PriceError      string    `db:"-" json:"price_error,omitempty"`
-	IsStale         bool      `db:"-" json:"is_stale,omitempty"`
-	IsFailed        bool      `db:"-" json:"is_failed,omitempty"`
+	PriceFetchedAt  time.Time       `json:"price_fetched_at,omitempty" db:"-"`
+	UpdatedAt       time.Time       `json:"updated_at"                 db:"updated_at"`
+	CreatedAt       time.Time       `json:"created_at"                 db:"created_at"`
+	ManualPriceAt   sql.NullTime    `json:"manual_price_at"            db:"manual_price_at"`
+	PriceProvider   string          `json:"price_provider"             db:"price_provider"`
+	CurrentCurrency string          `json:"current_currency,omitempty" db:"-"`
+	InstrumentID    string          `json:"instrument_id"              db:"instrument_id"`
+	BaseCurrency    string          `json:"base_currency"              db:"base_currency"`
+	Basket          string          `json:"basket"                     db:"basket"`
+	Location        string          `json:"location"                   db:"location"`
+	Notes           string          `json:"notes"                      db:"notes"`
+	PriceError      string          `json:"price_error,omitempty"      db:"-"`
+	Name            string          `json:"name"                       db:"name"`
+	PriceSource     string          `json:"price_source,omitempty"     db:"-"`
+	AssetType       AssetType       `json:"asset_type"                 db:"asset_type"`
+	Ticker          string          `json:"ticker"                     db:"ticker"`
+	ManualPrice     sql.NullFloat64 `json:"manual_price"               db:"manual_price"`
+	CurrentPrice    float64         `json:"current_price,omitempty"    db:"-"`
+	ID              int             `json:"id"                         db:"id"`
+	Quantity        float64         `json:"quantity"                   db:"quantity"`
+	EstPrice        float64         `json:"est_price"                  db:"est_price"`
+	IsStale         bool            `json:"is_stale,omitempty"         db:"-"`
+	IsFailed        bool            `json:"is_failed,omitempty"        db:"-"`
 }
 
 func (h *Holding) TotalValue() float64 {
@@ -49,6 +47,7 @@ func (h *Holding) TotalValue() float64 {
 	if h.ManualPrice.Valid && h.ManualPrice.Float64 > 0 {
 		price = h.ManualPrice.Float64
 	}
+
 	return h.Quantity * price
 }
 
@@ -56,61 +55,60 @@ func (h *Holding) EstimatedTotalValue() float64 {
 	if h.EstPrice <= 0 {
 		return 0
 	}
+
 	return h.Quantity * h.EstPrice
 }
 
 type Price struct {
-	Value      float64
-	Currency   string
-	Source     string
-	FetchedAt  time.Time
-	Error      error
-	IsStale    bool
-	IsFailed   bool
+	FetchedAt time.Time
+	Error     error
+	Currency  string
+	Source    string
+	Value     float64
+	IsStale   bool
+	IsFailed  bool
 }
 
 type Snapshot struct {
-	ID            int       `db:"id" json:"id"`
-	Timestamp     time.Time `db:"timestamp" json:"timestamp"`
-	TotalValueTRY float64   `db:"total_value_try" json:"total_value_try"`
-	TotalValueUSD float64   `db:"total_value_usd" json:"total_value_usd"`
-	USDTRYRate    float64   `db:"usd_try_rate" json:"usd_try_rate"`
-	StaleCount    int       `db:"stale_count" json:"stale_count"`
-	FailedCount   int       `db:"failed_count" json:"failed_count"`
-	HoldingsJSON  string    `db:"holdings_json" json:"holdings_json"`
-	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	Timestamp     time.Time `json:"timestamp"       db:"timestamp"`
+	CreatedAt     time.Time `json:"created_at"      db:"created_at"`
+	HoldingsJSON  string    `json:"holdings_json"   db:"holdings_json"`
+	ID            int       `json:"id"              db:"id"`
+	TotalValueTRY float64   `json:"total_value_try" db:"total_value_try"`
+	TotalValueUSD float64   `json:"total_value_usd" db:"total_value_usd"`
+	USDTRYRate    float64   `json:"usd_try_rate"    db:"usd_try_rate"`
+	StaleCount    int       `json:"stale_count"     db:"stale_count"`
+	FailedCount   int       `json:"failed_count"    db:"failed_count"`
 }
 
 type Provider struct {
-	ID          int       `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`
-	Type        string    `db:"type" json:"type"`
-	KeyRequired bool      `db:"key_required" json:"key_required"`
-	KeyEnvVar   string    `db:"key_env_var" json:"key_env_var"`
-	BaseURL     string    `db:"base_url" json:"base_url"`
-	TTLSeconds  int       `db:"ttl_seconds" json:"ttl_seconds"`
-	Enabled     bool      `db:"enabled" json:"enabled"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
-
-	// Runtime status
-	Status      string    `db:"-" json:"status,omitempty"`
-	LastOK      time.Time `db:"-" json:"last_ok,omitempty"`
-	ErrorCount  int       `db:"-" json:"error_count,omitempty"`
-	LastError   string    `db:"-" json:"last_error,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"            db:"updated_at"`
+	LastOK      time.Time `json:"last_ok,omitempty"     db:"-"`
+	CreatedAt   time.Time `json:"created_at"            db:"created_at"`
+	Name        string    `json:"name"                  db:"name"`
+	Type        string    `json:"type"                  db:"type"`
+	LastError   string    `json:"last_error,omitempty"  db:"-"`
+	KeyEnvVar   string    `json:"key_env_var"           db:"key_env_var"`
+	BaseURL     string    `json:"base_url"              db:"base_url"`
+	Status      string    `json:"status,omitempty"      db:"-"`
+	TTLSeconds  int       `json:"ttl_seconds"           db:"ttl_seconds"`
+	ID          int       `json:"id"                    db:"id"`
+	ErrorCount  int       `json:"error_count,omitempty" db:"-"`
+	Enabled     bool      `json:"enabled"               db:"enabled"`
+	KeyRequired bool      `json:"key_required"          db:"key_required"`
 }
 
 type PriceCacheEntry struct {
-	ID           int       `db:"id" json:"id"`
-	Provider     string    `db:"provider" json:"provider"`
-	InstrumentID string    `db:"instrument_id" json:"instrument_id"`
-	Price        float64   `db:"price" json:"price"`
-	Currency     string    `db:"currency" json:"currency"`
-	Source       string    `db:"source" json:"source"`
-	FetchedAt    time.Time `db:"fetched_at" json:"fetched_at"`
-	ExpiresAt    time.Time `db:"expires_at" json:"expires_at"`
-	ErrorCount   int       `db:"error_count" json:"error_count"`
-	LastError    string    `db:"last_error" json:"last_error"`
+	FetchedAt    time.Time `json:"fetched_at"    db:"fetched_at"`
+	ExpiresAt    time.Time `json:"expires_at"    db:"expires_at"`
+	Provider     string    `json:"provider"      db:"provider"`
+	InstrumentID string    `json:"instrument_id" db:"instrument_id"`
+	Currency     string    `json:"currency"      db:"currency"`
+	Source       string    `json:"source"        db:"source"`
+	LastError    string    `json:"last_error"    db:"last_error"`
+	ID           int       `json:"id"            db:"id"`
+	Price        float64   `json:"price"         db:"price"`
+	ErrorCount   int       `json:"error_count"   db:"error_count"`
 }
 
 type Settings struct {
@@ -120,39 +118,39 @@ type Settings struct {
 }
 
 type DashboardData struct {
-	CurrentValueTRY    float64
-	CurrentValueUSD    float64
-	EstimatedValueTRY  float64
+	LastUpdated        time.Time
+	AllocationByCurr   map[string]float64
+	AllocationByLoc    map[string]float64
+	AllocationByBasket map[string]float64
+	AllocationByType   map[string]float64
+	ProviderHealth     []ProviderHealth
 	EstimatedValueUSD  float64
-	USDTRYRate         float64
-	StaleCount         int
-	FailedCount        int
 	CoverageCount      int
 	TotalHoldings      int
-	LastUpdated        time.Time
-	AllocationByType   map[string]float64
-	AllocationByBasket map[string]float64
-	AllocationByLoc    map[string]float64
-	AllocationByCurr   map[string]float64
-	ProviderHealth     []ProviderHealth
+	FailedCount        int
+	StaleCount         int
+	USDTRYRate         float64
+	CurrentValueTRY    float64
+	EstimatedValueTRY  float64
+	CurrentValueUSD    float64
 }
 
 type ProviderHealth struct {
-	Name       string
-	Type       string
+	LastOK      time.Time
+	Name        string
+	Type        string
+	Status      string
+	ErrorMsg    string
 	KeyRequired bool
-	Status     string
-	LastOK     time.Time
-	ErrorMsg   string
 }
 
 type HoldingWithPrice struct {
+	Price Price
 	Holding
-	Price    Price
-	NormPriceTRY float64
-	NormPriceUSD float64
-	NormTotalTRY float64
-	NormTotalUSD float64
+	NormPriceTRY    float64
+	NormPriceUSD    float64
+	NormTotalTRY    float64
+	NormTotalUSD    float64
 	NormEstTotalTRY float64
 	NormEstTotalUSD float64
 }

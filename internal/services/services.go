@@ -4,18 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
 
 type HoldingService struct {
-	db         *sqlx.DB
-	priceSvc   *price.Service
+	db       *sqlx.DB
+	priceSvc *price.Service
 }
 
 func NewHoldingService(db *sqlx.DB, priceSvc *price.Service) *HoldingService {
@@ -24,16 +27,20 @@ func NewHoldingService(db *sqlx.DB, priceSvc *price.Service) *HoldingService {
 
 func (s *HoldingService) GetAll(ctx context.Context) ([]models.Holding, error) {
 	var holdings []models.Holding
+
 	err := s.db.Select(&holdings, "SELECT * FROM holdings ORDER BY created_at DESC")
+
 	return holdings, err
 }
 
 func (s *HoldingService) GetByID(ctx context.Context, id int) (*models.Holding, error) {
 	var h models.Holding
+
 	err := s.db.Get(&h, "SELECT * FROM holdings WHERE id = ?", id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
+
 	return &h, err
 }
 
@@ -52,6 +59,7 @@ func (s *HoldingService) Create(ctx context.Context, h *models.Holding) error {
 
 	id, _ := result.LastInsertId()
 	h.ID = int(id)
+
 	return nil
 }
 
@@ -61,30 +69,49 @@ func (s *HoldingService) Update(ctx context.Context, h *models.Holding) error {
 		UPDATE holdings SET name = ?, ticker = ?, asset_type = ?, quantity = ?, price_provider = ?, instrument_id = ?, base_currency = ?, basket = ?, location = ?, notes = ?, est_price = ?, updated_at = ?
 		WHERE id = ?
 	`, h.Name, h.Ticker, h.AssetType, h.Quantity, h.PriceProvider, h.InstrumentID, h.BaseCurrency, h.Basket, h.Location, h.Notes, h.EstPrice, h.UpdatedAt, h.ID)
+
 	return err
 }
 
 func (s *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPrice float64) error {
-	_, err := s.db.Exec("UPDATE holdings SET est_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", estPrice, id)
+	_, err := s.db.Exec(
+		"UPDATE holdings SET est_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		estPrice,
+		id,
+	)
+
 	return err
 }
 
 func (s *HoldingService) UpdateManualPrice(ctx context.Context, id int, price float64) error {
-	_, err := s.db.Exec("UPDATE holdings SET manual_price = ?, manual_price_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?", price, id)
+	_, err := s.db.Exec(
+		"UPDATE holdings SET manual_price = ?, manual_price_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		price,
+		id,
+	)
+
 	return err
 }
 
 func (s *HoldingService) ClearManualPrice(ctx context.Context, id int) error {
-	_, err := s.db.Exec("UPDATE holdings SET manual_price = 0, manual_price_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+	_, err := s.db.Exec(
+		"UPDATE holdings SET manual_price = 0, manual_price_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		id,
+	)
+
 	return err
 }
 
 func (s *HoldingService) Delete(ctx context.Context, id int) error {
 	_, err := s.db.Exec("DELETE FROM holdings WHERE id = ?", id)
+
 	return err
 }
 
-func (s *HoldingService) GetWithPrices(ctx context.Context, displayCurrency string) ([]models.HoldingWithPrice, error) {
+func (s *HoldingService) GetWithPrices(
+	ctx context.Context,
+	displayCurrency string,
+) ([]models.HoldingWithPrice, error) {
 	holdings, err := s.GetAll(ctx)
 	if err != nil {
 		return nil, err
@@ -96,7 +123,7 @@ func (s *HoldingService) GetWithPrices(ctx context.Context, displayCurrency stri
 	for _, h := range holdings {
 		hwp := models.HoldingWithPrice{Holding: h}
 
-		// Get current price
+		// Get current price.
 		if h.PriceProvider != "" && h.PriceProvider != "Manual" && h.InstrumentID != "" {
 			price, err := s.priceSvc.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
 			if err == nil {
@@ -111,14 +138,18 @@ func (s *HoldingService) GetWithPrices(ctx context.Context, displayCurrency stri
 				hwp.IsFailed = true
 			}
 		} else if h.ManualPrice.Valid && h.ManualPrice.Float64 > 0 {
-				hwp.CurrentPrice = h.ManualPrice.Float64
-				hwp.CurrentCurrency = h.BaseCurrency
-				hwp.PriceSource = "Manual"
-				hwp.PriceFetchedAt = h.ManualPriceAt.Time
-			}
+			hwp.CurrentPrice = h.ManualPrice.Float64
+			hwp.CurrentCurrency = h.BaseCurrency
+			hwp.PriceSource = "Manual"
+			hwp.PriceFetchedAt = h.ManualPriceAt.Time
+		}
 
-		// Normalize to TRY and USD
-		hwp.NormPriceTRY, hwp.NormPriceUSD = s.normalizePrice(hwp.CurrentPrice, hwp.CurrentCurrency, usdTryRate)
+		// Normalize to TRY and USD.
+		hwp.NormPriceTRY, hwp.NormPriceUSD = s.normalizePrice(
+			hwp.CurrentPrice,
+			hwp.CurrentCurrency,
+			usdTryRate,
+		)
 		hwp.NormTotalTRY = h.Quantity * hwp.NormPriceTRY
 		hwp.NormTotalUSD = h.Quantity * hwp.NormPriceUSD
 
@@ -134,7 +165,11 @@ func (s *HoldingService) GetWithPrices(ctx context.Context, displayCurrency stri
 	return result, nil
 }
 
-func (s *HoldingService) normalizePrice(price float64, currency string, usdTryRate float64) (try, usd float64) {
+func (s *HoldingService) normalizePrice(
+	price float64,
+	currency string,
+	usdTryRate float64,
+) (try, usd float64) {
 	switch currency {
 	case "TRY":
 		try = price
@@ -152,16 +187,21 @@ func (s *HoldingService) normalizePrice(price float64, currency string, usdTryRa
 			usd = price / usdTryRate
 		}
 	}
-	return
+
+	return try, usd
 }
 
-func (s *HoldingService) GetDashboardData(ctx context.Context, displayCurrency string) (*models.DashboardData, error) {
+func (s *HoldingService) GetDashboardData(
+	ctx context.Context,
+	displayCurrency string,
+) (*models.DashboardData, error) {
 	holdings, err := s.GetWithPrices(ctx, displayCurrency)
 	if err != nil {
 		return nil, err
 	}
 
 	var totalTRY, estTotalTRY float64
+
 	staleCount, failedCount, coverageCount := 0, 0, 0
 	allocType := make(map[string]float64)
 	allocBasket := make(map[string]float64)
@@ -180,26 +220,31 @@ func (s *HoldingService) GetDashboardData(ctx context.Context, displayCurrency s
 		if h.IsStale {
 			staleCount++
 		}
+
 		if h.IsFailed {
 			failedCount++
 		}
+
 		if h.EstPrice > 0 || h.CurrentPrice > 0 {
 			coverageCount++
 		}
 
-		// Allocations based on current value
+		// Allocations based on current value.
 		val := h.NormTotalTRY
 		if displayCurrency == "USD" {
 			val = h.NormTotalUSD
 		}
+
 		if val > 0 {
 			allocType[string(h.AssetType)] += val
 			if h.Basket != "" {
 				allocBasket[h.Basket] += val
 			}
+
 			if h.Location != "" {
 				allocLoc[h.Location] += val
 			}
+
 			allocCurr[h.BaseCurrency] += val
 		}
 	}
@@ -229,23 +274,37 @@ func (s *HoldingService) GetDashboardData(ctx context.Context, displayCurrency s
 
 func (s *HoldingService) GetUniqueBaskets(ctx context.Context) ([]string, error) {
 	var baskets []string
-	err := s.db.Select(&baskets, "SELECT DISTINCT basket FROM holdings WHERE basket != '' ORDER BY basket")
+
+	err := s.db.Select(
+		&baskets,
+		"SELECT DISTINCT basket FROM holdings WHERE basket != '' ORDER BY basket",
+	)
+
 	return baskets, err
 }
 
 func (s *HoldingService) GetUniqueLocations(ctx context.Context) ([]string, error) {
 	var locations []string
-	err := s.db.Select(&locations, "SELECT DISTINCT location FROM holdings WHERE location != '' ORDER BY location")
+
+	err := s.db.Select(
+		&locations,
+		"SELECT DISTINCT location FROM holdings WHERE location != '' ORDER BY location",
+	)
+
 	return locations, err
 }
 
 type SnapshotService struct {
-	db       *sqlx.DB
-	priceSvc *price.Service
+	db         *sqlx.DB
+	priceSvc   *price.Service
 	holdingSvc *HoldingService
 }
 
-func NewSnapshotService(db *sqlx.DB, priceSvc *price.Service, holdingSvc *HoldingService) *SnapshotService {
+func NewSnapshotService(
+	db *sqlx.DB,
+	priceSvc *price.Service,
+	holdingSvc *HoldingService,
+) *SnapshotService {
 	return &SnapshotService{db: db, priceSvc: priceSvc, holdingSvc: holdingSvc}
 }
 
@@ -258,9 +317,10 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 	usdTryRate, _ := s.priceSvc.GetUSDTTRYRate(ctx)
 
 	var totalTRY, totalUSD float64
+
 	staleCount, failedCount := 0, 0
 
-	snapshotHoldings := make([]map[string]interface{}, 0, len(holdings))
+	snapshotHoldings := make([]map[string]any, 0, len(holdings))
 	for _, h := range holdings {
 		valTRY := h.NormTotalTRY
 		valUSD := h.NormTotalUSD
@@ -270,20 +330,21 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		if h.IsStale {
 			staleCount++
 		}
+
 		if h.IsFailed {
 			failedCount++
 		}
 
-		snapshotHoldings = append(snapshotHoldings, map[string]interface{}{
-			"id":              h.ID,
-			"name":            h.Name,
-			"quantity":        h.Quantity,
-			"price":           h.CurrentPrice,
-			"currency":        h.CurrentCurrency,
-			"value_try":       valTRY,
-			"value_usd":       valUSD,
-			"is_stale":        h.IsStale,
-			"is_failed":       h.IsFailed,
+		snapshotHoldings = append(snapshotHoldings, map[string]any{
+			"id":        h.ID,
+			"name":      h.Name,
+			"quantity":  h.Quantity,
+			"price":     h.CurrentPrice,
+			"currency":  h.CurrentCurrency,
+			"value_try": valTRY,
+			"value_usd": valUSD,
+			"is_stale":  h.IsStale,
+			"is_failed": h.IsFailed,
 		})
 	}
 
@@ -297,16 +358,35 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 	return err
 }
 
-func (s *SnapshotService) GetSnapshots(ctx context.Context, limit int, offset int) ([]models.Snapshot, error) {
+func (s *SnapshotService) GetSnapshots(
+	ctx context.Context,
+	limit, offset int,
+) ([]models.Snapshot, error) {
 	var snapshots []models.Snapshot
-	err := s.db.Select(&snapshots, "SELECT * FROM snapshots ORDER BY timestamp DESC LIMIT ? OFFSET ?", limit, offset)
+
+	err := s.db.Select(
+		&snapshots,
+		"SELECT * FROM snapshots ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+		limit,
+		offset,
+	)
+
 	return snapshots, err
 }
 
-func (s *SnapshotService) GetSnapshotsForChart(ctx context.Context, days int) ([]ChartPoint, error) {
+func (s *SnapshotService) GetSnapshotsForChart(
+	ctx context.Context,
+	days int,
+) ([]ChartPoint, error) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -days)
+
 	var snapshots []models.Snapshot
-	err := s.db.Select(&snapshots, "SELECT * FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC", cutoff)
+
+	err := s.db.Select(
+		&snapshots,
+		"SELECT * FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC",
+		cutoff,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -314,47 +394,63 @@ func (s *SnapshotService) GetSnapshotsForChart(ctx context.Context, days int) ([
 	points := make([]ChartPoint, 0, len(snapshots))
 	for _, snap := range snapshots {
 		points = append(points, ChartPoint{
-			Timestamp: snap.Timestamp,
-			ValueTRY:  snap.TotalValueTRY,
-			ValueUSD:  snap.TotalValueUSD,
-			USDTRYRate: snap.USDTRYRate,
-			StaleCount: snap.StaleCount,
+			Timestamp:   snap.Timestamp,
+			ValueTRY:    snap.TotalValueTRY,
+			ValueUSD:    snap.TotalValueUSD,
+			USDTRYRate:  snap.USDTRYRate,
+			StaleCount:  snap.StaleCount,
 			FailedCount: snap.FailedCount,
 		})
 	}
+
 	return points, nil
 }
 
-func (s *SnapshotService) GetHoldingHistory(ctx context.Context, holdingID int, days int) ([]HoldingHistoryPoint, error) {
+func (s *SnapshotService) GetHoldingHistory(
+	ctx context.Context,
+	holdingID, days int,
+) ([]HoldingHistoryPoint, error) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -days)
-	
+
 	var snapshots []models.Snapshot
-	err := s.db.Select(&snapshots, "SELECT * FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC", cutoff)
+
+	err := s.db.Select(
+		&snapshots,
+		"SELECT * FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC",
+		cutoff,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	points := make([]HoldingHistoryPoint, 0)
+
 	for _, snap := range snapshots {
-		var holdings []map[string]interface{}
-		if err := json.Unmarshal([]byte(snap.HoldingsJSON), &holdings); err != nil {
+		var holdings []map[string]any
+
+		err := json.Unmarshal([]byte(snap.HoldingsJSON), &holdings)
+		if err != nil {
 			continue
 		}
+
 		for _, h := range holdings {
 			if id, ok := h["id"].(float64); ok && int(id) == holdingID {
 				valTRY := 0.0
 				if v, ok := h["value_try"].(float64); ok {
 					valTRY = v
 				}
+
 				points = append(points, HoldingHistoryPoint{
 					Timestamp: snap.Timestamp,
 					ValueTRY:  valTRY,
 					ValueUSD:  h["value_usd"].(float64),
 				})
+
 				break
 			}
 		}
 	}
+
 	return points, nil
 }
 
@@ -383,20 +479,24 @@ func NewSettingsService(db *sqlx.DB) *SettingsService {
 
 func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 	var settings models.Settings
+
 	settings.DisplayCurrency, _ = db.GetSetting(s.db, "display_currency")
 	if settings.DisplayCurrency == "" {
 		settings.DisplayCurrency = "TRY"
 	}
+
 	settings.DarkMode, _ = db.GetSetting(s.db, "dark_mode")
 	if settings.DarkMode == "" {
 		settings.DarkMode = "system"
 	}
+
 	refreshStr, _ := db.GetSetting(s.db, "refresh_interval")
 	if refreshStr == "" {
 		settings.RefreshInterval = 60
 	} else {
 		fmt.Sscanf(refreshStr, "%d", &settings.RefreshInterval)
 	}
+
 	return settings, nil
 }
 
@@ -409,10 +509,10 @@ func (s *SettingsService) SetDarkMode(ctx context.Context, mode string) error {
 }
 
 func (s *SettingsService) SetRefreshInterval(ctx context.Context, interval int) error {
-	return db.SetSetting(s.db, "refresh_interval", fmt.Sprintf("%d", interval))
+	return db.SetSetting(s.db, "refresh_interval", strconv.Itoa(interval))
 }
 
 func (s *SettingsService) GetBackup(ctx context.Context) ([]byte, error) {
-	// Use SQLite backup API
-	return nil, fmt.Errorf("not implemented")
+	// Use SQLite backup API.
+	return nil, errors.New("not implemented")
 }

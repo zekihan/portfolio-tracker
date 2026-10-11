@@ -3,6 +3,7 @@ package price
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,6 +36,7 @@ func (r *Registry) Register(g Getter) {
 
 func (r *Registry) Get(name string) (Getter, bool) {
 	g, ok := r.getters[name]
+
 	return g, ok
 }
 
@@ -43,23 +45,26 @@ func (r *Registry) All() []Getter {
 	for _, g := range r.getters {
 		result = append(result, g)
 	}
+
 	return result
 }
 
 func (r *Registry) GetByType(providerType string) []Getter {
 	var result []Getter
+
 	for _, g := range r.getters {
 		if g.Type() == providerType {
 			result = append(result, g)
 		}
 	}
+
 	return result
 }
 
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
 
-	// Register all providers
+	// Register all providers.
 	r.Register(NewYahooFinance())
 	r.Register(NewAlphaVantage())
 	r.Register(NewTwelveData())
@@ -77,14 +82,14 @@ func DefaultRegistry() *Registry {
 }
 
 type baseGetter struct {
-	name      string
+	name         string
 	providerType string
-	ttl       time.Duration
-	client    *http.Client
+	ttl          time.Duration
+	client       *http.Client
 }
 
-func (b *baseGetter) Name() string      { return b.name }
-func (b *baseGetter) Type() string      { return b.providerType }
+func (b *baseGetter) Name() string       { return b.name }
+func (b *baseGetter) Type() string       { return b.providerType }
 func (b *baseGetter) TTL() time.Duration { return b.ttl }
 
 type YahooFinance struct{ baseGetter }
@@ -101,8 +106,11 @@ func NewYahooFinance() *YahooFinance {
 }
 
 func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1m&range=1d", url.QueryEscape(instrumentID))
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := fmt.Sprintf(
+		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1m&range=1d",
+		url.QueryEscape(instrumentID),
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 
 	resp, err := y.client.Do(req)
@@ -112,6 +120,7 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
 		Chart struct {
 			Result []struct {
@@ -120,7 +129,7 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 					Currency           string  `json:"currency"`
 				} `json:"meta"`
 			} `json:"result"`
-			Error interface{} `json:"error"`
+			Error any `json:"error"`
 		} `json:"chart"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -132,6 +141,7 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 	}
 
 	price := result.Chart.Result[0].Meta.RegularMarketPrice
+
 	currency := result.Chart.Result[0].Meta.Currency
 	if currency == "" {
 		currency = "USD"
@@ -161,11 +171,15 @@ func NewAlphaVantage() *AlphaVantage {
 func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	key := os.Getenv("ALPHA_VANTAGE_KEY")
 	if key == "" {
-		return models.Price{}, fmt.Errorf("ALPHA_VANTAGE_KEY not set")
+		return models.Price{}, errors.New("ALPHA_VANTAGE_KEY not set")
 	}
 
-	url := fmt.Sprintf("https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=%s&apikey=%s", url.QueryEscape(instrumentID), key)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := fmt.Sprintf(
+		"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=%s&apikey=%s",
+		url.QueryEscape(instrumentID),
+		key,
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -174,9 +188,10 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
 		GlobalQuote struct {
-			Price   string `json:"05. price"`
+			Price    string `json:"05. price"`
 			Currency string `json:"08. currency"`
 		} `json:"Global Quote"`
 		Note string `json:"Note"`
@@ -191,6 +206,7 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 
 	price := 0.0
 	fmt.Sscanf(result.GlobalQuote.Price, "%f", &price)
+
 	currency := result.GlobalQuote.Currency
 	if currency == "" {
 		currency = "USD"
@@ -224,11 +240,15 @@ func NewTwelveData() *TwelveData {
 func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	key := os.Getenv("TWELVE_DATA_KEY")
 	if key == "" {
-		return models.Price{}, fmt.Errorf("TWELVE_DATA_KEY not set")
+		return models.Price{}, errors.New("TWELVE_DATA_KEY not set")
 	}
 
-	url := fmt.Sprintf("https://api.twelvedata.com/price?symbol=%s&apikey=%s", url.QueryEscape(instrumentID), key)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := fmt.Sprintf(
+		"https://api.twelvedata.com/price?symbol=%s&apikey=%s",
+		url.QueryEscape(instrumentID),
+		key,
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -237,11 +257,12 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
-		Price     string `json:"price"`
-		Currency  string `json:"currency"`
-		Code      int    `json:"code"`
-		Message   string `json:"message"`
+		Price    string `json:"price"`
+		Currency string `json:"currency"`
+		Code     int    `json:"code"`
+		Message  string `json:"message"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
@@ -253,6 +274,7 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 
 	price := 0.0
 	fmt.Sscanf(result.Price, "%f", &price)
+
 	currency := result.Currency
 	if currency == "" {
 		currency = "USD"
@@ -282,11 +304,15 @@ func NewFinnhub() *Finnhub {
 func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	key := os.Getenv("FINNHUB_KEY")
 	if key == "" {
-		return models.Price{}, fmt.Errorf("FINNHUB_KEY not set")
+		return models.Price{}, errors.New("FINNHUB_KEY not set")
 	}
 
-	url := fmt.Sprintf("https://finnhub.io/api/v1/quote?symbol=%s&token=%s", url.QueryEscape(instrumentID), key)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := fmt.Sprintf(
+		"https://finnhub.io/api/v1/quote?symbol=%s&token=%s",
+		url.QueryEscape(instrumentID),
+		key,
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -295,6 +321,7 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
 		C float64 `json:"c"` // Current price
 	}
@@ -328,8 +355,8 @@ func NewPusulaPortfoy() *PusulaPortfoy {
 }
 
 func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://www.pusulaportfoy.com.tr/api/fund/%s", url.QueryEscape(instrumentID))
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.QueryEscape(instrumentID)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -338,6 +365,7 @@ func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (mode
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
 		Data struct {
 			Price float64 `json:"price"`
@@ -374,8 +402,8 @@ func NewGarantiBBVA() *GarantiBBVA {
 }
 
 func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://www.garantibbva.com.tr/api/fund/%s", url.QueryEscape(instrumentID))
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := "https://www.garantibbva.com.tr/api/fund/" + url.QueryEscape(instrumentID)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := g.client.Do(req)
 	if err != nil {
@@ -384,6 +412,7 @@ func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
 		Price float64 `json:"price"`
 	}
@@ -418,7 +447,7 @@ func NewIZKOGold() *IZKOGold {
 
 func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	url := "https://www.izko.com.tr/api/gold-prices"
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := i.client.Do(req)
 	if err != nil {
@@ -427,6 +456,7 @@ func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Pr
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result []struct {
 		Name  string  `json:"name"`
 		Price float64 `json:"price"`
@@ -463,8 +493,11 @@ func NewTradingViewBIST() *TradingViewBIST {
 }
 
 func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://symbol-search.tradingview.com/symbol_search/?text=%s&type=stock", url.QueryEscape(instrumentID))
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := fmt.Sprintf(
+		"https://symbol-search.tradingview.com/symbol_search/?text=%s&type=stock",
+		url.QueryEscape(instrumentID),
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -473,6 +506,7 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result []struct {
 		Symbol string  `json:"symbol"`
 		Price  float64 `json:"price"`
@@ -508,9 +542,15 @@ func NewTradingViewCrypto() *TradingViewCrypto {
 	}
 }
 
-func (t *TradingViewCrypto) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://symbol-search.tradingview.com/symbol_search/?text=%s&type=crypto", url.QueryEscape(instrumentID))
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+func (t *TradingViewCrypto) GetPrice(
+	ctx context.Context,
+	instrumentID string,
+) (models.Price, error) {
+	url := fmt.Sprintf(
+		"https://symbol-search.tradingview.com/symbol_search/?text=%s&type=crypto",
+		url.QueryEscape(instrumentID),
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -519,6 +559,7 @@ func (t *TradingViewCrypto) GetPrice(ctx context.Context, instrumentID string) (
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result []struct {
 		Symbol string  `json:"symbol"`
 		Price  float64 `json:"price"`
@@ -555,11 +596,15 @@ func NewCoinGecko() *CoinGecko {
 }
 
 func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=usd", url.QueryEscape(instrumentID))
+	url := fmt.Sprintf(
+		"https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=usd",
+		url.QueryEscape(instrumentID),
+	)
 	if key := os.Getenv("COINGECKO_KEY"); key != "" {
 		url += "&x_cg_demo_api_key=" + key
 	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -568,6 +613,7 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result map[string]struct {
 		USD float64 `json:"usd"`
 	}
@@ -601,8 +647,11 @@ func NewFrankfurter() *Frankfurter {
 }
 
 func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf("https://api.frankfurter.dev/v1/latest?from=%s&to=TRY", url.QueryEscape(instrumentID))
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url := fmt.Sprintf(
+		"https://api.frankfurter.dev/v1/latest?from=%s&to=TRY",
+		url.QueryEscape(instrumentID),
+	)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -611,6 +660,7 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var result struct {
 		Rates map[string]float64 `json:"rates"`
 		Date  string             `json:"date"`

@@ -2,18 +2,21 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
 const SchemaVersion = 2
 
 var Migrations = []string{
-	// Schema v1 - Initial schema
+	// Schema v1 - Initial schema.
 	`
 	CREATE TABLE IF NOT EXISTS holdings (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,12 +42,12 @@ var Migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_holdings_location ON holdings(location);
 	`,
 
-	// Schema v2 - Fix NULL manual_price values
-		`
+	// Schema v2 - Fix NULL manual_price values.
+	`
 		UPDATE holdings SET manual_price = 0 WHERE manual_price IS NULL;
 		`,
 
-		// Schema v3 - Price cache table
+	// Schema v3 - Price cache table.
 	`
 	CREATE TABLE IF NOT EXISTS price_cache (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +66,7 @@ var Migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_price_cache_expires ON price_cache(expires_at);
 	`,
 
-	// Schema v3 - Snapshots table
+	// Schema v3 - Snapshots table.
 	`
 	CREATE TABLE IF NOT EXISTS snapshots (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,7 +83,7 @@ var Migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
 	`,
 
-	// Schema v4 - Settings table
+	// Schema v4 - Settings table.
 	`
 	CREATE TABLE IF NOT EXISTS settings (
 		key TEXT PRIMARY KEY,
@@ -93,7 +96,7 @@ var Migrations = []string{
 	INSERT OR IGNORE INTO settings (key, value) VALUES ('refresh_interval', '60');
 	`,
 
-	// Schema v5 - Provider registry table
+	// Schema v5 - Provider registry table.
 	`
 	CREATE TABLE IF NOT EXISTS provider_registry (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,6 +152,7 @@ func migrate(db *sqlx.DB) error {
 	defer tx.Rollback()
 
 	var version int
+
 	err = tx.Get(&version, "PRAGMA user_version")
 	if err != nil && !strings.Contains(err.Error(), "no such table") {
 		return err
@@ -158,7 +162,8 @@ func migrate(db *sqlx.DB) error {
 		if _, err := tx.Exec(Migrations[i]); err != nil {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
-		if _, err := tx.Exec("PRAGMA user_version = " + fmt.Sprintf("%d", i+1)); err != nil {
+
+		if _, err := tx.Exec("PRAGMA user_version = " + strconv.Itoa(i+1)); err != nil {
 			return err
 		}
 	}
@@ -168,15 +173,22 @@ func migrate(db *sqlx.DB) error {
 
 func GetSetting(db *sqlx.DB, key string) (string, error) {
 	var value string
+
 	err := db.Get(&value, "SELECT value FROM settings WHERE key = ?", key)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
+
 	return value, err
 }
 
 func SetSetting(db *sqlx.DB, key, value string) error {
-	_, err := db.Exec(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`, key, value)
+	_, err := db.Exec(
+		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+		key,
+		value,
+	)
+
 	return err
 }

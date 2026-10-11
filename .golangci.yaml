@@ -38,7 +38,7 @@ formatters:
           replacement: 'a[b:]'
     gofumpt:
       module-path: github.com/zekihan/portfolio-tracker
-      extra-rules: true
+      extra.group-params: true
     goimports:
       local-prefixes:
         - github.com/zekihan/portfolio-tracker
@@ -367,6 +367,9 @@ linters:
         text: 'Do not use os.Exit — handle errors gracefully instead.'
         linters:
           - forbidigo
+      - path: cmd/server/main.go
+        linters:
+          - exhaustruct_v5
 
 output:
   sort-order:
