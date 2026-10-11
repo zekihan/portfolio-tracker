@@ -37,7 +37,7 @@ type Holding struct {
 	CurrentPrice    float64         `json:"current_price,omitempty"    db:"-"`
 	ID              int             `json:"id"                         db:"id"`
 	Quantity        float64         `json:"quantity"                   db:"quantity"`
-	EstPrice        float64         `json:"est_price"                  db:"est_price"`
+	EstPrice        float64         `json:"est_price"                  db:"est_price"       binding:"gte=0"`
 	IsStale         bool            `json:"is_stale,omitempty"         db:"-"`
 	IsFailed        bool            `json:"is_failed,omitempty"        db:"-"`
 }
