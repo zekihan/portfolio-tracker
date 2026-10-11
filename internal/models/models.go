@@ -17,29 +17,31 @@ const (
 )
 
 type Holding struct {
-	PriceFetchedAt  time.Time       `json:"price_fetched_at,omitzero"  db:"-"`
-	UpdatedAt       time.Time       `json:"updated_at"                 db:"updated_at"`
-	CreatedAt       time.Time       `json:"created_at"                 db:"created_at"`
-	ManualPriceAt   sql.NullTime    `json:"manual_price_at"            db:"manual_price_at"`
-	PriceProvider   string          `json:"price_provider"             db:"price_provider"`
-	CurrentCurrency string          `json:"current_currency,omitempty" db:"-"`
-	InstrumentID    string          `json:"instrument_id"              db:"instrument_id"`
-	BaseCurrency    string          `json:"base_currency"              db:"base_currency"   binding:"oneof=TRY USD"`
-	Basket          string          `json:"basket"                     db:"basket"`
-	Location        string          `json:"location"                   db:"location"`
-	Notes           string          `json:"notes"                      db:"notes"`
-	PriceError      string          `json:"price_error,omitempty"      db:"-"`
-	Name            string          `json:"name"                       db:"name"`
-	PriceSource     string          `json:"price_source,omitempty"     db:"-"`
-	AssetType       AssetType       `json:"asset_type"                 db:"asset_type"`
-	Ticker          string          `json:"ticker"                     db:"ticker"`
-	ManualPrice     sql.NullFloat64 `json:"manual_price"               db:"manual_price"`
-	CurrentPrice    float64         `json:"current_price,omitempty"    db:"-"`
-	ID              int             `json:"id"                         db:"id"`
-	Quantity        float64         `json:"quantity"                   db:"quantity"`
-	EstPrice        float64         `json:"est_price"                  db:"est_price"       binding:"gte=0"`
-	IsStale         bool            `json:"is_stale,omitempty"         db:"-"`
-	IsFailed        bool            `json:"is_failed,omitempty"        db:"-"`
+	PriceFetchedAt  time.Time    `json:"price_fetched_at,omitzero"  db:"-"`
+	UpdatedAt       time.Time    `json:"updated_at"                 db:"updated_at"`
+	CreatedAt       time.Time    `json:"created_at"                 db:"created_at"`
+	ManualPriceAt   sql.NullTime `json:"manual_price_at"            db:"manual_price_at"`
+	PriceProvider   string       `json:"price_provider"             db:"price_provider"`
+	CurrentCurrency string       `json:"current_currency,omitempty" db:"-"`
+	InstrumentID    string       `json:"instrument_id"              db:"instrument_id"`
+	BaseCurrency    string       `json:"base_currency"              db:"base_currency"   binding:"oneof=TRY USD"`
+	Basket          string       `json:"basket"                     db:"basket"`
+	Location        string       `json:"location"                   db:"location"`
+	Notes           string       `json:"notes"                      db:"notes"`
+	PriceError      string       `json:"price_error,omitempty"      db:"-"`
+	Name            string       `json:"name"                       db:"name"`
+	PriceSource     string       `json:"price_source,omitempty"     db:"-"`
+
+	AssetType AssetType `json:"asset_type" binding:"oneof=Stock ETF 'TR Fund' Crypto Gold Cash" db:"asset_type"`
+
+	Ticker       string          `json:"ticker"                  db:"ticker"`
+	ManualPrice  sql.NullFloat64 `json:"manual_price"            db:"manual_price"`
+	CurrentPrice float64         `json:"current_price,omitempty" db:"-"`
+	ID           int             `json:"id"                      db:"id"`
+	Quantity     float64         `json:"quantity"                db:"quantity"`
+	EstPrice     float64         `json:"est_price"               db:"est_price"    binding:"gte=0"`
+	IsStale      bool            `json:"is_stale,omitempty"      db:"-"`
+	IsFailed     bool            `json:"is_failed,omitempty"     db:"-"`
 }
 
 func (h *Holding) TotalValue() float64 {
