@@ -125,7 +125,10 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 		return models.Price{}, fmt.Errorf("yahoo finance returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read yahoo finance response: %w", err)
+	}
 
 	var result struct {
 		Chart struct {
