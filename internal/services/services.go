@@ -372,7 +372,8 @@ func (s *SnapshotService) GetSnapshots(
 ) ([]models.Snapshot, error) {
 	var snapshots []models.Snapshot
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&snapshots,
 		"SELECT * FROM snapshots ORDER BY timestamp DESC LIMIT ? OFFSET ?",
 		limit,
@@ -390,7 +391,8 @@ func (s *SnapshotService) GetSnapshotsForChart(
 
 	var snapshots []models.Snapshot
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&snapshots,
 		"SELECT * FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC",
 		cutoff,
@@ -422,7 +424,8 @@ func (s *SnapshotService) GetHoldingHistory(
 
 	var snapshots []models.Snapshot
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&snapshots,
 		"SELECT * FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC",
 		cutoff,

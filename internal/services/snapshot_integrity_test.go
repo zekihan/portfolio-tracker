@@ -41,6 +41,7 @@ func TestSnapshotDoesNotPersistUnserializableHoldings(t *testing.T) {
 	holding.Quantity = math.MaxFloat64
 
 	holding.PriceProvider = "Manual"
+
 	err = holdingService.Create(t.Context(), &holding)
 	if err != nil {
 		t.Fatal(err)
