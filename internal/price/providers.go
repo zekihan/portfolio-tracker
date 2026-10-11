@@ -213,16 +213,18 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 		return models.Price{}, fmt.Errorf("rate limited: %s", result.Note)
 	}
 
-	price := 0.0
-	fmt.Sscanf(result.GlobalQuote.Price, "%f", &price)
+	price, err := strconv.ParseFloat(result.GlobalQuote.Price, 64)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("parse alpha vantage price: %w", err)
+	}
+
+	if price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return models.Price{}, fmt.Errorf("invalid alpha vantage price for %s", instrumentID)
+	}
 
 	currency := result.GlobalQuote.Currency
 	if currency == "" {
 		currency = "USD"
-	}
-
-	if price == 0 {
-		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
 	return models.Price{
