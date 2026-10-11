@@ -96,7 +96,7 @@ type YahooFinance struct{ baseGetter }
 
 func NewYahooFinance() *YahooFinance {
 	return &YahooFinance{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Yahoo Finance",
 			providerType: "Stock/ETF",
 			ttl:          60 * time.Second,
@@ -159,7 +159,7 @@ type AlphaVantage struct{ baseGetter }
 
 func NewAlphaVantage() *AlphaVantage {
 	return &AlphaVantage{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Alpha Vantage",
 			providerType: "Stock/ETF",
 			ttl:          60 * time.Second,
@@ -228,7 +228,7 @@ type TwelveData struct{ baseGetter }
 
 func NewTwelveData() *TwelveData {
 	return &TwelveData{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Twelve Data",
 			providerType: "Stock/ETF",
 			ttl:          60 * time.Second,
@@ -292,7 +292,7 @@ type Finnhub struct{ baseGetter }
 
 func NewFinnhub() *Finnhub {
 	return &Finnhub{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Finnhub",
 			providerType: "Stock/ETF",
 			ttl:          60 * time.Second,
@@ -345,7 +345,7 @@ type PusulaPortfoy struct{ baseGetter }
 
 func NewPusulaPortfoy() *PusulaPortfoy {
 	return &PusulaPortfoy{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Pusula Portföy",
 			providerType: "TR Fund",
 			ttl:          60 * time.Second,
@@ -392,7 +392,7 @@ type GarantiBBVA struct{ baseGetter }
 
 func NewGarantiBBVA() *GarantiBBVA {
 	return &GarantiBBVA{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Garanti BBVA",
 			providerType: "TR Fund",
 			ttl:          60 * time.Second,
@@ -436,7 +436,7 @@ type IZKOGold struct{ baseGetter }
 
 func NewIZKOGold() *IZKOGold {
 	return &IZKOGold{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "İZKO Gold",
 			providerType: "Gold",
 			ttl:          60 * time.Second,
@@ -483,7 +483,7 @@ type TradingViewBIST struct{ baseGetter }
 
 func NewTradingViewBIST() *TradingViewBIST {
 	return &TradingViewBIST{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "TradingView BIST",
 			providerType: "Gold",
 			ttl:          60 * time.Second,
@@ -533,7 +533,7 @@ type TradingViewCrypto struct{ baseGetter }
 
 func NewTradingViewCrypto() *TradingViewCrypto {
 	return &TradingViewCrypto{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "TradingView Crypto",
 			providerType: "Crypto",
 			ttl:          60 * time.Second,
@@ -586,7 +586,7 @@ type CoinGecko struct{ baseGetter }
 
 func NewCoinGecko() *CoinGecko {
 	return &CoinGecko{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "CoinGecko",
 			providerType: "Crypto",
 			ttl:          60 * time.Second,
@@ -637,7 +637,7 @@ type Frankfurter struct{ baseGetter }
 
 func NewFrankfurter() *Frankfurter {
 	return &Frankfurter{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Frankfurter",
 			providerType: "FX",
 			ttl:          60 * time.Second,
@@ -685,7 +685,7 @@ type Manual struct{ baseGetter }
 
 func NewManual() *Manual {
 	return &Manual{
-		baseGetter: baseGetter{
+		baseGetter{
 			name:         "Manual",
 			providerType: "Manual",
 			ttl:          0,
