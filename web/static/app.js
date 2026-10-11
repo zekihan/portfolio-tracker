@@ -1,3 +1,18 @@
+// Send HTMX request bodies as JSON: the API handlers only accept application/json.
+if (window.htmx) {
+  htmx.defineExtension('json-body', {
+    onEvent: (name, evt) => {
+      if (name === 'htmx:configRequest') {
+        evt.detail.headers['Content-Type'] = 'application/json';
+      }
+    },
+    encodeParameters: (xhr, parameters) => {
+      xhr.overrideMimeType('text/json');
+      return JSON.stringify(parameters);
+    },
+  });
+}
+
 /**
  * Portfolio Tracker - Main Application JavaScript
  * Handles HTMX interactions, Chart.js, theme, and UI state
