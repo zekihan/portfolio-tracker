@@ -42,3 +42,24 @@ func requireJSONBody() gin.HandlerFunc {
 		ctx.Next()
 	}
 }
+
+func protectBrowserRequests() gin.HandlerFunc {
+	protection := http.NewCrossOriginProtection()
+
+	return func(ctx *gin.Context) {
+		ctx.Header("X-Content-Type-Options", "nosniff")
+		ctx.Header("X-Frame-Options", "SAMEORIGIN")
+
+		err := protection.Check(ctx.Request)
+		if err != nil {
+			ctx.AbortWithStatusJSON(
+				http.StatusForbidden,
+				gin.H{errorKey: "cross-origin request rejected"},
+			)
+
+			return
+		}
+
+		ctx.Next()
+	}
+}

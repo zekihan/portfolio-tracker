@@ -5,8 +5,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/robfig/cron/v3"
+
 	"github.com/zekihan/portfolio-tracker/internal/db"
 )
+
+func TestSnapshotScheduleHourly(t *testing.T) {
+	t.Parallel()
+
+	schedule, err := cron.NewParser(cron.Second | cron.Minute | cron.Hour |
+		cron.Dom | cron.Month | cron.Dow | cron.Descriptor).Parse(snapshotSchedule)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
+
+	want := start.Add(time.Hour)
+	for _, now := range []time.Time{start, start.Add(time.Minute), want.Add(-time.Second)} {
+		if got := schedule.Next(now); !got.Equal(want) {
+			t.Errorf("next snapshot after %v = %v, want %v", now, got, want)
+		}
+	}
+}
 
 func TestSnapshotLockEmptyPortfolio(t *testing.T) {
 	t.Parallel()

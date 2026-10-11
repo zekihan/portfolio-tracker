@@ -30,6 +30,10 @@ func TestSnapshotPaginationValidation(t *testing.T) {
 		query  string
 		status int
 	}{
+		{query: "?days=-1", status: http.StatusBadRequest},
+		{query: "?days=invalid", status: http.StatusBadRequest},
+		{query: "?days=36501", status: http.StatusBadRequest},
+		{query: "?days=7", status: http.StatusOK},
 		{query: "?limit=-1", status: http.StatusBadRequest},
 		{query: "?limit=0", status: http.StatusBadRequest},
 		{query: "?limit=1001", status: http.StatusBadRequest},

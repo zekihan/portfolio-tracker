@@ -31,7 +31,7 @@ func TestHistoryPageValidatesDayRange(t *testing.T) {
 	}
 
 	handler := New(services.NewHoldingService(database, nil),
-		services.NewSnapshotService(database, nil, nil), nil, nil)
+		services.NewSnapshotService(database, nil, nil), services.NewSettingsService(database), nil)
 	router := gin.New()
 	router.SetHTMLTemplate(
 		template.Must(template.New("history.html").Parse(`{{.Days}}/{{len .ChartData}}`)),

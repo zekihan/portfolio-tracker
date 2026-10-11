@@ -85,3 +85,53 @@ func TestDashboardTotalsPreserveCurrency(t *testing.T) {
 		})
 	}
 }
+
+func TestEstimateCoverageExcludesCurrentPrices(t *testing.T) {
+	t.Parallel()
+
+	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = database.Close() })
+
+	_, err = database.ExecContext(t.Context(), `INSERT INTO price_cache
+ (provider, instrument_id, price, currency, source, expires_at, last_error)
+ VALUES ('Frankfurter', 'USD', 40, 'TRY', 'test', ?, '')`, time.Now().UTC().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewHoldingService(database, price.NewService(database, price.DefaultRegistry()))
+
+	for _, estimate := range []float64{0, 20} {
+		var holding models.Holding
+
+		holding.Name = "Cash"
+		holding.AssetType = models.AssetTypeCash
+		holding.BaseCurrency = "TRY"
+		holding.Quantity = 1
+		holding.PriceProvider = "Manual"
+		holding.EstPrice = estimate
+
+		err = service.Create(t.Context(), &holding)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = service.UpdateManualPrice(t.Context(), holding.ID, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	data, err := service.GetDashboardData(t.Context(), "TRY")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if data.CoverageCount != 1 || data.TotalHoldings != 2 || data.EstimatedValueTRY != 20 {
+		t.Errorf("unexpected estimate coverage: %+v", data)
+	}
+}

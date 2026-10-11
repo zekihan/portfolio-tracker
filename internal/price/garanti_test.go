@@ -16,17 +16,31 @@ func TestGarantiValidatesQuotes(t *testing.T) {
 		status  int
 		wantErr bool
 	}{
-		{name: "rate limited", status: http.StatusTooManyRequests, body: `{"price":100}`, wantErr: true},
-		{name: "server error", status: http.StatusInternalServerError, body: `{"price":100}`, wantErr: true},
-		{name: "negative", status: http.StatusOK, body: `{"price":-100}`, wantErr: true},
+		{name: "rate limited", status: http.StatusTooManyRequests, body: `{"data":{"Close":100}}`, wantErr: true},
+		{name: "server error", status: http.StatusInternalServerError, body: `{"data":{"Close":100}}`, wantErr: true},
+		{name: "negative", status: http.StatusOK, body: `{"data":{"Close":-100}}`, wantErr: true},
 		{name: "missing", status: http.StatusOK, body: `{}`, wantErr: true},
-		{name: "valid", status: http.StatusOK, body: `{"price":100}`, wantErr: false},
+		{name: "valid", status: http.StatusOK, body: `{"data":{"Close":100}}`, wantErr: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			server := httptest.NewServer(
-				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/webservice/lastdate" {
+						_, _ = w.Write([]byte(`"2026-10-09"`))
+
+						return
+					}
+
+					if r.URL.Path == "/fon-getirileri" {
+						_, _ = w.Write(
+							[]byte(`<option data-code="TEST" data-currency="TRY"></option>`),
+						)
+
+						return
+					}
+
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(test.status)
 					_, _ = w.Write([]byte(test.body))

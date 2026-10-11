@@ -49,14 +49,26 @@ func (s *HoldingService) GetByID(ctx context.Context, id int) (*models.Holding, 
 }
 
 func (s *HoldingService) Create(ctx context.Context, h *models.Holding) error {
+	if h.ManualPrice.Valid &&
+		(h.ManualPrice.Float64 < 0 || math.IsNaN(h.ManualPrice.Float64) || math.IsInf(h.ManualPrice.Float64, 0)) {
+		return errors.New("manual price must be finite and nonnegative")
+	}
+
 	now := time.Now().UTC()
+
+	manualPrice := 0.0
+	if h.ManualPrice.Valid {
+		manualPrice = h.ManualPrice.Float64
+	}
+
+	h.ManualPriceAt = sql.NullTime{Time: now, Valid: manualPrice > 0}
 	h.CreatedAt = now
 	h.UpdatedAt = now
 
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider, instrument_id, base_currency, basket, location, notes, est_price, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, h.Name, h.Ticker, h.AssetType, h.Quantity, h.PriceProvider, h.InstrumentID, h.BaseCurrency, h.Basket, h.Location, h.Notes, h.EstPrice, h.CreatedAt, h.UpdatedAt)
+		INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider, instrument_id, base_currency, basket, location, notes, est_price, manual_price, manual_price_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, h.Name, h.Ticker, h.AssetType, h.Quantity, h.PriceProvider, h.InstrumentID, h.BaseCurrency, h.Basket, h.Location, h.Notes, h.EstPrice, manualPrice, h.ManualPriceAt, h.CreatedAt, h.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -268,7 +280,7 @@ func (s *HoldingService) GetDashboardData(
 			failedCount++
 		}
 
-		if h.EstPrice > 0 || h.CurrentPrice > 0 {
+		if h.EstPrice > 0 {
 			coverageCount++
 		}
 
@@ -428,14 +440,17 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 
 func (s *SnapshotService) GetSnapshots(
 	ctx context.Context,
-	limit, offset int,
+	limit, offset, days int,
 ) ([]models.Snapshot, error) {
 	var snapshots []models.Snapshot
 
 	err := s.db.SelectContext(
 		ctx,
 		&snapshots,
-		"SELECT * FROM snapshots ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+		`SELECT * FROM snapshots WHERE (? = 0 OR timestamp >= ?)
+         ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+		days,
+		time.Now().UTC().AddDate(0, 0, -days),
 		limit,
 		offset,
 	)

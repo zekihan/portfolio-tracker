@@ -10,14 +10,14 @@
         <div class="settings-grid">
             <div class="setting-group">
                 <label for="display-currency">Display Currency</label>
-                <select id="display-currency" class="form-select" hx-patch="/api/settings/currency" hx-vals='js:{currency: document.getElementById("display-currency").value}' hx-target="#toast-container" hx-swap="beforeend">
+                <select id="display-currency" class="form-select">
                     <option value="TRY" {{if eq .Settings.DisplayCurrency "TRY"}}selected{{end}}>Turkish Lira (TRY)</option>
                     <option value="USD" {{if eq .Settings.DisplayCurrency "USD"}}selected{{end}}>US Dollar (USD)</option>
                 </select>
             </div>
             <div class="setting-group">
                 <label for="dark-mode">Dark Mode</label>
-                <select id="dark-mode" class="form-select" hx-patch="/api/settings/dark-mode" hx-vals='js:{mode: document.getElementById("dark-mode").value}' hx-target="#toast-container" hx-swap="beforeend">
+                <select id="dark-mode" class="form-select">
                     <option value="system" {{if eq .Settings.DarkMode "system"}}selected{{end}}>System</option>
                     <option value="light" {{if eq .Settings.DarkMode "light"}}selected{{end}}>Light</option>
                     <option value="dark" {{if eq .Settings.DarkMode "dark"}}selected{{end}}>Dark</option>
@@ -54,13 +54,23 @@
             </div>
         </div>
         <p class="setting-note">Backups include all holdings, snapshots, and settings. Restore will replace all data.</p>
+        <section id="restore-review" class="restore-review" aria-labelledby="restore-review-heading" hidden>
+            <h3 id="restore-review-heading">Confirm restore</h3>
+            <p id="restore-filename"></p>
+            <p>This replaces all current holdings, snapshots, and settings with the selected backup. Download a backup first if you want to keep the current data.</p>
+            <div class="restore-actions">
+                <button type="button" class="btn btn-secondary" id="restore-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="restore-confirm">Restore backup</button>
+            </div>
+            <p id="restore-error" class="text-error" role="alert" hidden></p>
+        </section>
+        <p id="backup-status" role="status"></p>
     </section>
 
     <!-- About -->
     <section class="card" aria-labelledby="about-heading">
         <h2 id="about-heading">About</h2>
         <dl class="about-info">
-            <div><dt>Version</dt><dd>1.0.0</dd></div>
             <div><dt>Build</dt><dd>{{.BuildInfo}}</dd></div>
             <div><dt>License</dt><dd>MIT</dd></div>
             <div><dt>Repository</dt><dd><a href="https://github.com/zekihan/portfolio-tracker" target="_blank" rel="noopener">github.com/zekihan/portfolio-tracker</a></dd></div>
@@ -71,7 +81,7 @@
     <section class="card danger-zone" aria-labelledby="danger-heading">
         <h2 id="danger-heading">Danger Zone</h2>
         <div class="setting-group">
-            <button class="btn btn-danger" id="clear-all-data" hx-delete="/api/settings/clear-all" hx-confirm="This will delete ALL holdings, snapshots, and settings. Are you absolutely sure?" hx-target="#toast-container" hx-swap="beforeend">
+            <button class="btn btn-danger" id="clear-all-data">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"></polyline>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>

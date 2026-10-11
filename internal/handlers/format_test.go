@@ -32,3 +32,21 @@ func TestFormatNumber(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatQuantityPreservesFractionalUnits(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		want  string
+		value float64
+	}{
+		{value: 0.00000001, want: "0.00000001"},
+		{value: 12.345678, want: "12.345678"},
+		{value: 100, want: "100"},
+		{value: 0, want: "0"},
+	} {
+		if got := formatQuantity(test.value); got != test.want {
+			t.Errorf("formatQuantity(%v) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}

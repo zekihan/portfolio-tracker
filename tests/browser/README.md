@@ -39,8 +39,8 @@ Inline saves use `PATCH /api/holdings/:id` for name, ticker, basket, location, n
 
 `currency-switcher.js` runs in two phases on a disposable fixture: first run clicks the opposite currency; after navigation, run it again to verify persisted settings, page currency, and page path, then restore the original setting. Repeat from the other currency to test both directions. If verification fails, the second run still restores the setting in a finally block. It performs real settings writes.
 
-`pull-refresh.js` dispatches real touch events on a fresh page scrolled to the top. It requires one refresh event for a deliberate pull and none for an initial tap, three subsequent taps, or a short pull. It does not simulate physical device gestures or change persisted holdings.
+`pull-refresh.js` dispatches real touch events on a fresh page scrolled to the top. It requires one refresh POST for a deliberate pull and none for an initial tap, three subsequent taps, or a short pull. The refresh request is stubbed with a failed response to prevent navigation and provider requests; an error toast is expected. It does not simulate physical device gestures or change persisted holdings.
 
-`pull-cancel.js` dispatches touchstart/move/cancel and requires the visual offset to reset with no refresh, even if touchend follows. It also verifies a subsequent deliberate pull still works. Run on a fresh page scrolled to the top; it exercises handlers rather than physical device gestures.
+`pull-cancel.js` dispatches touchstart/move/cancel and requires the visual offset to reset with no refresh, even if touchend follows. It also verifies a subsequent deliberate pull still works. Run on a fresh page scrolled to the top; the refresh POST is stubbed to prevent writes and navigation. It exercises handlers rather than physical device gestures.
 
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

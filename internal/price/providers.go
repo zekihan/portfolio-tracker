@@ -1,6 +1,7 @@
 package price
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
@@ -151,6 +154,15 @@ func NewYahooFinance() *YahooFinance {
 }
 
 func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
+	instrumentID = strings.TrimSpace(instrumentID)
+	for _, prefix := range []string{"NASDAQ:", "NYSE:", "NYSEARCA:", "AMEX:"} {
+		if strings.HasPrefix(strings.ToUpper(instrumentID), prefix) {
+			instrumentID = instrumentID[len(prefix):]
+
+			break
+		}
+	}
+
 	url := fmt.Sprintf(
 		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1m&range=1d",
 		url.PathEscape(instrumentID),
@@ -442,43 +454,38 @@ func NewPusulaPortfoy() *PusulaPortfoy {
 }
 
 func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.PathEscape(instrumentID)
-
-	resp, err := doGet(ctx, p.client, url, nil)
+	body, err := providerRequest(
+		ctx,
+		p.client,
+		"https://www.pusulaportfoy.com.tr/api/funds?pageSize=200&active=true",
+		nil,
+	)
 	if err != nil {
 		return models.Price{}, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return models.Price{}, fmt.Errorf("pusula returned HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return models.Price{}, fmt.Errorf("read provider response: %w", err)
-	}
 
 	var result struct {
-		Data struct {
-			Price float64 `json:"price"`
-		} `json:"data"`
-		Success bool `json:"success"`
+		Items []struct {
+			Code  string `json:"abbreviation"`
+			Price string `json:"fundPrice"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
 	}
 
-	if !result.Success || result.Data.Price <= 0 {
-		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
+	for _, fund := range result.Items {
+		if strings.EqualFold(fund.Code, strings.TrimSpace(instrumentID)) {
+			value, err := strconv.ParseFloat(fund.Price, 64)
+			if err != nil {
+				return models.Price{}, fmt.Errorf("invalid fund price: %w", err)
+			}
+
+			return checkedQuote(value, "TRY", p.name)
+		}
 	}
 
-	return models.Price{
-		Value:     result.Data.Price,
-		Currency:  "TRY",
-		Source:    p.name,
-		FetchedAt: time.Now().UTC(),
-	}, nil
+	return models.Price{}, fmt.Errorf("fund %s not found", instrumentID)
 }
 
 type GarantiBBVA struct{ baseGetter }
@@ -495,40 +502,92 @@ func NewGarantiBBVA() *GarantiBBVA {
 }
 
 func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.garantibbva.com.tr/api/fund/" + url.PathEscape(instrumentID)
+	code := strings.ToUpper(strings.TrimSpace(instrumentID))
 
-	resp, err := doGet(ctx, g.client, url, nil)
+	const base = "https://www.garantibbvaportfoy.com.tr/"
+
+	body, err := providerRequest(ctx, g.client, base+"webservice/lastdate", map[string]string{})
 	if err != nil {
 		return models.Price{}, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return models.Price{}, fmt.Errorf("garanti bbva returned HTTP %d", resp.StatusCode)
+	var date string
+	if err := json.Unmarshal(body, &date); err != nil {
+		return models.Price{}, err
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	if _, err := time.Parse(time.DateOnly, date); err != nil {
+		return models.Price{}, fmt.Errorf("invalid fund date: %w", err)
+	}
+
+	body, err = providerRequest(
+		ctx,
+		g.client,
+		base+"webservice/funddailyvalues",
+		map[string]string{"lang": "tr", "code": code, "date": date, "rollBack": "T"},
+	)
 	if err != nil {
-		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+		return models.Price{}, err
+	}
+
+	var nested string
+	if json.Unmarshal(body, &nested) == nil {
+		body = []byte(nested)
 	}
 
 	var result struct {
-		Price float64 `json:"price"`
+		Data struct {
+			Close float64 `json:"Close"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
 	}
-
-	if result.Price <= 0 {
-		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
+	// The quote endpoint omits currency; use the provider's fund metadata.
+	body, err = providerRequest(ctx, g.client, base+"fon-getirileri", nil)
+	if err != nil {
+		return models.Price{}, err
 	}
 
-	return models.Price{
-		Value:     result.Price,
-		Currency:  "TRY",
-		Source:    g.name,
-		FetchedAt: time.Now().UTC(),
-	}, nil
+	currency, err := garantiCurrency(body, code)
+	if err != nil {
+		return models.Price{}, err
+	}
+
+	return checkedQuote(result.Data.Close, currency, g.name)
+}
+
+func garantiCurrency(body []byte, code string) (string, error) {
+	tokenizer := html.NewTokenizer(bytes.NewReader(body))
+	for {
+		switch tokenizer.Next() {
+		case html.ErrorToken:
+			return "", fmt.Errorf("quote currency for fund %s not found", code)
+		case html.StartTagToken, html.SelfClosingTagToken:
+			token := tokenizer.Token()
+			if token.Data != "option" {
+				continue
+			}
+
+			var fundCode, currency string
+
+			for _, attr := range token.Attr {
+				switch attr.Key {
+				case "data-code":
+					fundCode = attr.Val
+				case "data-currency":
+					currency = attr.Val
+				default:
+				}
+			}
+
+			if fundCode == code && currency != "" {
+				return currency, nil
+			}
+		case html.TextToken, html.EndTagToken, html.CommentToken, html.DoctypeToken:
+		default:
+		}
+	}
 }
 
 type IZKOGold struct{ baseGetter }
@@ -545,47 +604,53 @@ func NewIZKOGold() *IZKOGold {
 }
 
 func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.izko.com.tr/api/gold-prices"
+	key := strings.ToLower(strings.TrimSpace(instrumentID))
+	multiplier := 1.0
+	source := i.name
 
-	resp, err := doGet(ctx, i.client, url, nil)
+	switch key {
+	case "resat":
+		key = "ata"
+		source += " (Ata proxy)"
+	case "gremse":
+		key = "hasaltin"
+		multiplier = 16
+		source += " (16g has altın estimate)"
+	default:
+	}
+
+	body, err := providerRequest(
+		ctx,
+		i.client,
+		"https://www.izko.org.tr/api/web/v1/gold-prices",
+		nil,
+	)
 	if err != nil {
 		return models.Price{}, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return models.Price{}, fmt.Errorf("izko gold returned HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return models.Price{}, fmt.Errorf("read provider response: %w", err)
-	}
-
-	var result []struct {
-		Name  string  `json:"name"`
-		Price float64 `json:"price"`
+	var result struct {
+		Success bool `json:"success"`
+		Data    []struct {
+			Key  string  `json:"key"`
+			Sell float64 `json:"sell_price"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
 	}
 
-	for _, item := range result {
-		if strings.EqualFold(item.Name, instrumentID) {
-			if item.Price <= 0 {
-				return models.Price{}, fmt.Errorf("invalid gold price for %s", instrumentID)
-			}
+	if !result.Success {
+		return models.Price{}, errors.New("gold provider returned an unsuccessful response")
+	}
 
-			return models.Price{
-				Value:     item.Price,
-				Currency:  "TRY",
-				Source:    i.name,
-				FetchedAt: time.Now().UTC(),
-			}, nil
+	for _, item := range result.Data {
+		if strings.EqualFold(item.Key, key) {
+			return checkedQuote(item.Sell*multiplier, "TRY", source)
 		}
 	}
 
-	return models.Price{}, fmt.Errorf("instrument %s not found", instrumentID)
+	return models.Price{}, fmt.Errorf("gold instrument %s not found", instrumentID)
 }
 
 type TradingViewBIST struct{ baseGetter }
@@ -602,50 +667,12 @@ func NewTradingViewBIST() *TradingViewBIST {
 }
 
 func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := fmt.Sprintf(
-		"https://symbol-search.tradingview.com/symbol_search/?text=%s&type=stock",
-		url.QueryEscape(instrumentID),
-	)
-
-	resp, err := doGet(ctx, t.client, url, nil)
-	if err != nil {
-		return models.Price{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
+	symbol := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(instrumentID)), "BIST:")
+	if symbol == "ALTIN.S1" {
+		symbol = "ALTIN"
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return models.Price{}, fmt.Errorf("read provider response: %w", err)
-	}
-
-	var result []struct {
-		Symbol string  `json:"symbol"`
-		Price  float64 `json:"price"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return models.Price{}, err
-	}
-
-	for _, item := range result {
-		if strings.EqualFold(item.Symbol, instrumentID) {
-			if item.Price <= 0 {
-				return models.Price{}, fmt.Errorf("invalid tradingview price for %s", instrumentID)
-			}
-
-			return models.Price{
-				Value:     item.Price,
-				Currency:  "TRY",
-				Source:    t.name,
-				FetchedAt: time.Now().UTC(),
-			}, nil
-		}
-	}
-
-	return models.Price{}, fmt.Errorf("instrument %s not found", instrumentID)
+	return tradingViewQuote(ctx, &t.baseGetter, "turkey", "BIST:"+symbol, "TRY")
 }
 
 type TradingViewCrypto struct{ baseGetter }
@@ -665,50 +692,139 @@ func (t *TradingViewCrypto) GetPrice(
 	ctx context.Context,
 	instrumentID string,
 ) (models.Price, error) {
-	url := fmt.Sprintf(
-		"https://symbol-search.tradingview.com/symbol_search/?text=%s&type=crypto",
-		url.QueryEscape(instrumentID),
-	)
+	symbol := strings.ToUpper(strings.TrimSpace(instrumentID))
+	symbol = strings.TrimPrefix(strings.TrimPrefix(symbol, "CURRENCY:"), "CRYPTO:")
+	symbol = strings.TrimSuffix(strings.TrimSuffix(symbol, "-USD"), "USD")
 
-	resp, err := doGet(ctx, t.client, url, nil)
+	return tradingViewQuote(ctx, &t.baseGetter, "coin", "CRYPTO:"+symbol+"USD", "USD")
+}
+
+func tradingViewQuote(
+	ctx context.Context,
+	getter *baseGetter,
+	market, ticker, currency string,
+) (models.Price, error) {
+	payload := map[string]any{
+		"symbols": map[string]any{
+			"tickers": []string{ticker},
+			"query":   map[string]any{"types": []string{}},
+		},
+		"columns": []string{"close", "currency"},
+	}
+
+	body, err := providerRequest(
+		ctx,
+		getter.client,
+		"https://scanner.tradingview.com/"+market+"/scan",
+		payload,
+	)
 	if err != nil {
 		return models.Price{}, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return models.Price{}, fmt.Errorf("read provider response: %w", err)
-	}
-
-	var result []struct {
-		Symbol string  `json:"symbol"`
-		Price  float64 `json:"price"`
+	var result struct {
+		Data []struct {
+			Symbol string            `json:"s"`
+			Values []json.RawMessage `json:"d"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
 	}
 
-	for _, item := range result {
-		if strings.EqualFold(item.Symbol, instrumentID) {
-			if item.Price <= 0 {
-				return models.Price{}, fmt.Errorf("invalid tradingview price for %s", instrumentID)
-			}
-
-			return models.Price{
-				Value:     item.Price,
-				Currency:  "USD",
-				Source:    t.name,
-				FetchedAt: time.Now().UTC(),
-			}, nil
+	for _, row := range result.Data {
+		if row.Symbol != ticker || len(row.Values) != 2 {
+			continue
 		}
+
+		var (
+			value         float64
+			quoteCurrency string
+		)
+
+		if err := json.Unmarshal(row.Values[0], &value); err != nil {
+			return models.Price{}, err
+		}
+
+		if err := json.Unmarshal(row.Values[1], &quoteCurrency); err != nil {
+			return models.Price{}, err
+		}
+
+		if quoteCurrency != currency {
+			return models.Price{}, fmt.Errorf(
+				"unexpected quote currency %q for %s",
+				quoteCurrency,
+				ticker,
+			)
+		}
+
+		return checkedQuote(value, currency, getter.name)
 	}
 
-	return models.Price{}, fmt.Errorf("instrument %s not found", instrumentID)
+	return models.Price{}, fmt.Errorf("instrument %s not found", ticker)
+}
+
+func checkedQuote(value float64, currency, source string) (models.Price, error) {
+	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return models.Price{}, errors.New("provider returned an invalid price")
+	}
+
+	return models.Price{
+		Value:     value,
+		Currency:  currency,
+		Source:    source,
+		FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
+func providerRequest(
+	ctx context.Context,
+	client *http.Client,
+	target string,
+	payload any,
+) ([]byte, error) {
+	method := http.MethodGet
+
+	var body io.Reader = http.NoBody
+
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+
+		body = bytes.NewReader(data)
+		method = http.MethodPost
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
+	if err != nil {
+		return nil, redactURLError(err)
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("Accept", "application/json")
+
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, redactURLError(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("price provider returned HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read provider response: %w", err)
+	}
+
+	return data, nil
 }
 
 type CoinGecko struct{ baseGetter }

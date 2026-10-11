@@ -16,11 +16,23 @@ func TestIZKOValidatesQuotes(t *testing.T) {
 		status  int
 		wantErr bool
 	}{
-		{name: "server error", status: http.StatusInternalServerError, body: `[{"name":"Gram","price":100}]`, wantErr: true},
-		{name: "negative", status: http.StatusOK, body: `[{"name":"Gram","price":-100}]`, wantErr: true},
-		{name: "zero", status: http.StatusOK, body: `[{"name":"Gram","price":0}]`, wantErr: true},
-		{name: "missing", status: http.StatusOK, body: `[{"name":"Gram"}]`, wantErr: true},
-		{name: "valid", status: http.StatusOK, body: `[{"name":"Gram","price":100}]`, wantErr: false},
+		{
+			name: "server error", status: http.StatusInternalServerError,
+			body:    `{"success":true,"data":[{"key":"gram","sell_price":100}]}`,
+			wantErr: true,
+		},
+		{
+			name: "negative", status: http.StatusOK,
+			body:    `{"success":true,"data":[{"key":"gram","sell_price":-100}]}`,
+			wantErr: true,
+		},
+		{name: "zero", status: http.StatusOK, body: `{"success":true,"data":[{"key":"gram","sell_price":0}]}`, wantErr: true},
+		{name: "missing", status: http.StatusOK, body: `{"success":true,"data":[{"key":"gram"}]}`, wantErr: true},
+		{
+			name: "valid", status: http.StatusOK,
+			body:    `{"success":true,"data":[{"key":"gram","sell_price":100}]}`,
+			wantErr: false,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

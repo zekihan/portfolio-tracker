@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="dashboard" hx-ext="json-body,response-targets">
+<div class="dashboard" hx-ext="json-body">
     <!-- Value Cards -->
     <section class="value-cards" aria-labelledby="value-heading">
         <h2 id="value-heading" class="visually-hidden">Portfolio Value</h2>
@@ -7,15 +7,15 @@
             <article class="card value-card">
                 <header class="card-header">
                     <h3>Current Value</h3>
-                    <span class="badge badge-info" id="stale-badge" style="display: none;">{{.Data.StaleCount}} stale</span>
-                    <span class="badge badge-error" id="failed-badge" style="display: none;">{{.Data.FailedCount}} failed</span>
+                    <span class="badge badge-info" id="stale-badge" {{if not .Data.StaleCount}}hidden{{end}}>{{.Data.StaleCount}} stale</span>
+                    <span class="badge badge-error" id="failed-badge" {{if not .Data.FailedCount}}hidden{{end}}>{{.Data.FailedCount}} failed</span>
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="current-value-try">
-                        {{formatCurrency .Data.CurrentValueTRY "TRY"}}
+                        {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{else}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{end}}
                     </div>
                     <div class="value-secondary" id="current-value-usd">
-                        ≈ {{formatCurrency .Data.CurrentValueUSD "USD"}} (1 USD={{formatNumber .Data.USDTRYRate}})
+                        ≈ {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{else}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{end}} (1 USD={{formatNumber .Data.USDTRYRate}})
                     </div>
                 </div>
                 <footer class="card-footer">
@@ -32,10 +32,13 @@
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="estimated-value-try">
-                        {{formatCurrency .Data.EstimatedValueTRY "TRY"}}
+                        {{if .Data.CoverageCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}—{{end}}
                     </div>
                     <div class="value-secondary" id="estimated-value-usd">
-                        Diff: {{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}
+                        {{if and .Data.CoverageCount (eq .Data.CoverageCount .Data.TotalHoldings)}}
+                        Diff: {{if eq .DisplayCurrency "USD"}}{{formatCurrency (sub .Data.EstimatedValueUSD .Data.CurrentValueUSD) "USD"}}{{else}}{{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}{{end}}
+                        {{else if .Data.CoverageCount}}Partial estimate — add prices for the remaining holdings to compare totals.
+                        {{else}}Add estimated prices to your holdings to compare values.{{end}}
                     </div>
                 </div>
                 <footer class="card-footer">
@@ -91,7 +94,7 @@
             <article class="card">
                 <header class="card-header">
                     <h3>Price Source Health</h3>
-                    <button class="btn btn-sm btn-ghost" hx-get="/api/sources/providers" hx-target="#provider-health" hx-swap="innerHTML" hx-trigger="load, every 60s">
+                    <button class="btn btn-sm btn-ghost" id="refresh-provider-health" aria-label="Refresh provider health">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="23 4 23 10 17 10"></polyline>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>

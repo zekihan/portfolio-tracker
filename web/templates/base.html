@@ -1,6 +1,6 @@
 {{define "layout"}}
 <!DOCTYPE html>
-<html lang="en" data-theme="{{.Theme}}" data-currency="{{.DisplayCurrency}}">
+<html lang="en" data-theme="{{.Theme}}" data-theme-preference="{{.Theme}}" data-currency="{{.DisplayCurrency}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,18 +8,17 @@
     
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.10" integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/htmx.org/dist/ext/response-targets.js"></script>
     
     <!-- Chart.js -->
-    <script src="/static/chart.min.js"></script>
+    <script src="{{assetURL "chart.min.js"}}"></script>
     
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="{{assetURL "style.css"}}">
     
     <!-- Theme detection -->
     <script>
         (function() {
-            var theme = localStorage.getItem('theme') || 'system';
+            var theme = localStorage.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
             var root = document.documentElement;
             if (theme === 'system') {
                 theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -41,7 +40,7 @@
             </a>
         </div>
         
-        <nav class="header-nav" role="navigation" aria-label="Main navigation">
+        <nav id="mobile-nav" class="header-nav" role="navigation" aria-label="Main navigation">
             <a href="/" class="nav-link {{if eq .ActivePage "dashboard"}}active{{end}}" aria-current="{{if eq .ActivePage "dashboard"}}page{{end}}">Overview</a>
             <a href="/holdings" class="nav-link {{if eq .ActivePage "holdings"}}active{{end}}" aria-current="{{if eq .ActivePage "holdings"}}page{{end}}">Holdings</a>
             <a href="/history" class="nav-link {{if eq .ActivePage "history"}}active{{end}}" aria-current="{{if eq .ActivePage "history"}}page{{end}}">History</a>
@@ -143,8 +142,19 @@
     <!-- Modal container -->
     <div id="modal-container"></div>
 
+    <dialog id="confirm-action" class="confirm-dialog" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-message">
+        <form method="dialog">
+            <h2 id="confirm-action-title">Confirm action</h2>
+            <p id="confirm-action-message"></p>
+            <div class="restore-actions">
+                <button class="btn btn-secondary" value="cancel" autofocus>Cancel</button>
+                <button class="btn btn-danger" id="confirm-action-submit" value="confirm">Continue</button>
+            </div>
+        </form>
+    </dialog>
+
     <!-- Scripts -->
-    <script src="/static/app.js"></script>
+    <script src="{{assetURL "app.js"}}"></script>
 </body>
 </html>
 {{end}}
