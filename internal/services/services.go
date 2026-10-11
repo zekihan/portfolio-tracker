@@ -118,7 +118,10 @@ func (s *HoldingService) GetWithPrices(
 		return nil, err
 	}
 
-	usdTryRate, _ := s.priceSvc.GetUSDTTRYRate(ctx)
+	usdTryRate, err := s.priceSvc.GetUSDTTRYRate(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]models.HoldingWithPrice, 0, len(holdings))
 	for _, h := range holdings {
@@ -313,7 +316,10 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return err
 	}
 
-	usdTryRate, _ := s.priceSvc.GetUSDTTRYRate(ctx)
+	usdTryRate, err := s.priceSvc.GetUSDTTRYRate(ctx)
+	if err != nil {
+		return err
+	}
 
 	var totalTRY, totalUSD float64
 
