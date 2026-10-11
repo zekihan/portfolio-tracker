@@ -537,8 +537,9 @@ const PortfolioApp = (function() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
           body: JSON.stringify(data)
-        }).then(() => {
-          // Reload row or update
+        }).then(response => {
+          if (!response.ok) throw new Error(`Holding update failed: HTTP ${response.status}`);
+          // Display the new value only after the server accepts the update.
           td.textContent = formatDisplayValue(newValue, field);
         }).catch(() => {
           td.textContent = currentValue;

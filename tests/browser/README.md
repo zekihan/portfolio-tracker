@@ -27,4 +27,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `inline-text.js` opens basket, location, and notes editors on a populated holdings page, verifies spaces, commas, and currency symbols survive, and checks Escape restores the text. It uses DOM-only fixtures, cancels without saving, and restores the original cells.
 
+`inline-rejection.js` verifies that a real rejected partial PUT restores the original cell display and leaves the holding unchanged when re-read from the API. Run only against a disposable populated fixture. Inline saves currently send partial data to a full-record PUT endpoint; this regression covers honest error handling, not successful partial-update support.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.
