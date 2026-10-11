@@ -351,9 +351,16 @@ func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
 }
 
 func (s *Service) GetHoldingProviderMapping() ([]HoldingProviderMapping, error) {
+	return s.GetHoldingProviderMappingContext(context.Background())
+}
+
+func (s *Service) GetHoldingProviderMappingContext(
+	ctx context.Context,
+) ([]HoldingProviderMapping, error) {
 	var holdings []models.Holding
 
-	err := s.db.Select(
+	err := s.db.SelectContext(
+		ctx,
 		&holdings,
 		"SELECT id, name, price_provider, instrument_id FROM holdings ORDER BY name",
 	)

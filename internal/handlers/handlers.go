@@ -512,7 +512,7 @@ func (handler *Handler) getProviders(ctx *gin.Context) {
 }
 
 func (handler *Handler) getProviderMapping(ctx *gin.Context) {
-	mapping, err := handler.priceSvc.GetHoldingProviderMapping()
+	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
@@ -809,7 +809,7 @@ func (handler *Handler) pageSources(ctx *gin.Context) {
 		providers = []models.ProviderHealth{}
 	}
 
-	mapping, err := handler.priceSvc.GetHoldingProviderMapping()
+	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
 	if err != nil {
 		mapping = []price.HoldingProviderMapping{}
 	}
