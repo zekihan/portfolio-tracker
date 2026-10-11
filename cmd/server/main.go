@@ -68,7 +68,7 @@ func main() {
 	// Setup snapshot cron with leader election.
 	cronScheduler := cron.New(cron.WithSeconds())
 
-	_, addErr := cronScheduler.AddFunc("0 * * * * *", func() {
+	_, addErr := cronScheduler.AddFunc(snapshotSchedule, func() {
 		if acquireSnapshotLock(database) {
 			ctx, cancel := context.WithTimeout(context.Background(), snapshotTimeout)
 			defer cancel()
@@ -137,7 +137,8 @@ func main() {
 }
 
 const (
-	snapshotTimeout = 5 * time.Minute
+	snapshotSchedule = "@hourly"
+	snapshotTimeout  = 5 * time.Minute
 	// SnapshotLockTimeout is the maximum age of a snapshot lock before it is
 	// considered stale and reclaimed. It is twice the snapshot timeout so a
 	// healthy snapshot (which should finish within snapshotTimeout) is never
