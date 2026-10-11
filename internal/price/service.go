@@ -250,22 +250,22 @@ func (s *Service) cachePriceContext(
 
 func (s *Service) recordFailure(provider string, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.failures[provider]++
 	s.lastFail[provider] = time.Now()
-
-	// Update cache with error.
-	_, _ = s.db.Exec(`
-		UPDATE price_cache SET error_count = error_count + 1, last_error = ?
-		WHERE provider = ?
-	`, err.Error(), provider)
 
 	// Open circuit breaker after 3 failures.
 	if s.failures[provider] >= 3 {
 		s.breakers[provider] = true
 		slog.Warn("circuit breaker opened", "provider", provider, "failures", s.failures[provider])
 	}
+
+	s.mu.Unlock()
+
+	// Database waits must not block other providers' health state.
+	_, _ = s.db.Exec(`
+		UPDATE price_cache SET error_count = error_count + 1, last_error = ?
+		WHERE provider = ?
+	`, err.Error(), provider)
 }
 
 func (s *Service) recordSuccess(provider string) {
