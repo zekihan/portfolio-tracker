@@ -137,12 +137,18 @@ func main() {
 }
 
 const (
-	snapshotTimeout   = 5 * time.Minute
-	readTimeout       = 30 * time.Second
-	writeTimeout      = 30 * time.Second
-	idleTimeout       = 120 * time.Second
-	readHeaderTimeout = 10 * time.Second
-	shutdownTimeout   = 10 * time.Second
+	snapshotTimeout = 5 * time.Minute
+	// SnapshotLockTimeout is the maximum age of a snapshot lock before it is
+	// considered stale and reclaimed. It is twice the snapshot timeout so a
+	// healthy snapshot (which should finish within snapshotTimeout) is never
+	// falsely reclaimed, while a crashed process does not block snapshots
+	// indefinitely.
+	snapshotLockTimeout = 2 * snapshotTimeout
+	readTimeout         = 30 * time.Second
+	writeTimeout        = 30 * time.Second
+	idleTimeout         = 120 * time.Second
+	readHeaderTimeout   = 10 * time.Second
+	shutdownTimeout     = 10 * time.Second
 )
 
 func getEnv(key, defaultValue string) string {
@@ -172,10 +178,36 @@ func acquireSnapshotLock(database *sqlx.DB) bool {
 		return false
 	}
 
-	// Check if we got the lock (the row was inserted by us).
 	rowsAffected, err := res.RowsAffected()
 	if err != nil || rowsAffected == 0 {
-		return false
+		// Lock already held by another instance — check whether it is stale.
+		var acquiredAt time.Time
+
+		err = tx.GetContext(context.Background(), &acquiredAt,
+			"SELECT acquired_at FROM snapshot_lock WHERE id = 1")
+		if err != nil {
+			return false
+		}
+
+		// A healthy snapshot completes within snapshotTimeout; a lock older
+		// than snapshotLockTimeout was left by a crashed process.
+		if time.Since(acquiredAt) < snapshotLockTimeout {
+			return false
+		}
+
+		// Stale lock: remove it and re-acquire.
+		_, err = tx.Exec("DELETE FROM snapshot_lock WHERE id = 1")
+		if err != nil {
+			return false
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO snapshot_lock (id, acquired_at)
+			VALUES (1, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			return false
+		}
 	}
 
 	// Commit the transaction to hold the lock.
