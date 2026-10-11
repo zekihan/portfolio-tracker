@@ -21,4 +21,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `chart-refresh-selection.js` runs on a freshly loaded dashboard. It dispatches the real `portfolio-updated` event, verifies default views remain selected, then clicks non-default tabs and requires a subsequent event to redraw both charts without resetting the selections. Run in TRY and USD.
 
+`dropdown-swaps.js` runs on a fresh holdings page containing a holding. It verifies toggle behavior before and after three dispatched `htmx:afterSwap` events, then verifies delegated handling of a newly inserted dropdown and outside-click closure. It does not change persisted holdings.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

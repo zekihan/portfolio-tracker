@@ -630,8 +630,8 @@ const PortfolioApp = (function() {
 
   // HTMX event handlers
   function onHtmxAfterSwap(e) {
-    // Re-initialize components in swapped content
-    initDropdowns();
+    // Dropdown clicks are delegated on document; no rebinding is needed.
+    // Re-initialize element-bound components in swapped content.
     initTableInteractions();
     
     // Trigger chart updates if needed
