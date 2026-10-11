@@ -305,11 +305,14 @@ func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
 		// Get last successful fetch from cache.
 		var lastOK sql.NullTime
 
-		_ = s.db.Get(&lastOK, `
+		err = s.db.Get(&lastOK, `
 			SELECT fetched_at FROM price_cache
 			WHERE provider = ? AND error_count = 0
 			ORDER BY fetched_at DESC LIMIT 1
 		`, p.Name)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
 
 		status := "✓ Active"
 		errorMsg := ""
@@ -322,11 +325,15 @@ func (s *Service) GetProviderHealth() ([]models.ProviderHealth, error) {
 			// Get last error.
 			var lastErr string
 
-			_ = s.db.Get(
+			err = s.db.Get(
 				&lastErr,
 				"SELECT last_error FROM price_cache WHERE provider = ? ORDER BY fetched_at DESC LIMIT 1",
 				p.Name,
 			)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, err
+			}
+
 			errorMsg = lastErr
 		}
 
