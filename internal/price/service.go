@@ -161,7 +161,11 @@ func (s *Service) getCachedPrice(provider, instrumentID string) (*models.PriceCa
 		return nil, nil
 	}
 
-	return &entry, err
+	if err != nil {
+		return nil, err
+	}
+
+	return &entry, nil
 }
 
 func (s *Service) cachePrice(
