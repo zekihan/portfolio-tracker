@@ -689,6 +689,10 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 	}
 
 	if rate, ok := result.Rates["TRY"]; ok {
+		if rate <= 0 {
+			return models.Price{}, fmt.Errorf("invalid TRY rate for %s", instrumentID)
+		}
+
 		return models.Price{
 			Value:     rate,
 			Currency:  "TRY",
