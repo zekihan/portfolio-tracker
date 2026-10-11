@@ -222,10 +222,16 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 			Price    string `json:"05. price"`
 			Currency string `json:"08. currency"`
 		} `json:"Global Quote"`
-		Note string `json:"Note"`
+		Note         string `json:"Note"`
+		ErrorMessage string `json:"Error Message"`
+		Information  string `json:"Information"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
+	}
+
+	if result.ErrorMessage != "" || result.Information != "" {
+		return models.Price{}, fmt.Errorf("alpha vantage API error for %s", instrumentID)
 	}
 
 	if result.Note != "" {

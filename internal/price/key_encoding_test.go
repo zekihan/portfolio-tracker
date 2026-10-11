@@ -21,6 +21,7 @@ func TestProviderKeysPreserveQueryParameters(t *testing.T) {
 			body: `{"Global Quote":{"05. price":"100","08. currency":"USD"}}`,
 			create: func() (Getter, *http.Client) {
 				g := NewAlphaVantage()
+
 				return g, g.client
 			},
 		},
@@ -28,6 +29,7 @@ func TestProviderKeysPreserveQueryParameters(t *testing.T) {
 			name: "Twelve Data", env: "TWELVE_DATA_KEY", body: `{"price":"100","currency":"USD"}`,
 			create: func() (Getter, *http.Client) {
 				g := NewTwelveData()
+
 				return g, g.client
 			},
 		},
