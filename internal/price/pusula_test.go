@@ -18,16 +18,24 @@ func TestPusulaValidatesQuotes(t *testing.T) {
 	}{
 		{
 			name: "rate limited", status: http.StatusTooManyRequests,
-			body: `{"success":true,"data":{"price":100}}`, wantErr: true,
+			body: `{"items":[{"abbreviation":"TEST","fundPrice":"100"}]}`, wantErr: true,
 		},
 		{
 			name: "server error", status: http.StatusInternalServerError,
-			body: `{"success":true,"data":{"price":100}}`, wantErr: true,
+			body: `{"items":[{"abbreviation":"TEST","fundPrice":"100"}]}`, wantErr: true,
 		},
-		{name: "negative", status: http.StatusOK, body: `{"success":true,"data":{"price":-100}}`, wantErr: true},
-		{name: "missing", status: http.StatusOK, body: `{"success":true,"data":{}}`, wantErr: true},
-		{name: "unsuccessful", status: http.StatusOK, body: `{"success":false,"data":{"price":100}}`, wantErr: true},
-		{name: "valid", status: http.StatusOK, body: `{"success":true,"data":{"price":100}}`, wantErr: false},
+		{
+			name: "negative", status: http.StatusOK,
+			body:    `{"items":[{"abbreviation":"TEST","fundPrice":"-100"}]}`,
+			wantErr: true,
+		},
+		{name: "missing", status: http.StatusOK, body: `{"items":[]}`, wantErr: true},
+		{
+			name: "unsuccessful", status: http.StatusOK,
+			body:    `{"items":[{"abbreviation":"OTHER","fundPrice":"100"}]}`,
+			wantErr: true,
+		},
+		{name: "valid", status: http.StatusOK, body: `{"items":[{"abbreviation":"TEST","fundPrice":"100"}]}`, wantErr: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

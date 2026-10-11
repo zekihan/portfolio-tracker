@@ -72,3 +72,42 @@ func TestYahooFinanceRejectsHTTPFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestYahooFinanceAcceptsExchangePrefixes(t *testing.T) {
+	t.Parallel()
+
+	for _, symbol := range []string{"NASDAQ:TEAM", "nasdaq:TEAM", "TEAM"} {
+		t.Run(symbol, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != "/v8/finance/chart/TEAM" {
+						t.Errorf("unexpected path: %s", r.URL.Path)
+					}
+
+					_, _ = w.Write(
+						[]byte(
+							`{"chart":{"result":[{"meta":{"regularMarketPrice":206.79,"currency":"USD"}}]}}`,
+						),
+					)
+				}),
+			)
+			defer server.Close()
+
+			target, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			getter := NewYahooFinance()
+
+			getter.client.Transport = &localProviderTransport{target: target}
+
+			_, err = getter.GetPrice(t.Context(), symbol)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

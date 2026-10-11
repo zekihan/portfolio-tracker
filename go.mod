@@ -8,6 +8,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.35.1
+	golang.org/x/net v0.61.0
 )
 
 require (
@@ -37,7 +38,6 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.9.2 // indirect
 	golang.org/x/arch v0.32.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
