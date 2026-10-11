@@ -153,6 +153,10 @@ func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) err
 	var refreshErrors []error
 
 	for _, h := range holdings {
+		if ctx.Err() != nil {
+			break
+		}
+
 		if h.PriceProvider == "" || h.PriceProvider == "Manual" {
 			continue
 		}
@@ -172,7 +176,7 @@ func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) err
 		}
 	}
 
-	return errors.Join(refreshErrors...)
+	return errors.Join(errors.Join(refreshErrors...), ctx.Err())
 }
 
 func (s *Service) TestProvider(
