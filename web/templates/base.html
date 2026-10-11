@@ -10,10 +10,10 @@
     <script src="https://unpkg.com/htmx.org@1.9.10" integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC" crossorigin="anonymous"></script>
     
     <!-- Chart.js -->
-    <script src="/static/chart.min.js"></script>
+    <script src="{{assetURL "chart.min.js"}}"></script>
     
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="{{assetURL "style.css"}}">
     
     <!-- Theme detection -->
     <script>
@@ -143,7 +143,7 @@
     <div id="modal-container"></div>
 
     <!-- Scripts -->
-    <script src="/static/app.js"></script>
+    <script src="{{assetURL "app.js"}}"></script>
 </body>
 </html>
 {{end}}

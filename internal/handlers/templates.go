@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,6 +23,20 @@ type pageRenderer struct {
 }
 
 func newPageRenderer(funcs template.FuncMap) *pageRenderer {
+	assets := make(map[string]string)
+
+	for _, name := range []string{"app.js", "style.css", "chart.min.js"} {
+		content, err := os.ReadFile(filepath.Join("web", "static", name))
+		if err != nil {
+			panic(err)
+		}
+
+		digest := sha256.Sum256(content)
+		assets[name] = fmt.Sprintf("/static/%s?v=%x", name, digest[:8])
+	}
+
+	funcs["assetURL"] = func(name string) string { return assets[name] }
+
 	base := template.Must(
 		template.New("base.html").Funcs(funcs).ParseFiles("web/templates/base.html"),
 	)

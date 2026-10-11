@@ -870,8 +870,15 @@ const PortfolioApp = (function() {
     if (field === 'basket' || field === 'location') {
       input = document.createElement('input');
       input.type = 'text';
-      input.setAttribute('list', `${field}-list`);
-      // Would need to fetch existing values for datalist
+      const filter = document.querySelector(`select[data-filter="${field}"]`);
+      let list = document.getElementById(`${field}-list`);
+      if (!list) {
+        list = document.createElement('datalist');
+        list.id = `${field}-list`;
+        [...(filter?.options || [])].filter(option => option.value).forEach(option => list.appendChild(option.cloneNode(true)));
+        document.body.appendChild(list);
+      }
+      input.setAttribute('list', list.id);
     } else if (field === 'quantity' || field === 'est_price') {
       input = document.createElement('input');
       input.type = 'number';
@@ -883,8 +890,8 @@ const PortfolioApp = (function() {
     }
 
     const numericField = field === 'quantity' || field === 'est_price';
-    const editValue = numericField ? (td.dataset.sortValue ?? currentValue.replace(/[₺$,\s]/g, '')) : currentValue;
-    input.value = numericField ? editValue : currentValue;
+    const editValue = numericField ? (td.dataset.sortValue ?? currentValue.replace(/[₺$,\s]/g, '')) : (td.dataset.editValue ?? currentValue);
+    input.value = editValue;
     input.className = 'inline-edit-input';
     input.style.cssText = 'width: 100%; padding: 4px 8px; border: 1px solid var(--border-focus); border-radius: 4px; background: var(--bg-primary); font-family: inherit; font-size: inherit;';
 
@@ -912,8 +919,9 @@ const PortfolioApp = (function() {
           if (!response.ok) throw new Error(`Holding update failed: HTTP ${response.status}`);
           // Display the new value only after the server accepts the update.
           if (numericField) td.dataset.sortValue = newValue;
+          else td.dataset.editValue = newValue;
           td.textContent = formatDisplayValue(newValue, field);
-          if (numericField) window.location.reload();
+          window.location.reload();
         }).catch(() => {
           td.textContent = currentValue;
           showToast('Unable to save this value. Please try again.', 'error');

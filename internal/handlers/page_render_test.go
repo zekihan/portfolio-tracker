@@ -65,7 +65,7 @@ func TestPageRoutesRenderTheirOwnContent(t *testing.T) {
 			}
 
 			if strings.Contains(body, "PortfolioApp.init(") ||
-				strings.Count(body, `src="/static/app.js"`) != 1 {
+				strings.Count(body, `src="/static/app.js?v=`) != 1 {
 				t.Error("page must use only app.js automatic bootstrap")
 			}
 
