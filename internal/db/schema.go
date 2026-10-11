@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -138,8 +140,45 @@ var Migrations = []string{
 	`,
 }
 
+func sqliteDSN(dbPath string) (string, error) {
+	if dbPath == "" || dbPath == ":memory:" {
+		return dbPath + "?_foreign_keys=on&_busy_timeout=5000", nil
+	}
+
+	var (
+		uri *url.URL
+		err error
+	)
+	if strings.HasPrefix(dbPath, "file:") {
+		uri, err = url.Parse(dbPath)
+	} else {
+		var absolute string
+
+		absolute, err = filepath.Abs(dbPath)
+		uri = new(url.URL)
+		uri.Scheme = "file"
+		uri.Path = absolute
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("database path: %w", err)
+	}
+
+	options := uri.Query()
+	options.Set("_foreign_keys", "on")
+	options.Set("_busy_timeout", "5000")
+	uri.RawQuery = options.Encode()
+
+	return uri.String(), nil
+}
+
 func Open(dbPath string) (*sqlx.DB, error) {
-	db, err := sqlx.Open("sqlite3", dbPath+"?_foreign_keys=on&_busy_timeout=5000")
+	dsn, err := sqliteDSN(dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sqlx.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
