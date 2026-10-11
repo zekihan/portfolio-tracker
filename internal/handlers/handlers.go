@@ -166,6 +166,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	api.GET("/holdings/:id", handler.getHolding)
 	api.POST("/holdings", handler.createHolding)
 	api.PUT("/holdings/:id", handler.updateHolding)
+	api.PATCH("/holdings/:id", handler.patchHolding)
 	api.PATCH("/holdings/:id/est-price", handler.updateEstPrice)
 	api.PATCH("/holdings/:id/manual-price", handler.updateManualPrice)
 	api.DELETE("/holdings/:id/manual-price", handler.clearManualPrice)

@@ -528,13 +528,13 @@ const PortfolioApp = (function() {
 
     const save = () => {
       const newValue = input.value.trim();
-      if (newValue !== currentValue && newValue !== '') {
+      if (newValue !== currentValue && (newValue !== '' || !numericField)) {
         // Send update via HTMX
         const url = `/api/holdings/${holdingId}`;
         const data = { [field]: field === 'quantity' || field === 'est_price' ? parseFloat(newValue) : newValue };
         
         fetch(url, {
-          method: 'PUT',
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
           body: JSON.stringify(data)
         }).then(response => {
