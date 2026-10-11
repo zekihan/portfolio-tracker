@@ -603,8 +603,3 @@ func (s *SettingsService) SetDarkMode(ctx context.Context, mode string) error {
 func (s *SettingsService) SetRefreshInterval(ctx context.Context, interval int) error {
 	return db.SetSettingContext(ctx, s.db, "refresh_interval", strconv.Itoa(interval))
 }
-
-func (s *SettingsService) GetBackup(ctx context.Context) ([]byte, error) {
-	// Use SQLite backup API.
-	return nil, errors.New("not implemented")
-}

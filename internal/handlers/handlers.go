@@ -840,12 +840,8 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 		locations = []string{}
 	}
 
-	// Get unique asset types.
-	var assetTypes []string
-
-	_, _ = handler.holdingSvc.GetAll(requestCtx) //nolint:errcheck // This will populate the db
-	// For now, hardcode based on model.
-	assetTypes = []string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"}
+	// Hardcoded from the model's AssetType constants.
+	assetTypes := []string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"}
 
 	ctx.HTML(http.StatusOK, "history.html", gin.H{
 		"ChartData":       chartData,

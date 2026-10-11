@@ -17,8 +17,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const SchemaVersion = 6
-
 var errUnsupportedSchemaVersion = errors.New("unsupported schema version")
 
 var Migrations = []string{
