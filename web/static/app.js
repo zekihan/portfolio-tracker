@@ -292,7 +292,8 @@ const PortfolioApp = (function() {
   }
 
   function loadAllocationChart(type) {
-    fetch(`/api/dashboard/allocation?type=${type}`)
+    const params = new URLSearchParams({ type, currency: state.displayCurrency });
+    fetch(`/api/dashboard/allocation?${params}`)
       .then(r => r.json())
       .then(data => renderAllocationChart(data, type))
       .catch(e => console.error('Failed to load allocation chart:', e));

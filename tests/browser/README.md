@@ -11,4 +11,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `dashboard.js` runs on `/` and verifies that the obsolete unexported initialization call is absent and both charts initialize through the normal bootstrap within five seconds.
 
+`allocation-currency.js` compares the refreshed Asset Type chart total with the real API's selected-currency total. Run it on both `/?currency=TRY` and `/?currency=USD` with a nonzero portfolio and valid cached FX. The test changes the selected allocation view to Asset Type, without mutating holdings.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.
