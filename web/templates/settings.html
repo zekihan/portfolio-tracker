@@ -54,6 +54,17 @@
             </div>
         </div>
         <p class="setting-note">Backups include all holdings, snapshots, and settings. Restore will replace all data.</p>
+        <section id="restore-review" class="restore-review" aria-labelledby="restore-review-heading" hidden>
+            <h3 id="restore-review-heading">Confirm restore</h3>
+            <p id="restore-filename"></p>
+            <p>This replaces all current holdings, snapshots, and settings with the selected backup. Download a backup first if you want to keep the current data.</p>
+            <div class="restore-actions">
+                <button type="button" class="btn btn-secondary" id="restore-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="restore-confirm">Restore backup</button>
+            </div>
+            <p id="restore-error" class="text-error" role="alert" hidden></p>
+        </section>
+        <p id="backup-status" role="status"></p>
     </section>
 
     <!-- About -->

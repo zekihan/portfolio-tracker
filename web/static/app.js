@@ -119,6 +119,11 @@ const PortfolioApp = (function() {
   }
 
   function initDisplaySettings() {
+    const backupStatus = document.getElementById('backup-status');
+    if (backupStatus) {
+      backupStatus.textContent = sessionStorage.getItem('portfolio-restore-success') || '';
+      sessionStorage.removeItem('portfolio-restore-success');
+    }
     const clear = document.getElementById('clear-all-data');
     clear?.addEventListener('click', async () => {
       if (!window.confirm('This will delete ALL holdings, snapshots, and settings. Are you absolutely sure?')) return;
@@ -1177,42 +1182,58 @@ if (document.readyState === 'loading') {
 
 // Export for global access
 window.PortfolioApp = PortfolioApp;
-// Restore from a backup file chosen on the settings page.
-document.addEventListener('change', async (event) => {
-  const input = event.target;
-  if (!input || input.id !== 'restore-file' || !input.files || input.files.length === 0) return;
-
-  const file = input.files[0];
-  input.value = '';
-
-  if (!window.confirm('Restore will replace ALL current holdings, snapshots, and settings. Continue?')) return;
-
-  const button = document.getElementById('restore-btn');
-  if (button.disabled) return;
-  button.disabled = true;
-  button.setAttribute('aria-busy', 'true');
-  const label = button.textContent;
-  button.textContent = 'Restoring…';
-
-  const form = new FormData();
-  form.append('file', file);
-
-  try {
-    const response = await fetch('/api/settings/restore', {
-      method: 'POST',
-      body: form,
-      headers: { 'X-Restore-Confirm': 'restore' },
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
-
-    localStorage.removeItem('theme');
-    window.location.assign('/settings');
-  } catch (err) {
-    window.PortfolioApp.showToast(err.message, 'error');
-  } finally {
-    button.disabled = false;
-    button.removeAttribute('aria-busy');
-    button.textContent = label;
-  }
-});
+// Keep the selected file local until the user confirms the restore.
+(() => {
+  let pendingFile;
+  let restoring = false;
+  document.addEventListener('change', event => {
+    const input = event.target;
+    if (input.id !== 'restore-file' || !input.files?.length || restoring) return;
+    pendingFile = input.files[0];
+    input.value = '';
+    document.getElementById('restore-filename').textContent = pendingFile.name;
+    document.getElementById('restore-error').hidden = true;
+    document.getElementById('backup-status').textContent = '';
+    document.getElementById('restore-review').hidden = false;
+    document.getElementById('restore-cancel').focus();
+  });
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('#restore-cancel, #restore-confirm');
+    if (!button || restoring) return;
+    if (button.id === 'restore-cancel') {
+      pendingFile = undefined;
+      document.getElementById('restore-review').hidden = true;
+      document.getElementById('restore-btn').focus();
+      return;
+    }
+    if (!pendingFile) return;
+    restoring = true;
+    const controls = ['restore-btn', 'restore-cancel', 'restore-confirm'].map(id => document.getElementById(id));
+    controls.forEach(control => { control.disabled = true; });
+    const review = document.getElementById('restore-review');
+    const error = document.getElementById('restore-error');
+    review.setAttribute('aria-busy', 'true');
+    error.hidden = true;
+    button.textContent = 'Restoring…';
+    const form = new FormData();
+    form.append('file', pendingFile);
+    try {
+      const response = await fetch('/api/settings/restore', {
+        method: 'POST', body: form, headers: { 'X-Restore-Confirm': 'restore' }
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
+      localStorage.removeItem('theme');
+      sessionStorage.setItem('portfolio-restore-success', 'Backup restored successfully.');
+      window.location.assign('/settings');
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+    } finally {
+      restoring = false;
+      controls.forEach(control => { control.disabled = false; });
+      review.removeAttribute('aria-busy');
+      button.textContent = 'Restore backup';
+    }
+  });
+})();
