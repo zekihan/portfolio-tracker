@@ -166,12 +166,21 @@ func (s *Service) TestProvider(
 	ctx context.Context,
 	providerName, instrumentID string,
 ) (models.Price, error) {
+	if ctx.Err() != nil {
+		return models.Price{}, ctx.Err()
+	}
+
 	getter, ok := s.registry.Get(providerName)
 	if !ok {
 		return models.Price{}, fmt.Errorf("provider %s not found", providerName)
 	}
 
-	return getter.GetPrice(ctx, instrumentID)
+	quote, err := getter.GetPrice(ctx, instrumentID)
+	if ctx.Err() != nil {
+		return models.Price{}, ctx.Err()
+	}
+
+	return quote, err
 }
 
 func (s *Service) getCachedPrice(provider, instrumentID string) (*models.PriceCacheEntry, error) {

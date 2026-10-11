@@ -40,6 +40,7 @@ func TestFundProvidersPreserveInstrumentPaths(t *testing.T) {
 			name: "Pusula", body: `{"success":true,"data":{"price":100}}`,
 			create: func() (Getter, *http.Client) {
 				g := NewPusulaPortfoy()
+
 				return g, g.client
 			},
 		},
@@ -47,6 +48,7 @@ func TestFundProvidersPreserveInstrumentPaths(t *testing.T) {
 			name: "Garanti", body: `{"price":100}`,
 			create: func() (Getter, *http.Client) {
 				g := NewGarantiBBVA()
+
 				return g, g.client
 			},
 		},
