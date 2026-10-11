@@ -1,0 +1,31 @@
+version: 2
+
+project_name: portfolio-tracker
+
+builds:
+  - id: portfolio-tracker
+    main: ./cmd/server
+    binary: portfolio-tracker
+    env:
+      # The sqlite driver (mattn/go-sqlite3) requires cgo.
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    # Templates and static assets are read from ./web at runtime.
+    files:
+      - LICENSE
+      - README.md
+      - src: web
+        dst: web
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
