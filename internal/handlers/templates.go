@@ -22,6 +22,11 @@ func newPageRenderer(funcs template.FuncMap) *pageRenderer {
 		pages[name] = template.Must(page.ParseFiles(filepath.Join("web", "templates", name)))
 	}
 
+	for _, name := range []string{"holding-form", "manual-price"} {
+		pages[name] = template.Must(template.New(name).Funcs(funcs).ParseFiles(
+			filepath.Join("web", "templates", "partials", name+".html")))
+	}
+
 	return &pageRenderer{pages: pages}
 }
 

@@ -200,6 +200,11 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	// Restore uploads multipart data, so it is registered outside the JSON-only API group.
 	router.POST("/api/settings/restore", requireRestoreConfirmation(), handler.restoreBackup)
 
+	router.GET("/partials/holding-form", handler.holdingForm)
+	router.GET("/partials/holding-form/:id", handler.holdingForm)
+	router.GET("/partials/holding-duplicate/:id", handler.holdingForm)
+	router.GET("/partials/manual-price/:id", handler.holdingForm)
+
 	// Page routes (server-rendered).
 	router.GET("/", handler.pageDashboard)
 	router.GET("/holdings", handler.pageHoldings)

@@ -622,24 +622,79 @@ const PortfolioApp = (function() {
 
   // Modal handling
   function initModalHandling() {
-    // Close modal on escape
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        const modal = document.querySelector('.modal-overlay');
-        if (modal) {
-          const closeBtn = modal.querySelector('.modal-close');
-          if (closeBtn) closeBtn.click();
+    const container = document.getElementById('modal-container');
+    let previousFocus;
+    const close = () => {
+      container.replaceChildren();
+      document.body.classList.remove('modal-open');
+      previousFocus?.focus();
+    };
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.detail.target !== container || !container.querySelector('.modal-overlay')) return;
+      previousFocus = document.activeElement;
+      document.body.classList.add('modal-open');
+      container.querySelector('input:not([type="hidden"]), button')?.focus();
+    });
+    document.addEventListener('keydown', (event) => {
+      const modal = container.querySelector('.modal-overlay');
+      if (!modal) return;
+      if (event.key === 'Escape') close();
+      if (event.key === 'Tab') {
+        const controls = [...modal.querySelectorAll('button, input, select, textarea, a[href]')]
+          .filter(control => !control.disabled && control.offsetParent !== null);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
         }
       }
     });
-
-    // Close modal on overlay click
-    document.addEventListener('click', (e) => {
-      if (e.target.classList.contains('modal-overlay')) {
-        const closeBtn = e.target.querySelector('.modal-close');
-        if (closeBtn) closeBtn.click();
-      }
+    document.addEventListener('click', (event) => {
+      if (event.target.closest('[data-close-modal]') || event.target.classList.contains('modal-overlay')) close();
+      const clear = event.target.closest('[data-clear-manual-price]');
+      if (clear) saveForm(clear.closest('form'), true);
     });
+    document.addEventListener('submit', (event) => {
+      const form = event.target;
+      if (!form.matches('[data-holding-form], [data-manual-price-form]')) return;
+      event.preventDefault();
+      saveForm(form);
+    });
+
+    async function saveForm(form, clear = false) {
+      if (form.dataset.saving) return;
+      const manual = form.hasAttribute('data-manual-price-form');
+      const id = Number(form.dataset.id);
+      const data = Object.fromEntries(new FormData(form));
+      const numericFields = manual ? ['price'] : ['quantity', 'est_price'];
+      for (const field of numericFields) data[field] = Number(data[field]);
+      const error = form.querySelector('.form-error');
+      error.hidden = true;
+      form.dataset.saving = 'true';
+      form.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      try {
+        const url = manual ? `/api/holdings/${id}/manual-price` : `/api/holdings${id ? `/${id}` : ''}`;
+        const response = await fetch(url, {
+          method: clear ? 'DELETE' : manual ? 'PATCH' : id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          ...(clear ? {} : { body: JSON.stringify(data) })
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `Save failed: HTTP ${response.status}`);
+        }
+        window.location.reload();
+      } catch (err) {
+        error.textContent = err.message;
+        error.hidden = false;
+        delete form.dataset.saving;
+        form.querySelectorAll('button').forEach(button => { button.disabled = false; });
+      }
+    }
   }
 
   // Pull to refresh (mobile)
