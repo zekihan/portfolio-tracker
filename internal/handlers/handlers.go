@@ -68,6 +68,14 @@ func formatNumber(num float64) string {
 	return result + "." + fracPart
 }
 
+func formatQuantity(num float64) string {
+	if math.IsNaN(num) || math.IsInf(num, 0) {
+		return "N/A"
+	}
+
+	return strconv.FormatFloat(num, 'f', -1, 64)
+}
+
 func gt(a, b float64) bool {
 	return a > b
 }
@@ -142,6 +150,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 			return float64(covered) / float64(total) * percentScale
 		},
 		"formatNumber":   formatNumber,
+		"formatQuantity": formatQuantity,
 		"formatCurrency": formatCurrency,
 		"formatPercent":  formatPercent,
 		"formatTime":     formatTime,

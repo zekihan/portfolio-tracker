@@ -59,7 +59,7 @@
                 <tr class="holding-row {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
                     <td class="editable-cell" tabindex="0" data-field="name">{{.Name}}</td>
                     <td class="editable-cell" tabindex="0" data-field="ticker">{{.Ticker}}</td>
-                    <td class="numeric editable-cell" tabindex="0" data-field="quantity" data-sort-value="{{.Quantity}}">{{formatNumber .Quantity}}</td>
+                    <td class="numeric editable-cell" tabindex="0" data-field="quantity" data-sort-value="{{.Quantity}}">{{formatQuantity .Quantity}}</td>
                     <td class="numeric calculated-cell {{if .IsFailed}}price-failed{{else if .IsStale}}price-stale{{end}}" data-field="price" data-sort-value="{{.CurrentPrice}}">
                         {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}}
                         {{if .IsFailed}}<span class="badge badge-error">Failed</span>{{else if .IsStale}}<span class="badge badge-warning">Stale</span>{{end}}
@@ -129,7 +129,7 @@
             <header class="card-header">
                 <div>
                     <h3>{{.Name}} {{if .Ticker}}<span class="ticker">({{.Ticker}})</span>{{end}}</h3>
-                    <p class="meta">{{formatNumber .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</p>
+                    <p class="meta">{{formatQuantity .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</p>
                 </div>
                 <div class="dropdown">
                     <button class="btn btn-ghost btn-sm dropdown-toggle" aria-label="Actions for {{.Name}}" aria-expanded="false" aria-haspopup="true">
