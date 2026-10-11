@@ -161,25 +161,36 @@ func (s *HoldingService) GetWithPrices(
 			return nil, errUnsupportedQuoteCurrency
 		}
 
-		// Normalize to TRY and USD.
-		hwp.NormPriceTRY, hwp.NormPriceUSD = s.normalizePrice(
-			hwp.CurrentPrice,
-			hwp.CurrentCurrency,
-			usdTryRate,
-		)
-		hwp.NormTotalTRY = h.Quantity * hwp.NormPriceTRY
-		hwp.NormTotalUSD = h.Quantity * hwp.NormPriceUSD
-
-		if h.EstPrice > 0 {
-			estPriceTRY, estPriceUSD := s.normalizePrice(h.EstPrice, h.BaseCurrency, usdTryRate)
-			hwp.NormEstTotalTRY = h.Quantity * estPriceTRY
-			hwp.NormEstTotalUSD = h.Quantity * estPriceUSD
+		err = s.normalizeHolding(&hwp, usdTryRate)
+		if err != nil {
+			return nil, err
 		}
 
 		result = append(result, hwp)
 	}
 
 	return result, nil
+}
+
+var errNonFiniteHoldingValue = errors.New("non-finite holding valuation")
+
+func (s *HoldingService) normalizeHolding(h *models.HoldingWithPrice, rate float64) error {
+	h.NormPriceTRY, h.NormPriceUSD = s.normalizePrice(h.CurrentPrice, h.CurrentCurrency, rate)
+	h.NormTotalTRY = h.Quantity * h.NormPriceTRY
+	h.NormTotalUSD = h.Quantity * h.NormPriceUSD
+
+	if h.EstPrice > 0 {
+		estTRY, estUSD := s.normalizePrice(h.EstPrice, h.BaseCurrency, rate)
+		h.NormEstTotalTRY = h.Quantity * estTRY
+		h.NormEstTotalUSD = h.Quantity * estUSD
+	}
+
+	if !areFiniteValues(h.NormPriceTRY, h.NormPriceUSD, h.NormTotalTRY, h.NormTotalUSD,
+		h.NormEstTotalTRY, h.NormEstTotalUSD) {
+		return errNonFiniteHoldingValue
+	}
+
+	return nil
 }
 
 // A missing quote has zero value and needs no currency conversion.
