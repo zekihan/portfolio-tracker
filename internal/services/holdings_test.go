@@ -29,6 +29,7 @@ func TestHoldingOperationsRespectCancellation(t *testing.T) {
 	holding.BaseCurrency = "TRY"
 
 	holding.EstPrice = 10
+
 	err = service.Create(t.Context(), &holding)
 	if err != nil {
 		t.Fatal(err)
@@ -48,14 +49,17 @@ func TestHoldingOperationsRespectCancellation(t *testing.T) {
 	}{
 		{name: "list", run: func() error {
 			_, e := service.GetAll(ctx)
+
 			return e
 		}},
 		{name: "get", run: func() error {
 			_, e := service.GetByID(ctx, holding.ID)
+
 			return e
 		}},
 		{name: "create", run: func() error {
 			h := holding
+
 			return service.Create(ctx, &h)
 		}},
 		{name: "update", run: func() error {

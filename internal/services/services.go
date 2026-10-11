@@ -485,17 +485,31 @@ func NewSettingsService(db *sqlx.DB) *SettingsService {
 func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 	var settings models.Settings
 
-	settings.DisplayCurrency, _ = db.GetSetting(s.db, "display_currency")
+	currency, err := db.GetSetting(s.db, "display_currency")
+	if err != nil {
+		return settings, err
+	}
+
+	settings.DisplayCurrency = currency
 	if settings.DisplayCurrency == "" {
 		settings.DisplayCurrency = "TRY"
 	}
 
-	settings.DarkMode, _ = db.GetSetting(s.db, "dark_mode")
+	mode, err := db.GetSetting(s.db, "dark_mode")
+	if err != nil {
+		return settings, err
+	}
+
+	settings.DarkMode = mode
 	if settings.DarkMode == "" {
 		settings.DarkMode = "system"
 	}
 
-	refreshStr, _ := db.GetSetting(s.db, "refresh_interval")
+	refreshStr, err := db.GetSetting(s.db, "refresh_interval")
+	if err != nil {
+		return settings, err
+	}
+
 	if refreshStr == "" {
 		settings.RefreshInterval = 60
 	} else {
