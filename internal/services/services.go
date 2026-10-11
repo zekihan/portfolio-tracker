@@ -16,6 +16,10 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
 
+var errUnsupportedQuoteCurrency = errors.New(
+	"unsupported quote currency: only TRY and USD can be valued",
+)
+
 type HoldingService struct {
 	db       *sqlx.DB
 	priceSvc *price.Service
@@ -153,6 +157,10 @@ func (s *HoldingService) GetWithPrices(
 			return nil, ctx.Err()
 		}
 
+		if !canValueQuote(hwp.CurrentPrice, hwp.CurrentCurrency) {
+			return nil, errUnsupportedQuoteCurrency
+		}
+
 		// Normalize to TRY and USD.
 		hwp.NormPriceTRY, hwp.NormPriceUSD = s.normalizePrice(
 			hwp.CurrentPrice,
@@ -172,6 +180,11 @@ func (s *HoldingService) GetWithPrices(
 	}
 
 	return result, nil
+}
+
+// A missing quote has zero value and needs no currency conversion.
+func canValueQuote(value float64, currency string) bool {
+	return value == 0 || currency == "TRY" || currency == "USD"
 }
 
 func (s *HoldingService) normalizePrice(
