@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -48,13 +49,17 @@ func (r *Registry) All() []Getter {
 		result = append(result, g)
 	}
 
+	slices.SortFunc(result, func(a, b Getter) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
+
 	return result
 }
 
 func (r *Registry) GetByType(providerType string) []Getter {
 	var result []Getter
 
-	for _, g := range r.getters {
+	for _, g := range r.All() {
 		if g.Type() == providerType {
 			result = append(result, g)
 		}

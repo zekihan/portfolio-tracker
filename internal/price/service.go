@@ -363,7 +363,7 @@ func (s *Service) GetProvidersJSON() (string, error) {
 
 func (r *Registry) GetProvidersJSON() ([]map[string]any, error) {
 	result := make([]map[string]any, 0)
-	for _, g := range r.getters {
+	for _, g := range r.All() {
 		result = append(result, map[string]any{
 			"name":        g.Name(),
 			"type":        g.Type(),
