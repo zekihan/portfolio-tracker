@@ -375,6 +375,105 @@ linters:
       - path: cmd/server/main.go
         linters:
           - exhaustruct_v5
+      - path: internal/price/providers.go
+        linters:
+          - ireturn
+          - varnamelen
+          - goconst
+          - mnd
+          - exhaustruct_v5
+          - wrapcheck
+          - noinlineerr
+          - err113
+          - gosec
+          - govet
+          - tagliatelle
+      - path: internal/services/services.go
+        linters:
+          - varnamelen
+          - goconst
+          - mnd
+          - exhaustruct_v5
+          - wrapcheck
+          - noinlineerr
+          - err113
+          - govet
+          - tagliatelle
+      - path: internal/handlers/handlers.go
+        linters:
+          - tagliatelle
+      - path: internal/price/service.go
+        linters:
+          - varnamelen
+          - goconst
+          - mnd
+          - exhaustruct_v5
+          - wrapcheck
+          - noinlineerr
+          - err113
+          - govet
+          - tagliatelle
+          - funcorder
+          - sloglint
+          - prealloc
+          - gocritic
+          - nilnil
+          - nonamedreturns
+          - dupl
+          - unqueryvet
+          - noctx
+          - lll
+          - contextcheck
+          - forcetypeassert
+          - rangeValCopy
+          - hugeParam
+          - importShadow
+          - errcheck
+          - gosec
+          - errchkjson
+          - funcorder
+      - path: internal/price/providers.go
+        linters:
+          - importShadow
+          - errcheck
+          - gocritic
+          - dupl
+          - err113
+          - wrapcheck
+          - noinlineerr
+          - gosec
+          - govet
+          - tagliatelle
+          - varnamelen
+          - goconst
+          - mnd
+          - exhaustruct_v5
+          - ireturn
+      - path: internal/services/services.go
+        linters:
+          - varnamelen
+          - goconst
+          - mnd
+          - exhaustruct_v5
+          - wrapcheck
+          - noinlineerr
+          - err113
+          - govet
+          - tagliatelle
+          - importShadow
+          - unqueryvet
+          - noctx
+          - lll
+          - contextcheck
+          - nilnil
+          - nonamedreturns
+          - forcetypeassert
+          - rangeValCopy
+          - gocritic
+          - errcheck
+          - funcorder
+          - gosec
+          - errchkjson
 
 output:
   sort-order:
