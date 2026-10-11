@@ -144,10 +144,14 @@ func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) err
 			continue
 		}
 
-		_, err := s.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
+		fetched, err := s.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
 		if err != nil {
 			refreshErrors = append(refreshErrors,
 				fmt.Errorf("refresh %s/%s: %w", h.PriceProvider, h.InstrumentID, err))
+		} else if fetched.IsFailed {
+			refreshErrors = append(refreshErrors,
+				fmt.Errorf("refresh %s/%s failed: using stale cached data",
+					h.PriceProvider, h.InstrumentID))
 		}
 	}
 
