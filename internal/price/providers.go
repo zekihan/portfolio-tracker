@@ -337,6 +337,10 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("finnhub returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
