@@ -1032,7 +1032,7 @@ const PortfolioApp = (function() {
     document.addEventListener('keydown', (event) => {
       const modal = container.querySelector('.modal-overlay');
       if (!modal) return;
-      if (event.key === 'Escape') close();
+      if (event.key === 'Escape' && !event.target.matches('select')) close();
       if (event.key === 'Tab') {
         const controls = [...modal.querySelectorAll('button, input, select, textarea, a[href]')]
           .filter(control => !control.disabled && control.offsetParent !== null);
