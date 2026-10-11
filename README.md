@@ -39,8 +39,8 @@ Then visit http://localhost:8080
 
 ## Architecture
 
-- **Stack**: Go 1.23+ • Gin • HTMX • Chart.js • SQLite
-- **Single binary** with embedded templates/assets
+- **Stack**: Go 1.27+ • Gin • HTMX • Chart.js • SQLite
+- **Single binary**; templates and static assets are read from `./web` at runtime
 - **In-app cron** (robfig/cron) for hourly snapshots
 - **Leader election** via SQLite advisory lock
 - **Price cache** with TTL per provider
@@ -56,15 +56,6 @@ docker run -p 8080:8080 -v portfolio-data:/data portfolio-tracker
 ```
 
 The image is built with cgo (required by the SQLite driver) and includes the `web/` assets.
-
-### Kubernetes (Helm)
-
-```bash
-helm install portfolio-tracker ./deploy/helm/portfolio-tracker \
-  --set persistence.enabled=true \
-  --set ingress.enabled=true \
-  --set ingress.host=portfolio.example.com
-```
 
 ## Development
 
