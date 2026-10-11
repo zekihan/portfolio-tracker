@@ -330,7 +330,7 @@ func (handler *Handler) updateManualPrice(ctx *gin.Context) {
 	}
 
 	var req struct {
-		Price float64 `json:"price"`
+		Price float64 `json:"price" binding:"gte=0"`
 	}
 
 	err = ctx.ShouldBindJSON(&req)
