@@ -456,7 +456,7 @@ func (handler *Handler) getChartData(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
-	if err != nil {
+	if err != nil || days < 1 || days > 36500 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
 
 		return
@@ -483,7 +483,7 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 	}
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
-	if err != nil {
+	if err != nil || days < 1 || days > 36500 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
 
 		return
