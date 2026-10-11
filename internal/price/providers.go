@@ -145,6 +145,9 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 	}
 
 	price := result.Chart.Result[0].Meta.RegularMarketPrice
+	if price <= 0 {
+		return models.Price{}, fmt.Errorf("invalid market price for %s", instrumentID)
+	}
 
 	currency := result.Chart.Result[0].Meta.Currency
 	if currency == "" {
