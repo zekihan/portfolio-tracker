@@ -39,6 +39,10 @@ func (s *Service) GetPrice(
 	ctx context.Context,
 	providerName, instrumentID string,
 ) (models.Price, error) {
+	if ctx.Err() != nil {
+		return models.Price{}, ctx.Err()
+	}
+
 	getter, ok := s.registry.Get(providerName)
 	if !ok {
 		return models.Price{}, fmt.Errorf("provider %s not found", providerName)
