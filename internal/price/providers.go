@@ -674,6 +674,10 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("frankfurter returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
