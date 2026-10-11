@@ -437,7 +437,7 @@ func (s *SnapshotService) GetHoldingHistory(
 	points := make([]HoldingHistoryPoint, 0)
 
 	for _, snap := range snapshots {
-		var holdings []map[string]any
+		var holdings []map[string]json.RawMessage
 
 		err := json.Unmarshal([]byte(snap.HoldingsJSON), &holdings)
 		if err != nil {
@@ -445,16 +445,17 @@ func (s *SnapshotService) GetHoldingHistory(
 		}
 
 		for _, h := range holdings {
-			if id, ok := h["id"].(float64); ok && int(id) == holdingID {
-				valTRY := 0.0
-				if v, ok := h["value_try"].(float64); ok {
-					valTRY = v
-				}
+			var id int
 
-				valUSD := 0.0
-				if v, ok := h["value_usd"].(float64); ok {
-					valUSD = v
-				}
+			if idErr := json.Unmarshal(h["id"], &id); idErr != nil {
+				continue
+			}
+
+			if id == holdingID {
+				var valTRY, valUSD float64
+
+				_ = json.Unmarshal(h["value_try"], &valTRY)
+				_ = json.Unmarshal(h["value_usd"], &valUSD)
 
 				points = append(points, HoldingHistoryPoint{
 					Timestamp: snap.Timestamp,
