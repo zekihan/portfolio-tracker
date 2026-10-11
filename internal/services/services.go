@@ -28,7 +28,7 @@ func NewHoldingService(db *sqlx.DB, priceSvc *price.Service) *HoldingService {
 func (s *HoldingService) GetAll(ctx context.Context) ([]models.Holding, error) {
 	var holdings []models.Holding
 
-	err := s.db.Select(&holdings, "SELECT * FROM holdings ORDER BY created_at DESC")
+	err := s.db.SelectContext(ctx, &holdings, "SELECT * FROM holdings ORDER BY created_at DESC")
 
 	return holdings, err
 }
@@ -36,7 +36,7 @@ func (s *HoldingService) GetAll(ctx context.Context) ([]models.Holding, error) {
 func (s *HoldingService) GetByID(ctx context.Context, id int) (*models.Holding, error) {
 	var h models.Holding
 
-	err := s.db.Get(&h, "SELECT * FROM holdings WHERE id = ?", id)
+	err := s.db.GetContext(ctx, &h, "SELECT * FROM holdings WHERE id = ?", id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -49,7 +49,7 @@ func (s *HoldingService) Create(ctx context.Context, h *models.Holding) error {
 	h.CreatedAt = now
 	h.UpdatedAt = now
 
-	result, err := s.db.Exec(`
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider, instrument_id, base_currency, basket, location, notes, est_price, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, h.Name, h.Ticker, h.AssetType, h.Quantity, h.PriceProvider, h.InstrumentID, h.BaseCurrency, h.Basket, h.Location, h.Notes, h.EstPrice, h.CreatedAt, h.UpdatedAt)
@@ -65,7 +65,7 @@ func (s *HoldingService) Create(ctx context.Context, h *models.Holding) error {
 
 func (s *HoldingService) Update(ctx context.Context, h *models.Holding) error {
 	h.UpdatedAt = time.Now().UTC()
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE holdings SET name = ?, ticker = ?, asset_type = ?, quantity = ?, price_provider = ?, instrument_id = ?, base_currency = ?, basket = ?, location = ?, notes = ?, est_price = ?, updated_at = ?
 		WHERE id = ?
 	`, h.Name, h.Ticker, h.AssetType, h.Quantity, h.PriceProvider, h.InstrumentID, h.BaseCurrency, h.Basket, h.Location, h.Notes, h.EstPrice, h.UpdatedAt, h.ID)
@@ -74,7 +74,7 @@ func (s *HoldingService) Update(ctx context.Context, h *models.Holding) error {
 }
 
 func (s *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPrice float64) error {
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		"UPDATE holdings SET est_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		estPrice,
 		id,
@@ -84,7 +84,8 @@ func (s *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPrice fl
 }
 
 func (s *HoldingService) UpdateManualPrice(ctx context.Context, id int, price float64) error {
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(
+		ctx,
 		"UPDATE holdings SET manual_price = ?, manual_price_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		price,
 		id,
@@ -94,7 +95,8 @@ func (s *HoldingService) UpdateManualPrice(ctx context.Context, id int, price fl
 }
 
 func (s *HoldingService) ClearManualPrice(ctx context.Context, id int) error {
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(
+		ctx,
 		"UPDATE holdings SET manual_price = 0, manual_price_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		id,
 	)
@@ -103,7 +105,7 @@ func (s *HoldingService) ClearManualPrice(ctx context.Context, id int) error {
 }
 
 func (s *HoldingService) Delete(ctx context.Context, id int) error {
-	_, err := s.db.Exec("DELETE FROM holdings WHERE id = ?", id)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM holdings WHERE id = ?", id)
 
 	return err
 }
