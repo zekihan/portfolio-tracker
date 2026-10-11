@@ -15,7 +15,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 6
 
 var Migrations = []string{
 	// Schema v1 - Initial schema.
@@ -126,6 +126,13 @@ var Migrations = []string{
 		('CoinGecko', 'Crypto', 1, 'COINGECKO_KEY', 'https://api.coingecko.com', 60, 1),
 		('Frankfurter', 'FX', 0, '', 'https://api.frankfurter.dev', 60, 1),
 		('Manual', 'Manual', 0, '', '', 0, 1);
+	`,
+
+	// Schema v6 - Snapshot lock table for leader election.
+	`CREATE TABLE IF NOT EXISTS snapshot_lock (
+		id INTEGER PRIMARY KEY,
+		acquired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	`,
 }
 

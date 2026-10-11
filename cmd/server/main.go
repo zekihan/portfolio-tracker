@@ -161,21 +161,36 @@ func acquireSnapshotLock(database *sqlx.DB) bool {
 		return true // No holdings table yet, allow snapshot
 	}
 
-	// Use advisory lock for leader election.
-	var acquired bool
-
-	err = database.Get(&acquired, "SELECT pg_try_advisory_lock(1234567890)")
+	// Use a transaction to ensure we use the same connection for the lock check.
+	tx, err := database.Beginx()
 	if err != nil {
-		// SQLite doesn't have pg_try_advisory_lock, use a simple approach
-		// For SQLite, we'll just allow the snapshot (single replica).
-		return true
+		return false
+	}
+	defer tx.Rollback() //nolint:errcheck // Best effort
+
+	// Try to insert a lock row; if it succeeds, we got the lock.
+	res, err := tx.Exec(`
+		INSERT OR IGNORE INTO snapshot_lock (id, acquired_at)
+		VALUES (1, CURRENT_TIMESTAMP)
+	`)
+	if err != nil {
+		return false
 	}
 
-	return acquired
+	// Check if we got the lock (the row was inserted by us).
+	rowsAffected, err := res.RowsAffected()
+	if err != nil || rowsAffected == 0 {
+		return false
+	}
+
+	// Commit the transaction to hold the lock.
+	err = tx.Commit()
+
+	return err == nil
 }
 
 func releaseSnapshotLock(database *sqlx.DB) {
-	// For SQLite, no-op.
-	//nolint:errcheck // Intentional no-op for SQLite
-	_, _ = database.Exec("SELECT pg_advisory_unlock(1234567890)")
+	// Release the lock by deleting the row.
+	//nolint:errcheck // Best effort cleanup
+	_, _ = database.Exec("DELETE FROM snapshot_lock WHERE id = 1")
 }
