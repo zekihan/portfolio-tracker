@@ -114,9 +114,14 @@ func (s *Service) GetPrice(
 		return models.Price{}, err
 	}
 
-	// Success - reset failures and cache.
+	// Cache before recording success so expired requests cannot reset health.
+	s.cachePriceContext(ctx, providerName, instrumentID, price, getter.TTL())
+
+	if ctx.Err() != nil {
+		return models.Price{}, ctx.Err()
+	}
+
 	s.recordSuccess(providerName)
-	s.cachePrice(providerName, instrumentID, price, getter.TTL())
 
 	return price, nil
 }
@@ -215,12 +220,19 @@ func (s *Service) cachePrice(
 	price models.Price,
 	ttl time.Duration,
 ) error {
+	return s.cachePriceContext(context.Background(), provider, instrumentID, price, ttl)
+}
+
+func (s *Service) cachePriceContext(
+	ctx context.Context, provider, instrumentID string,
+	price models.Price, ttl time.Duration,
+) error {
 	expiresAt := time.Now().Add(ttl)
 	if ttl == 0 {
 		expiresAt = time.Now().Add(24 * time.Hour)
 	}
 
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO price_cache (provider, instrument_id, price, currency, source, fetched_at, expires_at, error_count, last_error)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 0, '')
 		ON CONFLICT(provider, instrument_id) DO UPDATE SET
