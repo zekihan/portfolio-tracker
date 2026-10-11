@@ -141,7 +141,11 @@ var Migrations = []string{
 }
 
 func sqliteDSN(dbPath string) (string, error) {
-	if dbPath == "" || dbPath == ":memory:" {
+	if dbPath == "" {
+		dbPath = ":memory:"
+	}
+
+	if dbPath == ":memory:" {
 		return dbPath + "?_foreign_keys=on&_busy_timeout=5000", nil
 	}
 

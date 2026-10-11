@@ -35,6 +35,18 @@ func TestOpenPreservesMemoryConnectionModes(t *testing.T) {
 				t.Fatalf("memory database initialization failed: %q, %v", value, err)
 			}
 
+			var backingFile string
+
+			err = database.GetContext(t.Context(), &backingFile,
+				"SELECT file FROM pragma_database_list WHERE name = 'main'")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if backingFile != "" {
+				t.Errorf("expected memory database, got backing file %q", backingFile)
+			}
+
 			_, statErr := os.Stat(path)
 			if !os.IsNotExist(statErr) {
 				t.Errorf("memory database created a disk file: %v", statErr)
