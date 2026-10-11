@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -111,13 +112,17 @@ func (s *Service) GetPrice(
 func (s *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
 	// Try Frankfurter first.
 	price, err := s.GetPrice(ctx, "Frankfurter", "USD")
-	if err == nil {
+	if err == nil && price.Value > 0 && !math.IsInf(price.Value, 0) {
 		return price.Value, nil
 	}
 	// Fallback to Yahoo Finance FX.
 	price, err = s.GetPrice(ctx, "Yahoo Finance", "USDTRY=X")
 	if err == nil {
-		return price.Value, nil
+		if price.Value > 0 && !math.IsInf(price.Value, 0) {
+			return price.Value, nil
+		}
+
+		return 0, fmt.Errorf("invalid FX rate from Yahoo Finance: %v", price.Value)
 	}
 
 	return 0, fmt.Errorf("no FX rate available: %w", err)
