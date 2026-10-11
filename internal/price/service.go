@@ -162,6 +162,8 @@ func (s *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
 func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) error {
 	var refreshErrors []error
 
+	seen := make(map[[2]string]bool)
+
 	for _, h := range holdings {
 		if ctx.Err() != nil {
 			break
@@ -174,6 +176,13 @@ func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) err
 		if h.InstrumentID == "" {
 			continue
 		}
+
+		key := [2]string{h.PriceProvider, h.InstrumentID}
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
 
 		fetched, err := s.getPrice(ctx, h.PriceProvider, h.InstrumentID, true)
 		if err != nil {
