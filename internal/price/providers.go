@@ -347,7 +347,7 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 		return models.Price{}, err
 	}
 
-	if result.C == 0 {
+	if result.C <= 0 {
 		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
