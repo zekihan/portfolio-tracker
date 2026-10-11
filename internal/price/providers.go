@@ -441,6 +441,10 @@ func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("garanti bbva returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
@@ -450,7 +454,7 @@ func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models
 		return models.Price{}, err
 	}
 
-	if result.Price == 0 {
+	if result.Price <= 0 {
 		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
