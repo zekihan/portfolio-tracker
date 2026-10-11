@@ -324,12 +324,9 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 		return models.Price{}, errors.New("FINNHUB_KEY not set")
 	}
 
-	url := fmt.Sprintf(
-		"https://finnhub.io/api/v1/quote?symbol=%s&token=%s",
-		url.QueryEscape(instrumentID),
-		key,
-	)
+	url := "https://finnhub.io/api/v1/quote?symbol=" + url.QueryEscape(instrumentID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req.Header.Set("X-Finnhub-Token", key)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
