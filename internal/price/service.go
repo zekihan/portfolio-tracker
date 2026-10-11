@@ -49,7 +49,11 @@ func (s *Service) GetPrice(
 	}
 
 	// Check cache first.
-	cached, err := s.getCachedPrice(providerName, instrumentID)
+	cached, err := s.getCachedPriceContext(ctx, providerName, instrumentID)
+	if ctx.Err() != nil {
+		return models.Price{}, ctx.Err()
+	}
+
 	if err == nil && cached != nil && !cached.ExpiresAt.Before(time.Now()) {
 		price := models.Price{
 			Value:     cached.Price,
@@ -184,9 +188,15 @@ func (s *Service) TestProvider(
 }
 
 func (s *Service) getCachedPrice(provider, instrumentID string) (*models.PriceCacheEntry, error) {
+	return s.getCachedPriceContext(context.Background(), provider, instrumentID)
+}
+
+func (s *Service) getCachedPriceContext(
+	ctx context.Context, provider, instrumentID string,
+) (*models.PriceCacheEntry, error) {
 	var entry models.PriceCacheEntry
 
-	err := s.db.Get(&entry, `
+	err := s.db.GetContext(ctx, &entry, `
 		SELECT * FROM price_cache WHERE provider = ? AND instrument_id = ?
 	`, provider, instrumentID)
 	if errors.Is(err, sql.ErrNoRows) {
