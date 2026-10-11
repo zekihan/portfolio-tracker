@@ -13,6 +13,23 @@ import (
 func TestRefreshAllReportsStaleFallback(t *testing.T) {
 	t.Parallel()
 
+	for _, test := range []struct {
+		name string
+		age  time.Duration
+	}{
+		{name: "expired cache", age: -time.Hour},
+		{name: "fresh cache", age: time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			checkRefreshFallback(t, test.age)
+		})
+	}
+}
+
+func checkRefreshFallback(t *testing.T, age time.Duration) {
+	t.Helper()
+
 	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +46,7 @@ func TestRefreshAllReportsStaleFallback(t *testing.T) {
 		INSERT INTO price_cache
 		(provider, instrument_id, price, currency, source, expires_at, last_error)
 		VALUES (?, 'TEST', 10, 'USD', 'test', ?, '')
-	`, getter.Name(), time.Now().UTC().Add(-time.Hour))
+	`, getter.Name(), time.Now().UTC().Add(age))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +68,8 @@ func TestRefreshAllReportsStaleFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cached.Value != 10 || !cached.IsStale || !cached.IsFailed {
+	wantStale := age < 0
+	if cached.Value != 10 || cached.IsStale != wantStale || cached.IsFailed != wantStale {
 		t.Fatalf("stale fallback was not preserved: %+v", cached)
 	}
 }

@@ -41,6 +41,14 @@ func (s *Service) GetPrice(
 	ctx context.Context,
 	providerName, instrumentID string,
 ) (models.Price, error) {
+	return s.getPrice(ctx, providerName, instrumentID, false)
+}
+
+func (s *Service) getPrice(
+	ctx context.Context,
+	providerName, instrumentID string,
+	forceRefresh bool,
+) (models.Price, error) {
 	if ctx.Err() != nil {
 		return models.Price{}, ctx.Err()
 	}
@@ -56,7 +64,7 @@ func (s *Service) GetPrice(
 		return models.Price{}, ctx.Err()
 	}
 
-	if err == nil && cached != nil && !cached.ExpiresAt.Before(time.Now()) {
+	if err == nil && canUseCachedQuote(cached, forceRefresh) {
 		price := models.Price{
 			Value:     cached.Price,
 			Currency:  cached.Currency,
@@ -128,6 +136,10 @@ func (s *Service) GetPrice(
 	return price, nil
 }
 
+func canUseCachedQuote(cached *models.PriceCacheEntry, forceRefresh bool) bool {
+	return !forceRefresh && cached != nil && !cached.ExpiresAt.Before(time.Now())
+}
+
 func (s *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
 	// Try Frankfurter first.
 	price, err := s.GetPrice(ctx, "Frankfurter", "USD")
@@ -163,7 +175,7 @@ func (s *Service) RefreshAll(ctx context.Context, holdings []models.Holding) err
 			continue
 		}
 
-		fetched, err := s.GetPrice(ctx, h.PriceProvider, h.InstrumentID)
+		fetched, err := s.getPrice(ctx, h.PriceProvider, h.InstrumentID, true)
 		if err != nil {
 			refreshErrors = append(refreshErrors,
 				fmt.Errorf("refresh %s/%s: %w", h.PriceProvider, h.InstrumentID, err))
