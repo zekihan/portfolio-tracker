@@ -633,6 +633,10 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 	}
 
 	if data, ok := result[instrumentID]; ok {
+		if data.USD <= 0 {
+			return models.Price{}, fmt.Errorf("invalid USD price for %s", instrumentID)
+		}
+
 		return models.Price{
 			Value:     data.USD,
 			Currency:  "USD",
