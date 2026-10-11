@@ -54,6 +54,7 @@ const PortfolioApp = (function() {
     initCharts();
     initHistory();
     initTableInteractions();
+    initHoldingFilters();
     initModalHandling();
     initPullToRefresh();
     
@@ -284,26 +285,37 @@ const PortfolioApp = (function() {
     });
   }
 
+  function positionMenu(menu, toggle) {
+    const rect = toggle.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.style.left = `${Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
   // Dropdowns
   function initDropdowns() {
-    document.addEventListener('click', (e) => {
-      const dropdown = e.target.closest('.dropdown');
-      if (dropdown) {
-        const toggle = dropdown.querySelector('.dropdown-toggle');
-        const menu = dropdown.querySelector('.dropdown-menu');
-        if (toggle && menu) {
-          const expanded = toggle.getAttribute('aria-expanded') === 'true';
-          toggle.setAttribute('aria-expanded', !expanded);
-          menu.setAttribute('aria-hidden', expanded);
-        }
-      } else {
-        // Close all dropdowns
-        document.querySelectorAll('.dropdown-toggle[aria-expanded="true"]').forEach(toggle => {
-          toggle.setAttribute('aria-expanded', 'false');
-          const menu = toggle.closest('.dropdown')?.querySelector('.dropdown-menu');
-          if (menu) menu.setAttribute('aria-hidden', 'true');
-        });
-      }
+    const closeMenus = (except) => {
+      document.querySelectorAll('.dropdown-toggle[aria-expanded="true"]').forEach(toggle => {
+        if (toggle === except) return;
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.closest('.dropdown').querySelector('.dropdown-menu')?.setAttribute('aria-hidden', 'true');
+      });
+    };
+    document.addEventListener('click', event => {
+      const toggle = event.target.closest('.dropdown-toggle');
+      closeMenus(toggle);
+      if (!toggle) return;
+      const menu = toggle.closest('.dropdown').querySelector('.dropdown-menu');
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', open);
+      menu.setAttribute('aria-hidden', !open);
+      if (open) positionMenu(menu, toggle);
+    });
+    window.addEventListener('resize', () => closeMenus());
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeMenus();
     });
   }
 
@@ -735,6 +747,56 @@ const PortfolioApp = (function() {
       if (e.key === 'Enter' && e.target.closest('td.editable-cell') && !e.target.matches('input, select, textarea')) {
         const td = e.target.closest('td.editable-cell');
         makeEditable(td);
+      }
+    });
+  }
+
+  function initHoldingFilters() {
+    const table = document.getElementById('holdings-table');
+    if (!table) return;
+    const filters = [...table.querySelectorAll('[data-filter]')];
+    const apply = () => {
+      let visible = 0;
+      table.querySelectorAll('tbody .holding-row').forEach(row => {
+        const matches = filters.every(input => {
+          const value = row.querySelector(`[data-field="${input.dataset.filter}"]`)?.textContent.trim() || '';
+          return input.tagName === 'SELECT' ? !input.value || value === input.value :
+            value.toLocaleLowerCase().includes(input.value.trim().toLocaleLowerCase());
+        });
+        row.hidden = !matches;
+        if (matches) visible++;
+      });
+      document.getElementById('holdings-filter-status').textContent =
+        filters.some(input => input.value) ? `${visible} matching holdings` : '';
+    };
+    filters.forEach(input => input.addEventListener('input', apply));
+    const toggle = document.getElementById('column-toggle');
+    const menu = document.getElementById('column-menu');
+    const headers = [...table.tHead.rows[0].cells];
+    headers.slice(1, -1).forEach((header, offset) => {
+      const index = offset + 1;
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      label.append(checkbox, document.createTextNode(header.textContent.trim()));
+      menu.appendChild(label);
+      checkbox.addEventListener('change', () => {
+        [...table.rows].forEach(row => {
+          if (row.cells.length === headers.length) row.cells[index].hidden = !checkbox.checked;
+        });
+      });
+    });
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', open);
+      menu.setAttribute('aria-hidden', !open);
+      if (open) positionMenu(menu, toggle);
+    });
+    document.addEventListener('click', event => {
+      if (!toggle.contains(event.target) && !menu.contains(event.target)) {
+        toggle.setAttribute('aria-expanded', 'false');
+        menu.setAttribute('aria-hidden', 'true');
       }
     });
   }

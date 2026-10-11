@@ -297,9 +297,7 @@ img, svg {
   transition: all var(--transition-fast);
 }
 
-.dropdown-menu[aria-hidden="false"],
-.dropdown:hover .dropdown-menu,
-.dropdown:focus-within .dropdown-menu {
+.dropdown-menu[aria-hidden="false"] {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
@@ -1260,6 +1258,9 @@ body.modal-open {
 
 /* Responsive */
 @media (max-width: 1023px) {
+  .mobile-bottom-nav { display: flex; }
+  .fab.mobile-only { display: flex; }
+  .card-actions .btn { min-height: 40px; }
   .header-nav {
     display: none;
     position: absolute;
@@ -1374,4 +1375,53 @@ body.modal-open {
     break-inside: avoid;
     page-break-inside: avoid;
   }
+}
+/* Page sections and controls share consistent spacing at every viewport size. */
+.settings-page > .card,
+.sources-page > .card,
+.history-page > .card {
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.settings-page > .card > h2,
+.sources-page > .card > h2,
+.history-page > .card > h2 {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-4);
+}
+
+.filter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 140px;
+}
+
+.theme-toggle.btn { padding: var(--space-2); }
+.btn svg { flex-shrink: 0; }
+td.numeric { white-space: nowrap; }
+.holdings-table .filter-input { min-width: 110px; }
+.holdings-table .filter-select { min-width: 130px; }
+.holdings-table td:first-child { min-width: 150px; }
+.table-footer-content { position: relative; }
+.column-menu, .actions-cell .dropdown-menu { max-height: 65vh; overflow-y: auto; }
+.form-error { color: var(--accent-error); margin-bottom: var(--space-3); }
+[hidden] { display: none !important; }
+
+@media (max-width: 639px) {
+  .settings-page > .card,
+  .sources-page > .card,
+  .history-page > .card { padding: var(--space-4); }
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .setting-group { min-width: 0; }
+  .about-info a { overflow-wrap: anywhere; }
+  .modal-footer { flex-wrap: wrap; padding: var(--space-3); }
 }

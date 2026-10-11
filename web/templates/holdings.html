@@ -13,6 +13,8 @@
         </div>
     </header>
 
+    <p id="holdings-filter-status" role="status" aria-live="polite"></p>
+
     <!-- Desktop Table -->
     <div class="table-container desktop-only" role="region" aria-label="Holdings table" tabindex="0">
         <table class="holdings-table" id="holdings-table">
@@ -34,8 +36,8 @@
                     <th scope="col"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></th>
                 </tr>
                 <tr class="filter-row">
-                    <th><input type="text" class="filter-input" data-filter="name" placeholder="Filter name..."></th>
-                    <th><input type="text" class="filter-input" data-filter="ticker" placeholder="Filter ticker..."></th>
+                    <th><input type="text" class="filter-input" data-filter="name" aria-label="Filter name" placeholder="Filter name..."></th>
+                    <th><input type="text" class="filter-input" data-filter="ticker" aria-label="Filter ticker" placeholder="Filter ticker..."></th>
                     <th></th>
                     <th></th>
                     <th></th>
@@ -44,9 +46,9 @@
                     <th></th>
                     <th></th>
                     <th></th>
-                    <th><select class="filter-select" data-filter="basket"><option value="">All Baskets</option>{{range .Baskets}}<option value="{{.}}">{{.}}</option>{{end}}</select></th>
-                    <th><select class="filter-select" data-filter="location"><option value="">All Locations</option>{{range .Locations}}<option value="{{.}}">{{.}}</option>{{end}}</select></th>
-                    <th><input type="text" class="filter-input" data-filter="notes" placeholder="Filter notes..."></th>
+                    <th><select class="filter-select" data-filter="basket" aria-label="Filter basket"><option value="">All Baskets</option>{{range .Baskets}}<option value="{{.}}">{{.}}</option>{{end}}</select></th>
+                    <th><select class="filter-select" data-filter="location" aria-label="Filter location"><option value="">All Locations</option>{{range .Locations}}<option value="{{.}}">{{.}}</option>{{end}}</select></th>
+                    <th><input type="text" class="filter-input" data-filter="notes" aria-label="Filter notes" placeholder="Filter notes..."></th>
                     <th></th>
                 </tr>
             </thead>
@@ -126,7 +128,7 @@
         <article class="holding-card {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
             <header class="card-header">
                 <div>
-                    <h3>{{.Name}} <span class="ticker">({{.Ticker}})</span></h3>
+                    <h3>{{.Name}} {{if .Ticker}}<span class="ticker">({{.Ticker}})</span>{{end}}</h3>
                     <p class="meta">{{formatNumber .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</p>
                 </div>
                 <div class="dropdown">
