@@ -29,7 +29,7 @@ type Holding struct {
 	Location        string       `json:"location"                   db:"location"`
 	Notes           string       `json:"notes"                      db:"notes"`
 	PriceError      string       `json:"price_error,omitempty"      db:"-"`
-	Name            string       `json:"name"                       db:"name"`
+	Name            string       `json:"name"                       db:"name"            binding:"required"`
 	PriceSource     string       `json:"price_source,omitempty"     db:"-"`
 
 	AssetType AssetType `json:"asset_type" binding:"oneof=Stock ETF 'TR Fund' Crypto Gold Cash" db:"asset_type"`
