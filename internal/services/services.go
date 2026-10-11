@@ -353,7 +353,10 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		})
 	}
 
-	holdingsJSON, _ := json.Marshal(snapshotHoldings)
+	holdingsJSON, err := json.Marshal(snapshotHoldings)
+	if err != nil {
+		return err
+	}
 
 	_, err = s.db.Exec(`
 		INSERT INTO snapshots (timestamp, total_value_try, total_value_usd, usd_try_rate, stale_count, failed_count, holdings_json)
