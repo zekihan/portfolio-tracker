@@ -429,14 +429,14 @@ func (handler *Handler) getSnapshots(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
 
 	limit, err := strconv.Atoi(ctx.DefaultQuery("limit", "50"))
-	if err != nil {
+	if err != nil || limit < 1 || limit > 1000 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid limit"})
 
 		return
 	}
 
 	offset, err := strconv.Atoi(ctx.DefaultQuery("offset", "0"))
-	if err != nil {
+	if err != nil || offset < 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid offset"})
 
 		return
