@@ -17,7 +17,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o portfolio-tracker ./cmd/server
 
 # Final stage
-FROM alpine:3.20
+FROM alpine:3.24
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata sqlite-libs
