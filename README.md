@@ -50,19 +50,12 @@ Then visit http://localhost:8080
 
 ### Docker
 
-```dockerfile
-FROM golang:1.23-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go build -o portfolio-tracker ./cmd/server
-
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata sqlite-libs
-COPY --from=builder /app/portfolio-tracker /usr/local/bin/
-EXPOSE 8080
-VOLUME ["/data"]
-CMD ["portfolio-tracker"]
+```bash
+docker build -t portfolio-tracker .
+docker run -p 8080:8080 -v portfolio-data:/data portfolio-tracker
 ```
+
+The image is built with cgo (required by the SQLite driver) and includes the `web/` assets.
 
 ### Kubernetes (Helm)
 
