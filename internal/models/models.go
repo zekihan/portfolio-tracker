@@ -17,7 +17,7 @@ const (
 )
 
 type Holding struct {
-	PriceFetchedAt  time.Time       `json:"price_fetched_at,omitempty" db:"-"`
+	PriceFetchedAt  time.Time       `json:"price_fetched_at,omitzero"  db:"-"`
 	UpdatedAt       time.Time       `json:"updated_at"                 db:"updated_at"`
 	CreatedAt       time.Time       `json:"created_at"                 db:"created_at"`
 	ManualPriceAt   sql.NullTime    `json:"manual_price_at"            db:"manual_price_at"`
@@ -76,14 +76,14 @@ type Snapshot struct {
 	ID            int       `json:"id"              db:"id"`
 	TotalValueTRY float64   `json:"total_value_try" db:"total_value_try"`
 	TotalValueUSD float64   `json:"total_value_usd" db:"total_value_usd"`
-	USDTRYRate    float64   `json:"usd_try_rate"    db:"usd_try_rate"`
+	USDTRYRate    float64   `json:"usd_try_rate"    db:"usd_try_rate"` //nolint:tagliatelle // Acronym should be separated
 	StaleCount    int       `json:"stale_count"     db:"stale_count"`
 	FailedCount   int       `json:"failed_count"    db:"failed_count"`
 }
 
 type Provider struct {
 	UpdatedAt   time.Time `json:"updated_at"            db:"updated_at"`
-	LastOK      time.Time `json:"last_ok,omitempty"     db:"-"`
+	LastOK      time.Time `json:"last_ok,omitzero"      db:"-"`
 	CreatedAt   time.Time `json:"created_at"            db:"created_at"`
 	Name        string    `json:"name"                  db:"name"`
 	Type        string    `json:"type"                  db:"type"`
@@ -144,9 +144,11 @@ type ProviderHealth struct {
 	KeyRequired bool
 }
 
+//nolint:govet // Field alignment optimized for readability
 type HoldingWithPrice struct {
-	Price Price
 	Holding
+
+	Price           Price
 	NormPriceTRY    float64
 	NormPriceUSD    float64
 	NormTotalTRY    float64

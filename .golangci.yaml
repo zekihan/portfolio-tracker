@@ -63,6 +63,11 @@ linters:
     - testpackage
     - gomodguard
   settings:
+    tagliatelle:
+      case:
+        use-field-name: true
+        rules:
+          json: snake
     depguard:
       rules:
         main:
