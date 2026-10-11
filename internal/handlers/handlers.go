@@ -16,34 +16,42 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
 
+const (
+	errorKey       = "error"
+	invalidIDMsg   = "invalid id"
+	titleDashboard = "Portfolio Tracker"
+	titleHoldings  = "Holdings"
+	titleHistory   = "History"
+	titleSources   = "Price Sources"
+	titleSettings  = "Settings"
+)
+
 // Template helper functions.
-func formatNumber(n float64) string {
-	if n == 0 {
+func formatNumber(num float64) string {
+	if num == 0 {
 		return "0.00"
 	}
 
-	neg := n < 0
+	neg := num < 0
 	if neg {
-		n = -n
+		num = -num
 	}
 
-	parts := strings.Split(fmt.Sprintf("%.2f", n), ".")
+	parts := strings.Split(fmt.Sprintf("%.2f", num), ".")
 	intPart := parts[0]
 	fracPart := parts[1]
 
-	result := ""
-
-	var resultSb33 strings.Builder
+	var resultSb strings.Builder
 
 	for i, r := range intPart {
 		if i > 0 && (len(intPart)-i)%3 == 0 {
-			resultSb33.WriteString(",")
+			resultSb.WriteString(",")
 		}
 
-		resultSb33.WriteRune(r)
+		resultSb.WriteRune(r)
 	}
 
-	result += resultSb33.String()
+	result := resultSb.String()
 
 	if neg {
 		result = "-" + result
@@ -78,7 +86,10 @@ func formatTime(t time.Time) string {
 }
 
 func toJSON(v any) string {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
 
 	return string(b)
 }
@@ -104,12 +115,16 @@ func New(
 	}
 }
 
-func (h *Handler) SetupRoutes() *gin.Engine {
-	r := gin.Default()
-	r.SetTrustedProxies(nil)
+func (handler *Handler) SetupRoutes() *gin.Engine {
+	router := gin.Default()
+
+	setTrustedProxiesErr := router.SetTrustedProxies(nil)
+	if setTrustedProxiesErr != nil {
+		return nil
+	}
 
 	// Add template functions.
-	r.SetFuncMap(template.FuncMap{
+	router.SetFuncMap(template.FuncMap{
 		"formatNumber":   formatNumber,
 		"formatCurrency": formatCurrency,
 		"formatPercent":  formatPercent,
@@ -126,242 +141,277 @@ func (h *Handler) SetupRoutes() *gin.Engine {
 	})
 
 	// Static files.
-	r.Static("/static", "./web/static")
-	r.LoadHTMLGlob("web/templates/*.html")
+	router.Static("/static", "./web/static")
+	router.LoadHTMLGlob("web/templates/*.html")
 
 	// API routes.
-	api := r.Group("/api")
-	{
-		// Holdings.
-		api.GET("/holdings", h.getHoldings)
-		api.GET("/holdings/:id", h.getHolding)
-		api.POST("/holdings", h.createHolding)
-		api.PUT("/holdings/:id", h.updateHolding)
-		api.PATCH("/holdings/:id/est-price", h.updateEstPrice)
-		api.PATCH("/holdings/:id/manual-price", h.updateManualPrice)
-		api.DELETE("/holdings/:id/manual-price", h.clearManualPrice)
-		api.DELETE("/holdings/:id", h.deleteHolding)
+	api := router.Group("/api")
 
-		// Dashboard.
-		api.GET("/dashboard", h.getDashboard)
-		api.GET("/dashboard/allocation", h.getAllocation)
+	// Holdings.
+	api.GET("/holdings", handler.getHoldings)
+	api.GET("/holdings/:id", handler.getHolding)
+	api.POST("/holdings", handler.createHolding)
+	api.PUT("/holdings/:id", handler.updateHolding)
+	api.PATCH("/holdings/:id/est-price", handler.updateEstPrice)
+	api.PATCH("/holdings/:id/manual-price", handler.updateManualPrice)
+	api.DELETE("/holdings/:id/manual-price", handler.clearManualPrice)
+	api.DELETE("/holdings/:id", handler.deleteHolding)
 
-		// History.
-		api.GET("/history/snapshots", h.getSnapshots)
-		api.GET("/history/chart", h.getChartData)
-		api.GET("/history/holding/:id", h.getHoldingHistory)
+	// Dashboard.
+	api.GET("/dashboard", handler.getDashboard)
+	api.GET("/dashboard/allocation", handler.getAllocation)
 
-		// Price Sources.
-		api.GET("/sources/providers", h.getProviders)
-		api.GET("/sources/mapping", h.getProviderMapping)
-		api.POST("/sources/test", h.testProvider)
-		api.POST("/sources/refresh", h.refreshPrices)
-		api.PUT("/holdings/:id/provider", h.updateHoldingProvider)
+	// History.
+	api.GET("/history/snapshots", handler.getSnapshots)
+	api.GET("/history/chart", handler.getChartData)
+	api.GET("/history/holding/:id", handler.getHoldingHistory)
 
-		// Settings.
-		api.GET("/settings", h.getSettings)
-		api.PATCH("/settings/currency", h.updateCurrency)
-		api.PATCH("/settings/dark-mode", h.updateDarkMode)
-		api.PATCH("/settings/refresh-interval", h.updateRefreshInterval)
-	}
+	// Price Sources.
+	api.GET("/sources/providers", handler.getProviders)
+	api.GET("/sources/mapping", handler.getProviderMapping)
+	api.POST("/sources/test", handler.testProvider)
+	api.POST("/sources/refresh", handler.refreshPrices)
+	api.PUT("/holdings/:id/provider", handler.updateHoldingProvider)
+
+	// Settings.
+	api.GET("/settings", handler.getSettings)
+	api.PATCH("/settings/currency", handler.updateCurrency)
+	api.PATCH("/settings/dark-mode", handler.updateDarkMode)
+	api.PATCH("/settings/refresh-interval", handler.updateRefreshInterval)
 
 	// Page routes (server-rendered).
-	r.GET("/", h.pageDashboard)
-	r.GET("/holdings", h.pageHoldings)
-	r.GET("/history", h.pageHistory)
-	r.GET("/sources", h.pageSources)
-	r.GET("/settings", h.pageSettings)
+	router.GET("/", handler.pageDashboard)
+	router.GET("/holdings", handler.pageHoldings)
+	router.GET("/history", handler.pageHistory)
+	router.GET("/sources", handler.pageSources)
+	router.GET("/settings", handler.pageSettings)
 
-	return r
+	return router
 }
 
 // Holdings API.
-func (h *Handler) getHoldings(c *gin.Context) {
-	ctx := c.Request.Context()
-	displayCurrency := c.DefaultQuery("currency", "TRY")
+func (handler *Handler) getHoldings(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
-	holdings, err := h.holdingSvc.GetWithPrices(ctx, displayCurrency)
+	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, holdings)
+	ctx.JSON(http.StatusOK, holdings)
 }
 
-func (h *Handler) getHolding(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) getHolding(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	holding, err := h.holdingSvc.GetByID(ctx, id)
+	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+
+		return
+	}
+
+	holding, err := handler.holdingSvc.GetByID(requestCtx, id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
 	if holding == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "holding not found"})
+		ctx.JSON(http.StatusNotFound, gin.H{errorKey: "holding not found"})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, holding)
+	ctx.JSON(http.StatusOK, holding)
 }
 
-func (h *Handler) createHolding(c *gin.Context) {
-	ctx := c.Request.Context()
+func (handler *Handler) createHolding(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
 	var holding models.Holding
 
-	err := c.ShouldBindJSON(&holding)
+	err := ctx.ShouldBindJSON(&holding)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	err = h.holdingSvc.Create(ctx, &holding)
+	err = handler.holdingSvc.Create(requestCtx, &holding)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusCreated, holding)
+	ctx.JSON(http.StatusCreated, holding)
 }
 
-func (h *Handler) updateHolding(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) updateHolding(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+
+		return
+	}
 
 	var holding models.Holding
 
-	err := c.ShouldBindJSON(&holding)
+	err = ctx.ShouldBindJSON(&holding)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
 	holding.ID = id
 
-	err = h.holdingSvc.Update(ctx, &holding)
+	err = handler.holdingSvc.Update(requestCtx, &holding)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, holding)
+	ctx.JSON(http.StatusOK, holding)
 }
 
-func (h *Handler) updateEstPrice(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) updateEstPrice(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+
+		return
+	}
 
 	var req struct {
-		EstPrice float64 `json:"est_price"`
+		EstPrice float64 `json:"estPrice"`
 	}
 
-	err := c.ShouldBindJSON(&req)
+	err = ctx.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	err = h.holdingSvc.UpdateEstPrice(ctx, id, req.EstPrice)
+	err = handler.holdingSvc.UpdateEstPrice(requestCtx, id, req.EstPrice)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
-func (h *Handler) updateManualPrice(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) updateManualPrice(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+
+		return
+	}
 
 	var req struct {
 		Price float64 `json:"price"`
 	}
 
-	err := c.ShouldBindJSON(&req)
+	err = ctx.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	err = h.holdingSvc.UpdateManualPrice(ctx, id, req.Price)
+	err = handler.holdingSvc.UpdateManualPrice(requestCtx, id, req.Price)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
-func (h *Handler) clearManualPrice(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) clearManualPrice(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	err := h.holdingSvc.ClearManualPrice(ctx, id)
+	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	err = handler.holdingSvc.ClearManualPrice(requestCtx, id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+
+		return
+	}
+
+	ctx.Status(http.StatusOK)
 }
 
-func (h *Handler) deleteHolding(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) deleteHolding(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	err := h.holdingSvc.Delete(ctx, id)
+	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	err = handler.holdingSvc.Delete(requestCtx, id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+
+		return
+	}
+
+	ctx.Status(http.StatusOK)
 }
 
 // Dashboard API.
-func (h *Handler) getDashboard(c *gin.Context) {
-	ctx := c.Request.Context()
-	displayCurrency := c.DefaultQuery("currency", "TRY")
+func (handler *Handler) getDashboard(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
-	data, err := h.holdingSvc.GetDashboardData(ctx, displayCurrency)
+	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, data)
+	ctx.JSON(http.StatusOK, data)
 }
 
-func (h *Handler) getAllocation(c *gin.Context) {
-	ctx := c.Request.Context()
-	displayCurrency := c.DefaultQuery("currency", "TRY")
+func (handler *Handler) getAllocation(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
-	data, err := h.holdingSvc.GetDashboardData(ctx, displayCurrency)
+	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	ctx.JSON(http.StatusOK, gin.H{
 		"by_type":   data.AllocationByType,
 		"by_basket": data.AllocationByBasket,
 		"by_loc":    data.AllocationByLoc,
@@ -370,89 +420,121 @@ func (h *Handler) getAllocation(c *gin.Context) {
 }
 
 // History API.
-func (h *Handler) getSnapshots(c *gin.Context) {
-	ctx := c.Request.Context()
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+func (handler *Handler) getSnapshots(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	snapshots, err := h.snapshotSvc.GetSnapshots(ctx, limit, offset)
+	limit, err := strconv.Atoi(ctx.DefaultQuery("limit", "50"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid limit"})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, snapshots)
+	offset, err := strconv.Atoi(ctx.DefaultQuery("offset", "0"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid offset"})
+
+		return
+	}
+
+	snapshots, err := handler.snapshotSvc.GetSnapshots(requestCtx, limit, offset)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+
+		return
+	}
+
+	ctx.JSON(http.StatusOK, snapshots)
 }
 
-func (h *Handler) getChartData(c *gin.Context) {
-	ctx := c.Request.Context()
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "365"))
+func (handler *Handler) getChartData(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	points, err := h.snapshotSvc.GetSnapshotsForChart(ctx, days)
+	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, points)
+	points, err := handler.snapshotSvc.GetSnapshotsForChart(requestCtx, days)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+
+		return
+	}
+
+	ctx.JSON(http.StatusOK, points)
 }
 
-func (h *Handler) getHoldingHistory(c *gin.Context) {
-	ctx := c.Request.Context()
-	id, _ := strconv.Atoi(c.Param("id"))
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "365"))
+func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	points, err := h.snapshotSvc.GetHoldingHistory(ctx, id, days)
+	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, points)
+	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
+
+		return
+	}
+
+	points, err := handler.snapshotSvc.GetHoldingHistory(requestCtx, id, days)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+
+		return
+	}
+
+	ctx.JSON(http.StatusOK, points)
 }
 
 // Price Sources API.
-func (h *Handler) getProviders(c *gin.Context) {
-	health, err := h.priceSvc.GetProviderHealth()
+func (handler *Handler) getProviders(ctx *gin.Context) {
+	health, err := handler.priceSvc.GetProviderHealth()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, health)
+	ctx.JSON(http.StatusOK, health)
 }
 
-func (h *Handler) getProviderMapping(c *gin.Context) {
-	mapping, err := h.priceSvc.GetHoldingProviderMapping()
+func (handler *Handler) getProviderMapping(ctx *gin.Context) {
+	mapping, err := handler.priceSvc.GetHoldingProviderMapping()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, mapping)
+	ctx.JSON(http.StatusOK, mapping)
 }
 
-func (h *Handler) testProvider(c *gin.Context) {
-	ctx := c.Request.Context()
+func (handler *Handler) testProvider(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
 	var req struct {
 		Provider     string `json:"provider"`
-		InstrumentID string `json:"instrument_id"`
+		InstrumentID string `json:"instrumentId"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	err := ctx.ShouldBindJSON(&req)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	priceData, err := h.priceSvc.TestProvider(ctx, req.Provider, req.InstrumentID)
+	priceData, err := handler.priceSvc.TestProvider(requestCtx, req.Provider, req.InstrumentID)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
+		ctx.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"error":   err.Error(),
 		})
@@ -460,7 +542,7 @@ func (h *Handler) testProvider(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	ctx.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"price":      priceData.Value,
 		"currency":   priceData.Currency,
@@ -469,243 +551,274 @@ func (h *Handler) testProvider(c *gin.Context) {
 	})
 }
 
-func (h *Handler) refreshPrices(c *gin.Context) {
-	ctx := c.Request.Context()
+func (handler *Handler) refreshPrices(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
-	holdings, err := h.holdingSvc.GetAll(ctx)
+	holdings, err := handler.holdingSvc.GetAll(requestCtx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	if err := h.priceSvc.RefreshAll(ctx, holdings); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	err = handler.priceSvc.RefreshAll(requestCtx, holdings)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
-func (h *Handler) updateHoldingProvider(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+
+		return
+	}
 
 	var req struct {
 		Provider     string `json:"provider"`
-		InstrumentID string `json:"instrument_id"`
+		InstrumentID string `json:"instrumentId"`
 	}
 
-	err := c.ShouldBindJSON(&req)
+	err = ctx.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	err = h.priceSvc.UpdateHoldingProvider(id, req.Provider, req.InstrumentID)
+	err = handler.priceSvc.UpdateHoldingProvider(id, req.Provider, req.InstrumentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
 // Settings API.
-func (h *Handler) getSettings(c *gin.Context) {
-	settings, err := h.settingsSvc.GetAll(c.Request.Context())
+func (handler *Handler) getSettings(ctx *gin.Context) {
+	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, settings)
+	ctx.JSON(http.StatusOK, settings)
 }
 
-func (h *Handler) updateCurrency(c *gin.Context) {
-	ctx := c.Request.Context()
+func (handler *Handler) updateCurrency(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
 	var req struct {
 		Currency string `json:"currency"`
 	}
 
-	err := c.ShouldBindJSON(&req)
+	err := ctx.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
 	if req.Currency != "TRY" && req.Currency != "USD" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid currency"})
 
 		return
 	}
 
-	err = h.settingsSvc.SetDisplayCurrency(ctx, req.Currency)
+	err = handler.settingsSvc.SetDisplayCurrency(requestCtx, req.Currency)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
-func (h *Handler) updateDarkMode(c *gin.Context) {
-	ctx := c.Request.Context()
+func (handler *Handler) updateDarkMode(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
 	var req struct {
 		Mode string `json:"mode"`
 	}
 
-	err := c.ShouldBindJSON(&req)
+	err := ctx.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
 	if req.Mode != "system" && req.Mode != "light" && req.Mode != "dark" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid mode"})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid mode"})
 
 		return
 	}
 
-	err = h.settingsSvc.SetDarkMode(ctx, req.Mode)
+	err = handler.settingsSvc.SetDarkMode(requestCtx, req.Mode)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
-func (h *Handler) updateRefreshInterval(c *gin.Context) {
-	ctx := c.Request.Context()
+func (handler *Handler) updateRefreshInterval(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
 
 	var req struct {
 		Interval int `json:"interval"`
 	}
 
-	err := c.ShouldBindJSON(&req)
+	err := ctx.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
 	if req.Interval < 10 || req.Interval > 3600 {
-		c.JSON(
+		ctx.JSON(
 			http.StatusBadRequest,
-			gin.H{"error": "interval must be between 10 and 3600 seconds"},
+			gin.H{errorKey: "interval must be between 10 and 3600 seconds"},
 		)
 
 		return
 	}
 
-	err = h.settingsSvc.SetRefreshInterval(ctx, req.Interval)
+	err = handler.settingsSvc.SetRefreshInterval(requestCtx, req.Interval)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
 		return
 	}
 
-	c.Status(http.StatusOK)
+	ctx.Status(http.StatusOK)
 }
 
 // Page handlers (server-rendered with HTMX).
-func (h *Handler) pageDashboard(c *gin.Context) {
-	ctx := c.Request.Context()
-	displayCurrency := c.DefaultQuery("currency", "TRY")
+func (handler *Handler) pageDashboard(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
-	data, err := h.holdingSvc.GetDashboardData(ctx, displayCurrency)
+	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		data = &models.DashboardData{}
+		data = &models.DashboardData{} //nolint:exhaustruct_v5 // Empty struct for error fallback
 	}
 
-	c.HTML(http.StatusOK, "dashboard.html", gin.H{
+	ctx.HTML(http.StatusOK, "dashboard.html", gin.H{
 		"Data":            data,
 		"DisplayCurrency": displayCurrency,
-		"Title":           "Portfolio Tracker",
+		"Title":           titleDashboard, //nolint:goconst // Map key is required
 	})
 }
 
-func (h *Handler) pageHoldings(c *gin.Context) {
-	ctx := c.Request.Context()
-	displayCurrency := c.DefaultQuery("currency", "TRY")
+func (handler *Handler) pageHoldings(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
-	holdings, err := h.holdingSvc.GetWithPrices(ctx, displayCurrency)
+	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
 		holdings = []models.HoldingWithPrice{}
 	}
 
-	baskets, _ := h.holdingSvc.GetUniqueBaskets(ctx)
-	locations, _ := h.holdingSvc.GetUniqueLocations(ctx)
+	baskets, err := handler.holdingSvc.GetUniqueBaskets(requestCtx)
+	if err != nil {
+		baskets = []string{}
+	}
 
-	c.HTML(http.StatusOK, "holdings.html", gin.H{
+	locations, err := handler.holdingSvc.GetUniqueLocations(requestCtx)
+	if err != nil {
+		locations = []string{}
+	}
+
+	ctx.HTML(http.StatusOK, "holdings.html", gin.H{
 		"Holdings":        holdings,
 		"DisplayCurrency": displayCurrency,
 		"Baskets":         baskets,
 		"Locations":       locations,
-		"Title":           "Holdings",
+		"Title":           titleHoldings,
 	})
 }
 
-func (h *Handler) pageHistory(c *gin.Context) {
-	ctx := c.Request.Context()
-	displayCurrency := c.DefaultQuery("currency", "TRY")
+func (handler *Handler) pageHistory(ctx *gin.Context) {
+	requestCtx := ctx.Request.Context()
+	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "365"))
-	chartData, _ := h.snapshotSvc.GetSnapshotsForChart(ctx, days)
+	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
+	if err != nil {
+		days = 365
+	}
 
-	baskets, _ := h.holdingSvc.GetUniqueBaskets(ctx)
-	locations, _ := h.holdingSvc.GetUniqueLocations(ctx)
+	chartData, err := handler.snapshotSvc.GetSnapshotsForChart(requestCtx, days)
+	if err != nil {
+		chartData = []services.ChartPoint{}
+	}
+
+	baskets, err := handler.holdingSvc.GetUniqueBaskets(requestCtx)
+	if err != nil {
+		baskets = []string{}
+	}
+
+	locations, err := handler.holdingSvc.GetUniqueLocations(requestCtx)
+	if err != nil {
+		locations = []string{}
+	}
 
 	// Get unique asset types.
 	var assetTypes []string
 
-	_, _ = h.holdingSvc.GetAll(c.Request.Context()) // This will populate the db
+	_, _ = handler.holdingSvc.GetAll(requestCtx) //nolint:errcheck // This will populate the db
 	// For now, hardcode based on model.
 	assetTypes = []string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"}
 
-	c.HTML(http.StatusOK, "history.html", gin.H{
+	ctx.HTML(http.StatusOK, "history.html", gin.H{
 		"ChartData":       chartData,
 		"DisplayCurrency": displayCurrency,
 		"Days":            days,
 		"Baskets":         baskets,
 		"Locations":       locations,
 		"AssetTypes":      assetTypes,
-		"Title":           "History",
+		"Title":           titleHistory,
 	})
 }
 
-func (h *Handler) pageSources(c *gin.Context) {
-	providers, _ := h.priceSvc.GetProviderHealth()
-	mapping, _ := h.priceSvc.GetHoldingProviderMapping()
+func (handler *Handler) pageSources(ctx *gin.Context) {
+	providers, err := handler.priceSvc.GetProviderHealth()
+	if err != nil {
+		providers = []models.ProviderHealth{}
+	}
 
-	c.HTML(http.StatusOK, "sources.html", gin.H{
+	mapping, err := handler.priceSvc.GetHoldingProviderMapping()
+	if err != nil {
+		mapping = []price.HoldingProviderMapping{}
+	}
+
+	ctx.HTML(http.StatusOK, "sources.html", gin.H{
 		"Providers": providers,
 		"Mapping":   mapping,
-		"Title":     "Price Sources",
+		"Title":     titleSources,
 	})
 }
 
-func (h *Handler) pageSettings(c *gin.Context) {
-	settings, _ := h.settingsSvc.GetAll(c.Request.Context())
+func (handler *Handler) pageSettings(ctx *gin.Context) {
+	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
+	if err != nil {
+		settings = models.Settings{} //nolint:exhaustruct_v5 // Empty struct for error fallback
+	}
 
-	c.HTML(http.StatusOK, "settings.html", gin.H{
+	ctx.HTML(http.StatusOK, "settings.html", gin.H{
 		"Settings": settings,
-		"Title":    "Settings",
+		"Title":    titleSettings,
 	})
-}
-
-// Helper to render HTMX partials.
-func (h *Handler) renderPartial(c *gin.Context, template string, data gin.H) {
-	c.Header("HX-Trigger", "portfolio-updated")
-	c.HTML(http.StatusOK, template, data)
 }
