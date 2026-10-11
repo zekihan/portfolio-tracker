@@ -202,10 +202,14 @@ func migrate(db *sqlx.DB) error {
 }
 
 func GetSetting(db *sqlx.DB, key string) (string, error) {
+	return GetSettingContext(context.Background(), db, key)
+}
+
+func GetSettingContext(ctx context.Context, db *sqlx.DB, key string) (string, error) {
 	var value string
 
 	err := db.GetContext(
-		context.Background(),
+		ctx,
 		&value,
 		"SELECT value FROM settings WHERE key = ?",
 		key,
@@ -222,7 +226,11 @@ func GetSetting(db *sqlx.DB, key string) (string, error) {
 }
 
 func SetSetting(db *sqlx.DB, key, value string) error {
-	_, err := db.ExecContext(context.Background(),
+	return SetSettingContext(context.Background(), db, key, value)
+}
+
+func SetSettingContext(ctx context.Context, db *sqlx.DB, key, value string) error {
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
 		key,

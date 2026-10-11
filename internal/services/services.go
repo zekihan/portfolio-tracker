@@ -497,7 +497,7 @@ func NewSettingsService(db *sqlx.DB) *SettingsService {
 func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 	var settings models.Settings
 
-	currency, err := db.GetSetting(s.db, "display_currency")
+	currency, err := db.GetSettingContext(ctx, s.db, "display_currency")
 	if err != nil {
 		return settings, err
 	}
@@ -507,7 +507,7 @@ func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 		settings.DisplayCurrency = "TRY"
 	}
 
-	mode, err := db.GetSetting(s.db, "dark_mode")
+	mode, err := db.GetSettingContext(ctx, s.db, "dark_mode")
 	if err != nil {
 		return settings, err
 	}
@@ -517,7 +517,7 @@ func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 		settings.DarkMode = "system"
 	}
 
-	refreshStr, err := db.GetSetting(s.db, "refresh_interval")
+	refreshStr, err := db.GetSettingContext(ctx, s.db, "refresh_interval")
 	if err != nil {
 		return settings, err
 	}
@@ -533,15 +533,15 @@ func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 }
 
 func (s *SettingsService) SetDisplayCurrency(ctx context.Context, currency string) error {
-	return db.SetSetting(s.db, "display_currency", currency)
+	return db.SetSettingContext(ctx, s.db, "display_currency", currency)
 }
 
 func (s *SettingsService) SetDarkMode(ctx context.Context, mode string) error {
-	return db.SetSetting(s.db, "dark_mode", mode)
+	return db.SetSettingContext(ctx, s.db, "dark_mode", mode)
 }
 
 func (s *SettingsService) SetRefreshInterval(ctx context.Context, interval int) error {
-	return db.SetSetting(s.db, "refresh_interval", strconv.Itoa(interval))
+	return db.SetSettingContext(ctx, s.db, "refresh_interval", strconv.Itoa(interval))
 }
 
 func (s *SettingsService) GetBackup(ctx context.Context) ([]byte, error) {
