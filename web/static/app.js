@@ -63,6 +63,11 @@ const PortfolioApp = (function() {
     initPullToRefresh();
     
     // Listen for HTMX events
+    document.body.addEventListener('htmx:confirm', async event => {
+      if (!event.detail.question) return;
+      event.preventDefault();
+      if (await confirmAction(event.detail.question, 'Delete holding')) event.detail.issueRequest(true);
+    });
     document.body.addEventListener('htmx:beforeRequest', onHtmxBeforeRequest);
     document.body.addEventListener('portfolio-updated', onPortfolioUpdated);
     document.body.addEventListener('htmx:afterRequest', event => {
@@ -118,6 +123,19 @@ const PortfolioApp = (function() {
     });
   }
 
+  function confirmAction(message, action) {
+    const dialog = document.getElementById('confirm-action');
+    if (dialog.open) return Promise.resolve(false);
+    document.getElementById('confirm-action-title').textContent = action;
+    document.getElementById('confirm-action-message').textContent = message;
+    document.getElementById('confirm-action-submit').textContent = action;
+    dialog.returnValue = 'cancel';
+    return new Promise(resolve => {
+      dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true });
+      dialog.showModal();
+    });
+  }
+
   function initDisplaySettings() {
     const backupStatus = document.getElementById('backup-status');
     if (backupStatus) {
@@ -126,7 +144,7 @@ const PortfolioApp = (function() {
     }
     const clear = document.getElementById('clear-all-data');
     clear?.addEventListener('click', async () => {
-      if (!window.confirm('This will delete ALL holdings, snapshots, and settings. Are you absolutely sure?')) return;
+      if (!await confirmAction('This will delete all holdings, snapshots, and settings. Download a backup first to keep the current data.', 'Clear all data')) return;
       clear.disabled = true;
       try {
         const response = await fetch('/api/settings/clear-all', { method: 'DELETE' });

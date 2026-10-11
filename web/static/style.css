@@ -1465,3 +1465,15 @@ td.numeric { white-space: nowrap; }
 .restore-review p { margin-block: var(--space-3); overflow-wrap: anywhere; }
 .restore-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 #backup-status:not(:empty) { margin-top: var(--space-4); }
+
+.confirm-dialog {
+  margin: auto;
+  width: min(32rem, calc(100% - 2rem));
+  padding: var(--space-6);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+.confirm-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+.confirm-dialog p { margin-block: var(--space-4); overflow-wrap: anywhere; }

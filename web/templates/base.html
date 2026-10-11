@@ -142,6 +142,17 @@
     <!-- Modal container -->
     <div id="modal-container"></div>
 
+    <dialog id="confirm-action" class="confirm-dialog" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-message">
+        <form method="dialog">
+            <h2 id="confirm-action-title">Confirm action</h2>
+            <p id="confirm-action-message"></p>
+            <div class="restore-actions">
+                <button class="btn btn-secondary" value="cancel" autofocus>Cancel</button>
+                <button class="btn btn-danger" id="confirm-action-submit" value="confirm">Continue</button>
+            </div>
+        </form>
+    </dialog>
+
     <!-- Scripts -->
     <script src="{{assetURL "app.js"}}"></script>
 </body>
