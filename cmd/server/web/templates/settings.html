@@ -1,0 +1,84 @@
+{{define "content"}}
+<div class="settings-page">
+    <header class="page-header">
+        <h1>Settings</h1>
+    </header>
+
+    <!-- Display Settings -->
+    <section class="card" aria-labelledby="display-heading">
+        <h2 id="display-heading">Display</h2>
+        <div class="settings-grid">
+            <div class="setting-group">
+                <label for="display-currency">Display Currency</label>
+                <select id="display-currency" class="form-select" hx-patch="/api/settings/currency" hx-vals='js:{currency: document.getElementById("display-currency").value}' hx-target="#toast-container" hx-swap="beforeend">
+                    <option value="TRY" {{if eq .Settings.DisplayCurrency "TRY"}}selected{{end}}>Turkish Lira (TRY)</option>
+                    <option value="USD" {{if eq .Settings.DisplayCurrency "USD"}}selected{{end}}>US Dollar (USD)</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label for="dark-mode">Dark Mode</label>
+                <select id="dark-mode" class="form-select" hx-patch="/api/settings/dark-mode" hx-vals='js:{mode: document.getElementById("dark-mode").value}' hx-target="#toast-container" hx-swap="beforeend">
+                    <option value="system" {{if eq .Settings.DarkMode "system"}}selected{{end}}>System</option>
+                    <option value="light" {{if eq .Settings.DarkMode "light"}}selected{{end}}>Light</option>
+                    <option value="dark" {{if eq .Settings.DarkMode "dark"}}selected{{end}}>Dark</option>
+                </select>
+            </div>
+        </div>
+    </section>
+
+    <!-- Backup & Restore -->
+    <section class="card" aria-labelledby="backup-heading">
+        <h2 id="backup-heading">Backup & Restore</h2>
+        <div class="settings-grid">
+            <div class="setting-group">
+                <button class="btn btn-primary" id="download-backup" hx-get="/api/settings/backup" hx-target="#toast-container" hx-swap="beforeend">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download SQLite Backup
+                </button>
+            </div>
+            <div class="setting-group">
+                <label for="restore-file">Restore from File</label>
+                <input type="file" id="restore-file" class="form-input" accept=".db,.sqlite,.sqlite3" style="display: none;">
+                <button class="btn btn-secondary" id="restore-btn" onclick="document.getElementById('restore-file').click()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    Choose File
+                </button>
+            </div>
+        </div>
+        <p class="setting-note">Backups include all holdings, snapshots, and settings. Restore will replace all data.</p>
+    </section>
+
+    <!-- About -->
+    <section class="card" aria-labelledby="about-heading">
+        <h2 id="about-heading">About</h2>
+        <dl class="about-info">
+            <div><dt>Version</dt><dd>1.0.0</dd></div>
+            <div><dt>Build</dt><dd>{{.BuildInfo}}</dd></div>
+            <div><dt>License</dt><dd>MIT</dd></div>
+            <div><dt>Repository</dt><dd><a href="https://github.com/zekihan/portfolio-tracker" target="_blank" rel="noopener">github.com/zekihan/portfolio-tracker</a></dd></div>
+        </dl>
+    </section>
+
+    <!-- Danger Zone -->
+    <section class="card danger-zone" aria-labelledby="danger-heading">
+        <h2 id="danger-heading">Danger Zone</h2>
+        <div class="setting-group">
+            <button class="btn btn-danger" id="clear-all-data" hx-delete="/api/settings/clear-all" hx-confirm="This will delete ALL holdings, snapshots, and settings. Are you absolutely sure?" hx-target="#toast-container" hx-swap="beforeend">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                Clear All Data
+            </button>
+        </div>
+    </section>
+</div>
+{{end}}

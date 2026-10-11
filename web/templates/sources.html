@@ -1,0 +1,116 @@
+{{define "content"}}
+<div class="sources-page">
+    <header class="page-header">
+        <h1>Price Sources</h1>
+        <div class="page-actions">
+            <button class="btn btn-primary" hx-post="/api/sources/refresh" hx-target="#toast-container" hx-swap="beforeend">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                Refresh All Now
+            </button>
+        </div>
+    </header>
+
+    <!-- Provider Registry -->
+    <section class="card" aria-labelledby="provider-registry-heading">
+        <h2 id="provider-registry-heading">Provider Registry</h2>
+        <div class="table-container">
+            <table class="providers-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Key Required</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Last OK</th>
+                        <th scope="col">TTL (s)</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="provider-registry-body">
+                    {{range .Providers}}
+                    <tr class="{{if contains .Status "FAILED"}}failed{{else if contains .Status "Errors"}}warning{{end}}">
+                        <td>{{.Name}}</td>
+                        <td>{{.Type}}</td>
+                        <td>{{if .KeyRequired}}Yes{{else}}No{{end}}</td>
+                        <td>
+                            <span class="status-badge {{if contains .Status "FAILED"}}status-error{{else if contains .Status "Errors"}}status-warning{{else}}status-ok{{end}}">
+                                {{.Status}}
+                            </span>
+                        </td>
+                        <td>{{if not .LastOK.IsZero}}{{formatTime .LastOK}}{{else}}Never{{end}}</td>
+                        <td>60</td>
+                        <td>
+                            <button class="btn btn-ghost btn-sm" hx-post="/api/sources/test" hx-vals='js:{provider: "{{.Name}}", instrument_id: ""}' hx-target="#toast-container" hx-swap="beforeend">Test</button>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Holding → Provider Mapping -->
+    <section class="card" aria-labelledby="mapping-heading">
+        <h2 id="mapping-heading">Holding → Provider Mapping</h2>
+        <div class="table-container">
+            <table class="mapping-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Holding</th>
+                        <th scope="col">Provider</th>
+                        <th scope="col">Instrument ID</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="mapping-body">
+                    {{range .Mapping}}
+                    <tr>
+                        <td>{{.HoldingName}}</td>
+                        <td>
+                            <select class="form-select provider-select" data-holding-id="{{.HoldingID}}" hx-put="/api/holdings/{{.HoldingID}}/provider" hx-include="[name='instrument_id']" hx-target="#toast-container" hx-swap="beforeend">
+                                <option value="">Select provider...</option>
+                                {{range $.Providers}}
+                                <option value="{{.Name}}" {{if eq .Name $.Provider}}selected{{end}}>{{.Name}}</option>
+                                {{end}}
+                            </select>
+                        </td>
+                        <td>
+                                                                            <input type="text" class="form-input instrument-input" name="instrument_id" value="{{.InstrumentID}}" data-holding-id="{{.HoldingID}}" placeholder="Instrument ID">
+                                                                        </td>
+                                                                        <td>
+                                                                            <button class="btn btn-secondary btn-sm test-btn" data-holding-id="{{.HoldingID}}" hx-post="/api/sources/test" hx-vals='js:{provider: document.querySelector("[data-holding-id=\"" + this.dataset.holdingId + "\"] .provider-select").value, instrument_id: document.querySelector("[data-holding-id=\"" + this.dataset.holdingId + "\"] .instrument-input").value}' hx-target="#toast-container" hx-swap="beforeend">Test</button>
+                                                                            <button class="btn btn-primary btn-sm save-btn" data-holding-id="{{.HoldingID}}" hx-put="/api/holdings/{{.HoldingID}}/provider" hx-include="[data-holding-id='{{.HoldingID}}']" hx-target="#toast-container" hx-swap="beforeend">Save</button>
+                                                                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Global Settings -->
+    <section class="card" aria-labelledby="global-settings-heading">
+        <h2 id="global-settings-heading">Global Settings</h2>
+        <div class="settings-grid">
+            <div class="setting-group">
+                <label for="refresh-interval">Refresh Interval</label>
+                <select id="refresh-interval" class="form-select" hx-patch="/api/settings/refresh-interval" hx-vals='js:{interval: parseInt(document.getElementById("refresh-interval").value)}' hx-target="#toast-container" hx-swap="beforeend">
+                    <option value="30">30 seconds</option>
+                    <option value="60" selected>60 seconds</option>
+                    <option value="120">2 minutes</option>
+                    <option value="300">5 minutes</option>
+                    <option value="600">10 minutes</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Cache TTL</label>
+                <p class="setting-note">Configured per-provider in code (default 60s)</p>
+            </div>
+        </div>
+    </section>
+</div>
+{{end}}
+{{template "layout" .}}

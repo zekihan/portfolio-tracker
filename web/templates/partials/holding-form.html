@@ -1,0 +1,125 @@
+{{define "holding-form"}}
+<div class="modal-overlay" id="holding-modal" role="dialog" aria-modal="true" aria-labelledby="holding-modal-title" hx-on::before-request="document.body.classList.add('modal-open')" hx-on::after-request="document.body.classList.remove('modal-open')">
+    <div class="modal modal-lg">
+        <header class="modal-header">
+            <h2 id="holding-modal-title">{{if .ID}}Edit Holding{{else}}Add Holding{{end}}</h2>
+            <button class="btn btn-ghost btn-sm modal-close" aria-label="Close" hx-get="/partials/close-modal" hx-target="#modal-container" hx-swap="innerHTML">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </header>
+        <form class="modal-body" hx-put="/api/holdings/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { closeModal(); showToast('Holding saved'); }">
+            <input type="hidden" name="id" value="{{.ID}}">
+            
+            <fieldset class="form-section">
+                <legend>Basic</legend>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="name">Name *</label>
+                        <input type="text" id="name" name="name" class="form-input" value="{{.Name}}" required autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="ticker">Ticker</label>
+                        <input type="text" id="ticker" name="ticker" class="form-input" value="{{.Ticker}}" placeholder="NASDAQ:AAPL" autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="asset_type">Asset Type *</label>
+                        <select id="asset_type" name="asset_type" class="form-select" required>
+                            <option value="Stock" {{if eq .AssetType "Stock"}}selected{{end}}>Stock</option>
+                            <option value="ETF" {{if eq .AssetType "ETF"}}selected{{end}}>ETF</option>
+                            <option value="TR Fund" {{if eq .AssetType "TR Fund"}}selected{{end}}>TR Fund</option>
+                            <option value="Crypto" {{if eq .AssetType "Crypto"}}selected{{end}}>Crypto</option>
+                            <option value="Gold" {{if eq .AssetType "Gold"}}selected{{end}}>Gold</option>
+                            <option value="Cash" {{if eq .AssetType "Cash"}}selected{{end}}>Cash</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="quantity">Quantity *</label>
+                        <input type="number" id="quantity" name="quantity" class="form-input" value="{{.Quantity}}" step="0.01" min="0" required>
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+                <legend>Pricing</legend>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="price_provider">Price Provider</label>
+                        <select id="price_provider" name="price_provider" class="form-select" hx-get="/partials/provider-instrument-label" hx-target="#instrument-label" hx-include="this">
+                            <option value="">Select provider...</option>
+                            {{range .Providers}}
+                            <option value="{{.Name}}" {{if eq .Name .PriceProvider}}selected{{end}}>{{.Name}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="instrument_id" id="instrument-label">Instrument ID</label>
+                        <input type="text" id="instrument_id" name="instrument_id" class="form-input" value="{{.InstrumentID}}" placeholder="e.g., AAPL" autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <button type="button" class="btn btn-secondary" hx-post="/api/sources/test" hx-include="[name='price_provider'],[name='instrument_id']" hx-target="#test-result" hx-swap="innerHTML">Test Identifier</button>
+                        <div id="test-result" class="test-result" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Current Price</label>
+                        <div class="form-static">{{if .CurrentPrice > 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}} ({{.PriceSource}}, {{formatTime .PriceFetchedAt}}){{else}}—{{end}}</div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="est_price">Est. Price (optional)</label>
+                        <input type="number" id="est_price" name="est_price" class="form-input" value="{{.EstPrice}}" step="0.01" min="0" placeholder="Scenario price">
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+                <legend>Metadata</legend>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="base_currency">Base Currency</label>
+                        <select id="base_currency" name="base_currency" class="form-select">
+                            <option value="TRY" {{if eq .BaseCurrency "TRY"}}selected{{end}}>TRY</option>
+                            <option value="USD" {{if eq .BaseCurrency "USD"}}selected{{end}}>USD</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="basket">Basket</label>
+                        <input type="text" id="basket" name="basket" class="form-input" value="{{.Basket}}" list="basket-list" autocomplete="off">
+                        <datalist id="basket-list">
+                            {{range .Baskets}}<option value="{{.}}">{{end}}
+                        </datalist>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="location">Location</label>
+                        <input type="text" id="location" name="location" class="form-input" value="{{.Location}}" list="location-list" autocomplete="off">
+                        <datalist id="location-list">
+                            {{range .Locations}}<option value="{{.}}">{{end}}
+                        </datalist>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" name="notes" class="form-textarea" rows="3" placeholder="Optional notes...">{{.Notes}}</textarea>
+                </div>
+            </fieldset>
+
+            <footer class="modal-footer">
+                {{if .ID}}
+                <button type="button" class="btn btn-danger" hx-get="/partials/confirm-delete/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Delete Holding</button>
+                {{end}}
+                <button type="button" class="btn btn-secondary" hx-get="/partials/close-modal" hx-target="#modal-container" hx-swap="innerHTML">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </footer>
+        </form>
+    </div>
+</div>
+{{end}}
