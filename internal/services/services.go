@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"time"
 
@@ -302,6 +303,8 @@ func (s *HoldingService) GetUniqueLocations(ctx context.Context) ([]string, erro
 	return locations, err
 }
 
+var errNonFiniteSnapshotTotals = errors.New("non-finite snapshot totals")
+
 type SnapshotService struct {
 	db         *sqlx.DB
 	priceSvc   *price.Service
@@ -357,6 +360,11 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context) error {
 			"is_stale":  h.IsStale,
 			"is_failed": h.IsFailed,
 		})
+	}
+
+	if math.IsNaN(totalTRY) || math.IsInf(totalTRY, 0) ||
+		math.IsNaN(totalUSD) || math.IsInf(totalUSD, 0) {
+		return errNonFiniteSnapshotTotals
 	}
 
 	holdingsJSON, err := json.Marshal(snapshotHoldings)
