@@ -213,6 +213,18 @@ func (s *HoldingService) normalizePrice(
 	return try, usd
 }
 
+var errNonFiniteDashboardTotals = errors.New("non-finite dashboard totals")
+
+func areFiniteValues(values ...float64) bool {
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (s *HoldingService) GetDashboardData(
 	ctx context.Context,
 	displayCurrency string,
@@ -267,6 +279,10 @@ func (s *HoldingService) GetDashboardData(
 
 			allocCurr[h.BaseCurrency] += val
 		}
+	}
+
+	if !areFiniteValues(totalTRY, totalUSD, estTotalTRY, estTotalUSD) {
+		return nil, errNonFiniteDashboardTotals
 	}
 
 	providerHealth, err := s.priceSvc.GetProviderHealthContext(ctx)
