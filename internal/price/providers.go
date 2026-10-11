@@ -203,7 +203,10 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 		return models.Price{}, fmt.Errorf("alpha vantage returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		GlobalQuote struct {
@@ -278,7 +281,10 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 		return models.Price{}, fmt.Errorf("twelve data returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Price    string `json:"price"`
@@ -349,7 +355,10 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 		return models.Price{}, fmt.Errorf("finnhub returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		C float64 `json:"c"` // Current price
@@ -397,7 +406,10 @@ func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (mode
 		return models.Price{}, fmt.Errorf("pusula returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Data struct {
@@ -448,7 +460,10 @@ func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models
 		return models.Price{}, fmt.Errorf("garanti bbva returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Price float64 `json:"price"`
@@ -496,7 +511,10 @@ func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Pr
 		return models.Price{}, fmt.Errorf("izko gold returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result []struct {
 		Name  string  `json:"name"`
@@ -554,7 +572,10 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result []struct {
 		Symbol string  `json:"symbol"`
@@ -615,7 +636,10 @@ func (t *TradingViewCrypto) GetPrice(
 		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result []struct {
 		Symbol string  `json:"symbol"`
@@ -677,7 +701,10 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 		return models.Price{}, fmt.Errorf("coingecko returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result map[string]struct {
 		USD float64 `json:"usd"`
@@ -732,7 +759,10 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 		return models.Price{}, fmt.Errorf("frankfurter returned HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Rates map[string]float64 `json:"rates"`
