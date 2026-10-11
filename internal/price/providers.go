@@ -150,6 +150,10 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 		return models.Price{}, err
 	}
 
+	if result.Chart.Error != nil {
+		return models.Price{}, fmt.Errorf("yahoo finance API error for %s", instrumentID)
+	}
+
 	if len(result.Chart.Result) == 0 {
 		return models.Price{}, fmt.Errorf("no data for %s", instrumentID)
 	}
