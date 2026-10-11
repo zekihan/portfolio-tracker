@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -510,10 +509,11 @@ func (s *SettingsService) GetAll(ctx context.Context) (models.Settings, error) {
 		return settings, err
 	}
 
-	if refreshStr == "" {
-		settings.RefreshInterval = 60
-	} else {
-		fmt.Sscanf(refreshStr, "%d", &settings.RefreshInterval)
+	settings.RefreshInterval = 60
+
+	interval, parseErr := strconv.Atoi(refreshStr)
+	if parseErr == nil && interval >= 10 && interval <= 3600 {
+		settings.RefreshInterval = interval
 	}
 
 	return settings, nil
