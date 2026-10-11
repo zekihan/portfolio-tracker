@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	// Sqlite3 driver for database/sql.
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -137,58 +139,84 @@ func Open(dbPath string) (*sqlx.DB, error) {
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(time.Hour)
 
-	if err := migrate(db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	migrateErr := migrate(db)
+	if migrateErr != nil {
+		return nil, fmt.Errorf("migrate: %w", migrateErr)
 	}
 
 	return db, nil
 }
 
 func migrate(db *sqlx.DB) error {
-	tx, err := db.Beginx()
+	ctx := context.Background()
+
+	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		//nolint:errcheck // Rollback error is not critical in defer
+		_ = tx.Rollback()
+	}()
 
 	var version int
 
-	err = tx.Get(&version, "PRAGMA user_version")
+	err = tx.GetContext(ctx, &version, "PRAGMA user_version")
 	if err != nil && !strings.Contains(err.Error(), "no such table") {
-		return err
+		return fmt.Errorf("get user_version: %w", err)
 	}
 
 	for i := version; i < len(Migrations); i++ {
-		if _, err := tx.Exec(Migrations[i]); err != nil {
-			return fmt.Errorf("migration %d: %w", i+1, err)
+		_, execErr := tx.ExecContext(ctx, Migrations[i])
+		if execErr != nil {
+			return fmt.Errorf("migration %d: %w", i+1, execErr)
 		}
 
-		if _, err := tx.Exec("PRAGMA user_version = " + strconv.Itoa(i+1)); err != nil {
-			return err
+		_, pragmaErr := tx.ExecContext(ctx, "PRAGMA user_version = "+strconv.Itoa(i+1))
+		if pragmaErr != nil {
+			return fmt.Errorf("set user_version: %w", pragmaErr)
 		}
 	}
 
-	return tx.Commit()
+	commitErr := tx.Commit()
+	if commitErr != nil {
+		return fmt.Errorf("commit: %w", commitErr)
+	}
+
+	return nil
 }
 
 func GetSetting(db *sqlx.DB, key string) (string, error) {
 	var value string
 
-	err := db.Get(&value, "SELECT value FROM settings WHERE key = ?", key)
+	err := db.GetContext(
+		context.Background(),
+		&value,
+		"SELECT value FROM settings WHERE key = ?",
+		key,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 
-	return value, err
+	if err != nil {
+		return "", fmt.Errorf("get setting: %w", err)
+	}
+
+	return value, nil
 }
 
 func SetSetting(db *sqlx.DB, key, value string) error {
-	_, err := db.Exec(
+	_, err := db.ExecContext(context.Background(),
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
 		key,
 		value,
 	)
+	if err != nil {
+		return fmt.Errorf("set setting: %w", err)
+	}
 
-	return err
+	return nil
 }
