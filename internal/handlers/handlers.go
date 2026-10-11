@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -28,6 +29,10 @@ const (
 
 // Template helper functions.
 func formatNumber(num float64) string {
+	if math.IsNaN(num) || math.IsInf(num, 0) {
+		return "N/A"
+	}
+
 	if num == 0 {
 		return "0.00"
 	}
