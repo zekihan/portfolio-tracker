@@ -52,20 +52,22 @@
             </thead>
             <tbody id="holdings-tbody">
                 {{range .Holdings}}
+                {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}
+                {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{end}}
                 <tr class="holding-row {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
                     <td class="editable-cell" data-field="name">{{.Name}}</td>
                     <td class="editable-cell" data-field="ticker">{{.Ticker}}</td>
-                    <td class="numeric editable-cell" data-field="quantity">{{formatNumber .Quantity}}</td>
-                    <td class="numeric calculated-cell {{if .IsFailed}}price-failed{{else if .IsStale}}price-stale{{end}}" data-field="price">
+                    <td class="numeric editable-cell" data-field="quantity" data-sort-value="{{.Quantity}}">{{formatNumber .Quantity}}</td>
+                    <td class="numeric calculated-cell {{if .IsFailed}}price-failed{{else if .IsStale}}price-stale{{end}}" data-field="price" data-sort-value="{{.CurrentPrice}}">
                         {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}}
                         {{if .IsFailed}}<span class="badge badge-error">Failed</span>{{else if .IsStale}}<span class="badge badge-warning">Stale</span>{{end}}
                     </td>
-                    <td class="numeric editable-cell" data-field="est_price">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric editable-cell" data-field="est_price" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
                     <td>{{.BaseCurrency}}</td>
-                    <td class="numeric calculated-cell">{{if gt .NormTotalTRY 0}}{{formatCurrency .NormTotalTRY .DisplayCurrency}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt .NormEstTotalTRY 0}}{{formatCurrency .NormEstTotalTRY .DisplayCurrency}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt .NormPriceTRY 0}}{{formatCurrency .NormPriceTRY .DisplayCurrency}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt .NormEstTotalTRY 0}}{{formatCurrency .NormEstTotalTRY .DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if gt $total 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if gt $estimate 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if gt .NormPriceTRY 0}}{{formatCurrency .NormPriceTRY "TRY"}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if gt .NormEstTotalTRY 0}}{{formatCurrency .NormEstTotalTRY "TRY"}}{{else}}—{{end}}</td>
                     <td class="editable-cell" data-field="basket">{{.Basket}}</td>
                     <td class="editable-cell" data-field="location">{{.Location}}</td>
                     <td class="editable-cell" data-field="notes">{{.Notes}}</td>
@@ -115,11 +117,13 @@
     <!-- Mobile Card View -->
     <div class="mobile-cards mobile-only" role="list" aria-label="Holdings cards">
         {{range .Holdings}}
+        {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}
+        {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{end}}
         <article class="holding-card {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
             <header class="card-header">
                 <div>
                     <h3>{{.Name}} <span class="ticker">({{.Ticker}})</span></h3>
-                    <p class="meta">{{formatNumber .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency .NormTotalTRY .DisplayCurrency}}{{else}}—{{end}}</p>
+                    <p class="meta">{{formatNumber .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</p>
                 </div>
                 <div class="dropdown">
                     <button class="btn btn-ghost btn-sm dropdown-toggle" aria-expanded="false" aria-haspopup="true">
@@ -133,7 +137,7 @@
                 </div>
             </header>
             <div class="card-body">
-                <p class="meta">Est: {{if gt .NormEstTotalTRY 0}}{{formatCurrency .NormEstTotalTRY .DisplayCurrency}}{{else}}—{{end}} {{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}</p>
+                <p class="meta">Est: {{if gt .NormEstTotalTRY 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}} {{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}</p>
                 <p class="meta">Basket: {{.Basket}} • Location: {{.Location}}</p>
                 <div class="card-actions">
                     <button class="btn btn-sm btn-secondary" hx-get="/partials/holding-form/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Edit</button>

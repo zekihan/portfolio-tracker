@@ -52,7 +52,7 @@
         <div class="header-right">
             <!-- Currency Switcher -->
             <div class="currency-switcher" role="group" aria-label="Display currency">
-                <button class="btn btn-ghost currency-btn" hx-get="/api/settings/currency" hx-trigger="click" hx-target="#currency-menu" hx-swap="innerHTML">
+                <button type="button" class="btn btn-ghost currency-btn" aria-expanded="false" aria-controls="currency-menu">
                     <span class="currency-current">{{.DisplayCurrency}}</span>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="6 9 12 15 18 9"></polyline>
@@ -145,12 +145,6 @@
 
     <!-- Scripts -->
     <script src="/static/app.js"></script>
-    <script>
-        // Initialize app
-        document.addEventListener('DOMContentLoaded', function() {
-            PortfolioApp.init({{.DisplayCurrency | toJSON}});
-        });
-    </script>
 </body>
 </html>
 {{end}}

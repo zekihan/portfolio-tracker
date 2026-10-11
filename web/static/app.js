@@ -25,7 +25,7 @@ const PortfolioApp = (function() {
 
   // Initialize app
   function init(options = {}) {
-    state.displayCurrency = options.displayCurrency || 'TRY';
+    state.displayCurrency = options.displayCurrency || document.documentElement.dataset.currency || 'TRY';
     state.theme = localStorage.getItem('theme') || 'system';
     
     applyTheme(state.theme);
@@ -40,7 +40,6 @@ const PortfolioApp = (function() {
     initPullToRefresh();
     
     // Listen for HTMX events
-    document.body.addEventListener('htmx:afterSwap', onHtmxAfterSwap);
     document.body.addEventListener('htmx:beforeRequest', onHtmxBeforeRequest);
     document.body.addEventListener('portfolio-updated', onPortfolioUpdated);
     
@@ -114,35 +113,43 @@ const PortfolioApp = (function() {
     });
   }
 
-  async function loadCurrencyOptions() {
+  function loadCurrencyOptions() {
     const menu = document.getElementById('currency-menu');
     if (!menu) return;
 
-    try {
-      const response = await fetch('/api/settings');
-      const settings = await response.json();
-      
-      menu.innerHTML = `
-        <button class="dropdown-item ${settings.display_currency === 'TRY' ? 'active' : ''}" 
-                hx-patch="/api/settings/currency" 
-                hx-vals='{"currency": "TRY"}' 
-                hx-target="#toast-container" 
-                hx-swap="beforeend"
-                hx-on::after-request="closeDropdown()">
-          Turkish Lira (TRY)
-        </button>
-        <button class="dropdown-item ${settings.display_currency === 'USD' ? 'active' : ''}" 
-                hx-patch="/api/settings/currency" 
-                hx-vals='{"currency": "USD"}' 
-                hx-target="#toast-container" 
-                hx-swap="beforeend"
-                hx-on::after-request="closeDropdown()">
-          US Dollar (USD)
-        </button>
-      `;
-    } catch (e) {
-      console.error('Failed to load currency options:', e);
-    }
+    menu.replaceChildren();
+    [
+      { currency: 'TRY', label: 'Turkish Lira (TRY)' },
+      { currency: 'USD', label: 'US Dollar (USD)' }
+    ].forEach(({ currency, label }) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `dropdown-item ${state.displayCurrency === currency ? 'active' : ''}`;
+      button.dataset.currency = currency;
+      button.textContent = label;
+      menu.appendChild(button);
+    });
+
+    menu.querySelectorAll('button').forEach(button => {
+      button.addEventListener('click', () => {
+        const currency = button.dataset.currency;
+        button.disabled = true;
+        fetch('/api/settings/currency', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currency })
+        }).then(response => {
+          if (!response.ok) throw new Error(`Currency update failed: HTTP ${response.status}`);
+          closeDropdown();
+          const url = new URL(window.location.href);
+          url.searchParams.set('currency', currency);
+          window.location.assign(url.href);
+        }).catch(() => {
+          button.disabled = false;
+          showToast('Failed to update display currency', 'error');
+        });
+      });
+    });
   }
 
   function closeDropdown() {
@@ -235,7 +242,12 @@ const PortfolioApp = (function() {
 
   // Charts
   function initCharts() {
-    // Charts will be initialized when data loads
+    document.querySelectorAll('.chart-tab').forEach(tab => {
+      tab.addEventListener('click', () => loadPortfolioChart(tab.dataset.range));
+    });
+    document.querySelectorAll('.alloc-tab').forEach(tab => {
+      tab.addEventListener('click', () => loadAllocationChart(tab.dataset.alloc));
+    });
   }
 
   function loadPortfolioChart(range) {
@@ -292,7 +304,8 @@ const PortfolioApp = (function() {
   }
 
   function loadAllocationChart(type) {
-    fetch(`/api/dashboard/allocation?type=${type}`)
+    const params = new URLSearchParams({ type, currency: state.displayCurrency });
+    fetch(`/api/dashboard/allocation?${params}`)
       .then(r => r.json())
       .then(data => renderAllocationChart(data, type))
       .catch(e => console.error('Failed to load allocation chart:', e));
@@ -306,7 +319,8 @@ const PortfolioApp = (function() {
       state.charts.allocation.destroy();
     }
 
-    const allocation = data[`by_${type}`] || {};
+    const allocationKey = { location: 'by_loc', currency: 'by_curr' }[type] || `by_${type}`;
+    const allocation = data[allocationKey] || {};
     const labels = Object.keys(allocation);
     const values = Object.values(allocation);
     const total = values.reduce((a, b) => a + b, 0);
@@ -434,6 +448,30 @@ const PortfolioApp = (function() {
     }
   }
 
+  const tableOriginalOrders = new WeakMap();
+
+  function sortTableRows(table, header, direction) {
+    const body = table.tBodies[0];
+    if (!body) return;
+    const rows = [...body.rows];
+    const original = (tableOriginalOrders.get(body) || rows).filter(row => row.parentNode === body);
+    rows.forEach(row => { if (!original.includes(row)) original.push(row); });
+    tableOriginalOrders.set(body, original);
+    const numeric = ['quantity', 'current_price', 'est_price'].includes(header.dataset.sort);
+    const value = row => {
+      const cell = row.cells[header.cellIndex];
+      if (!numeric) return cell.textContent.trim();
+      return Number(cell.dataset.sortValue ?? cell.textContent.replace(/[₺$,\s]/g, '')) || 0;
+    };
+    const ordered = direction === 'none' ? original : rows.sort((left, right) => {
+      const comparison = numeric ? value(left) - value(right) :
+        value(left).localeCompare(value(right), undefined, { numeric: true, sensitivity: 'base' });
+      return comparison ? comparison * (direction === 'asc' ? 1 : -1) :
+        original.indexOf(left) - original.indexOf(right);
+    });
+    body.append(...ordered);
+  }
+
   // Table interactions
   function initTableInteractions() {
     // Sortable headers
@@ -461,6 +499,8 @@ const PortfolioApp = (function() {
           th.classList.toggle('sort-desc', newDir === 'desc');
         }
         
+        sortTableRows(table, th, newDir);
+
         // Update other headers
         table.querySelectorAll('th[data-sort]').forEach(other => {
           if (other !== th) {
@@ -497,7 +537,7 @@ const PortfolioApp = (function() {
     if (field === 'basket' || field === 'location') {
       input = document.createElement('input');
       input.type = 'text';
-      input.list = `${field}-list`;
+      input.setAttribute('list', `${field}-list`);
       // Would need to fetch existing values for datalist
     } else if (field === 'quantity' || field === 'est_price') {
       input = document.createElement('input');
@@ -509,7 +549,9 @@ const PortfolioApp = (function() {
       input.type = 'text';
     }
 
-    input.value = currentValue === '—' ? '' : currentValue.replace(/[₺$,\s]/g, '');
+    const numericField = field === 'quantity' || field === 'est_price';
+    const editValue = numericField ? currentValue.replace(/[₺$,\s]/g, '') : currentValue;
+    input.value = currentValue === '—' ? '' : editValue;
     input.className = 'inline-edit-input';
     input.style.cssText = 'width: 100%; padding: 4px 8px; border: 1px solid var(--border-focus); border-radius: 4px; background: var(--bg-primary); font-family: inherit; font-size: inherit;';
 
@@ -518,19 +560,24 @@ const PortfolioApp = (function() {
     input.focus();
     input.select();
 
+    let finished = false;
     const save = () => {
+      if (finished) return;
+      finished = true;
       const newValue = input.value.trim();
-      if (newValue !== currentValue && newValue !== '') {
+      if (newValue !== currentValue && (newValue !== '' || !numericField)) {
         // Send update via HTMX
         const url = `/api/holdings/${holdingId}`;
         const data = { [field]: field === 'quantity' || field === 'est_price' ? parseFloat(newValue) : newValue };
         
         fetch(url, {
-          method: 'PUT',
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
           body: JSON.stringify(data)
-        }).then(() => {
-          // Reload row or update
+        }).then(response => {
+          if (!response.ok) throw new Error(`Holding update failed: HTTP ${response.status}`);
+          // Display the new value only after the server accepts the update.
+          if (numericField) td.dataset.sortValue = newValue;
           td.textContent = formatDisplayValue(newValue, field);
         }).catch(() => {
           td.textContent = currentValue;
@@ -543,7 +590,10 @@ const PortfolioApp = (function() {
     input.addEventListener('blur', save);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') save();
-      if (e.key === 'Escape') td.textContent = currentValue;
+      if (e.key === 'Escape') {
+        finished = true;
+        td.textContent = currentValue;
+      }
     });
   }
 
@@ -586,6 +636,7 @@ const PortfolioApp = (function() {
     document.addEventListener('touchstart', (e) => {
       if (window.scrollY === 0) {
         startY = e.touches[0].clientY;
+        currentY = startY;
         pulling = true;
       }
     }, { passive: true });
@@ -600,6 +651,13 @@ const PortfolioApp = (function() {
         document.body.style.transform = `translateY(${delta * 0.5}px)`;
       }
     }, { passive: false });
+
+    document.addEventListener('touchcancel', () => {
+      if (!pulling) return;
+      pulling = false;
+      document.body.style.transform = 'translateY(0)';
+      document.body.style.transition = '';
+    });
 
     document.addEventListener('touchend', () => {
       if (!pulling) return;
@@ -622,16 +680,6 @@ const PortfolioApp = (function() {
   }
 
   // HTMX event handlers
-  function onHtmxAfterSwap(e) {
-    // Re-initialize components in swapped content
-    initDropdowns();
-    initTableInteractions();
-    
-    // Trigger chart updates if needed
-    if (e.detail.target.id === 'portfolio-chart') {
-      // Chart will be re-rendered by the partial
-    }
-  }
 
   function onHtmxBeforeRequest(e) {
     // Show loading state
@@ -641,9 +689,11 @@ const PortfolioApp = (function() {
   }
 
   function onPortfolioUpdated() {
-    // Refresh dashboard data
-    loadPortfolioChart('1y');
-    loadAllocationChart('type');
+    // Refresh the selected views rather than resetting the user's tabs.
+    const range = document.querySelector('.chart-tab[aria-selected="true"]')?.dataset.range || '1y';
+    const allocation = document.querySelector('.alloc-tab[aria-selected="true"]')?.dataset.alloc || 'type';
+    loadPortfolioChart(range);
+    loadAllocationChart(allocation);
   }
 
   // Utility functions

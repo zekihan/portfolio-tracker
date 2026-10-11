@@ -154,13 +154,8 @@ func getEnv(key, defaultValue string) string {
 }
 
 func acquireSnapshotLock(database *sqlx.DB) bool {
-	var result int
-
-	err := database.Get(&result, "SELECT 1 FROM holdings LIMIT 1")
-	if err != nil {
-		return true // No holdings table yet, allow snapshot
-	}
-
+	// Always acquire the lock, even when the portfolio is empty.
+	// Database errors must fail closed rather than bypass leader election.
 	// Use a transaction to ensure we use the same connection for the lock check.
 	tx, err := database.Beginx()
 	if err != nil {

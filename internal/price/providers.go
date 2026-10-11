@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,13 +49,17 @@ func (r *Registry) All() []Getter {
 		result = append(result, g)
 	}
 
+	slices.SortFunc(result, func(a, b Getter) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
+
 	return result
 }
 
 func (r *Registry) GetByType(providerType string) []Getter {
 	var result []Getter
 
-	for _, g := range r.getters {
+	for _, g := range r.All() {
 		if g.Type() == providerType {
 			result = append(result, g)
 		}
@@ -108,7 +115,7 @@ func NewYahooFinance() *YahooFinance {
 func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	url := fmt.Sprintf(
 		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1m&range=1d",
-		url.QueryEscape(instrumentID),
+		url.PathEscape(instrumentID),
 	)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
@@ -119,7 +126,14 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("yahoo finance returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read yahoo finance response: %w", err)
+	}
 
 	var result struct {
 		Chart struct {
@@ -136,11 +150,18 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 		return models.Price{}, err
 	}
 
+	if result.Chart.Error != nil {
+		return models.Price{}, fmt.Errorf("yahoo finance API error for %s", instrumentID)
+	}
+
 	if len(result.Chart.Result) == 0 {
 		return models.Price{}, fmt.Errorf("no data for %s", instrumentID)
 	}
 
 	price := result.Chart.Result[0].Meta.RegularMarketPrice
+	if price <= 0 {
+		return models.Price{}, fmt.Errorf("invalid market price for %s", instrumentID)
+	}
 
 	currency := result.Chart.Result[0].Meta.Currency
 	if currency == "" {
@@ -177,7 +198,7 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 	url := fmt.Sprintf(
 		"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=%s&apikey=%s",
 		url.QueryEscape(instrumentID),
-		key,
+		url.QueryEscape(key),
 	)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
@@ -187,33 +208,48 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("alpha vantage returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		GlobalQuote struct {
 			Price    string `json:"05. price"`
 			Currency string `json:"08. currency"`
 		} `json:"Global Quote"`
-		Note string `json:"Note"`
+		Note         string `json:"Note"`
+		ErrorMessage string `json:"Error Message"`
+		Information  string `json:"Information"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return models.Price{}, err
+	}
+
+	if result.ErrorMessage != "" || result.Information != "" {
+		return models.Price{}, fmt.Errorf("alpha vantage API error for %s", instrumentID)
 	}
 
 	if result.Note != "" {
 		return models.Price{}, fmt.Errorf("rate limited: %s", result.Note)
 	}
 
-	price := 0.0
-	fmt.Sscanf(result.GlobalQuote.Price, "%f", &price)
+	price, err := strconv.ParseFloat(result.GlobalQuote.Price, 64)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("parse alpha vantage price: %w", err)
+	}
+
+	if price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return models.Price{}, fmt.Errorf("invalid alpha vantage price for %s", instrumentID)
+	}
 
 	currency := result.GlobalQuote.Currency
 	if currency == "" {
 		currency = "USD"
-	}
-
-	if price == 0 {
-		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
 	return models.Price{
@@ -246,7 +282,7 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 	url := fmt.Sprintf(
 		"https://api.twelvedata.com/price?symbol=%s&apikey=%s",
 		url.QueryEscape(instrumentID),
-		key,
+		url.QueryEscape(key),
 	)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
@@ -256,7 +292,14 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("twelve data returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Price    string `json:"price"`
@@ -272,8 +315,14 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 		return models.Price{}, fmt.Errorf("API error: %s", result.Message)
 	}
 
-	price := 0.0
-	fmt.Sscanf(result.Price, "%f", &price)
+	price, err := strconv.ParseFloat(result.Price, 64)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("parse twelve data price: %w", err)
+	}
+
+	if price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return models.Price{}, fmt.Errorf("invalid twelve data price for %s", instrumentID)
+	}
 
 	currency := result.Currency
 	if currency == "" {
@@ -307,12 +356,9 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 		return models.Price{}, errors.New("FINNHUB_KEY not set")
 	}
 
-	url := fmt.Sprintf(
-		"https://finnhub.io/api/v1/quote?symbol=%s&token=%s",
-		url.QueryEscape(instrumentID),
-		key,
-	)
+	url := "https://finnhub.io/api/v1/quote?symbol=" + url.QueryEscape(instrumentID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req.Header.Set("X-Finnhub-Token", key)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -320,7 +366,14 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("finnhub returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		C float64 `json:"c"` // Current price
@@ -329,7 +382,7 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 		return models.Price{}, err
 	}
 
-	if result.C == 0 {
+	if result.C <= 0 {
 		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
@@ -355,7 +408,7 @@ func NewPusulaPortfoy() *PusulaPortfoy {
 }
 
 func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.QueryEscape(instrumentID)
+	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.PathEscape(instrumentID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := p.client.Do(req)
@@ -364,7 +417,14 @@ func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (mode
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("pusula returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Data struct {
@@ -376,7 +436,7 @@ func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (mode
 		return models.Price{}, err
 	}
 
-	if !result.Success || result.Data.Price == 0 {
+	if !result.Success || result.Data.Price <= 0 {
 		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
@@ -402,7 +462,7 @@ func NewGarantiBBVA() *GarantiBBVA {
 }
 
 func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	url := "https://www.garantibbva.com.tr/api/fund/" + url.QueryEscape(instrumentID)
+	url := "https://www.garantibbva.com.tr/api/fund/" + url.PathEscape(instrumentID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
 	resp, err := g.client.Do(req)
@@ -411,7 +471,14 @@ func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("garanti bbva returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Price float64 `json:"price"`
@@ -420,7 +487,7 @@ func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models
 		return models.Price{}, err
 	}
 
-	if result.Price == 0 {
+	if result.Price <= 0 {
 		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
@@ -455,7 +522,14 @@ func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Pr
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("izko gold returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result []struct {
 		Name  string  `json:"name"`
@@ -467,6 +541,10 @@ func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Pr
 
 	for _, item := range result {
 		if strings.EqualFold(item.Name, instrumentID) {
+			if item.Price <= 0 {
+				return models.Price{}, fmt.Errorf("invalid gold price for %s", instrumentID)
+			}
+
 			return models.Price{
 				Value:     item.Price,
 				Currency:  "TRY",
@@ -505,7 +583,14 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result []struct {
 		Symbol string  `json:"symbol"`
@@ -517,6 +602,10 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 
 	for _, item := range result {
 		if strings.EqualFold(item.Symbol, instrumentID) {
+			if item.Price <= 0 {
+				return models.Price{}, fmt.Errorf("invalid tradingview price for %s", instrumentID)
+			}
+
 			return models.Price{
 				Value:     item.Price,
 				Currency:  "TRY",
@@ -558,7 +647,14 @@ func (t *TradingViewCrypto) GetPrice(
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("tradingview returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result []struct {
 		Symbol string  `json:"symbol"`
@@ -570,6 +666,10 @@ func (t *TradingViewCrypto) GetPrice(
 
 	for _, item := range result {
 		if strings.EqualFold(item.Symbol, instrumentID) {
+			if item.Price <= 0 {
+				return models.Price{}, fmt.Errorf("invalid tradingview price for %s", instrumentID)
+			}
+
 			return models.Price{
 				Value:     item.Price,
 				Currency:  "USD",
@@ -600,11 +700,11 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 		"https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=usd",
 		url.QueryEscape(instrumentID),
 	)
-	if key := os.Getenv("COINGECKO_KEY"); key != "" {
-		url += "&x_cg_demo_api_key=" + key
-	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if key := os.Getenv("COINGECKO_KEY"); key != "" {
+		req.Header.Set("X-Cg-Demo-Api-Key", key)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -612,7 +712,14 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("coingecko returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result map[string]struct {
 		USD float64 `json:"usd"`
@@ -622,6 +729,10 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 	}
 
 	if data, ok := result[instrumentID]; ok {
+		if data.USD <= 0 {
+			return models.Price{}, fmt.Errorf("invalid USD price for %s", instrumentID)
+		}
+
 		return models.Price{
 			Value:     data.USD,
 			Currency:  "USD",
@@ -659,7 +770,14 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("frankfurter returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("read provider response: %w", err)
+	}
 
 	var result struct {
 		Rates map[string]float64 `json:"rates"`
@@ -670,6 +788,10 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 	}
 
 	if rate, ok := result.Rates["TRY"]; ok {
+		if rate <= 0 {
+			return models.Price{}, fmt.Errorf("invalid TRY rate for %s", instrumentID)
+		}
+
 		return models.Price{
 			Value:     rate,
 			Currency:  "TRY",
@@ -695,8 +817,14 @@ func NewManual() *Manual {
 }
 
 func (m *Manual) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
-	price := 0.0
-	fmt.Sscanf(instrumentID, "%f", &price)
+	price, err := strconv.ParseFloat(instrumentID, 64)
+	if err != nil {
+		return models.Price{}, fmt.Errorf("parse manual price: %w", err)
+	}
+
+	if price < 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return models.Price{}, fmt.Errorf("invalid manual price: %s", instrumentID)
+	}
 
 	return models.Price{
 		Value:     price,

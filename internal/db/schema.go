@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +18,8 @@ import (
 )
 
 const SchemaVersion = 6
+
+var errUnsupportedSchemaVersion = errors.New("unsupported schema version")
 
 var Migrations = []string{
 	// Schema v1 - Initial schema.
@@ -136,8 +140,49 @@ var Migrations = []string{
 	`,
 }
 
+func sqliteDSN(dbPath string) (string, error) {
+	if dbPath == "" {
+		dbPath = ":memory:"
+	}
+
+	if dbPath == ":memory:" {
+		return dbPath + "?_foreign_keys=on&_busy_timeout=5000", nil
+	}
+
+	var (
+		uri *url.URL
+		err error
+	)
+	if strings.HasPrefix(dbPath, "file:") {
+		uri, err = url.Parse(dbPath)
+	} else {
+		var absolute string
+
+		absolute, err = filepath.Abs(dbPath)
+		uri = new(url.URL)
+		uri.Scheme = "file"
+		uri.Path = absolute
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("database path: %w", err)
+	}
+
+	options := uri.Query()
+	options.Set("_foreign_keys", "on")
+	options.Set("_busy_timeout", "5000")
+	uri.RawQuery = options.Encode()
+
+	return uri.String(), nil
+}
+
 func Open(dbPath string) (*sqlx.DB, error) {
-	db, err := sqlx.Open("sqlite3", dbPath+"?_foreign_keys=on&_busy_timeout=5000")
+	dsn, err := sqliteDSN(dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sqlx.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -148,6 +193,8 @@ func Open(dbPath string) (*sqlx.DB, error) {
 
 	migrateErr := migrate(db)
 	if migrateErr != nil {
+		_ = db.Close()
+
 		return nil, fmt.Errorf("migrate: %w", migrateErr)
 	}
 
@@ -174,6 +221,11 @@ func migrate(db *sqlx.DB) error {
 		return fmt.Errorf("get user_version: %w", err)
 	}
 
+	if version < 0 || version > len(Migrations) {
+		return fmt.Errorf("%w: %d (supported: 0-%d)",
+			errUnsupportedSchemaVersion, version, len(Migrations))
+	}
+
 	for i := version; i < len(Migrations); i++ {
 		_, execErr := tx.ExecContext(ctx, Migrations[i])
 		if execErr != nil {
@@ -195,10 +247,14 @@ func migrate(db *sqlx.DB) error {
 }
 
 func GetSetting(db *sqlx.DB, key string) (string, error) {
+	return GetSettingContext(context.Background(), db, key)
+}
+
+func GetSettingContext(ctx context.Context, db *sqlx.DB, key string) (string, error) {
 	var value string
 
 	err := db.GetContext(
-		context.Background(),
+		ctx,
 		&value,
 		"SELECT value FROM settings WHERE key = ?",
 		key,
@@ -215,7 +271,11 @@ func GetSetting(db *sqlx.DB, key string) (string, error) {
 }
 
 func SetSetting(db *sqlx.DB, key, value string) error {
-	_, err := db.ExecContext(context.Background(),
+	return SetSettingContext(context.Background(), db, key, value)
+}
+
+func SetSettingContext(ctx context.Context, db *sqlx.DB, key, value string) error {
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
 		key,

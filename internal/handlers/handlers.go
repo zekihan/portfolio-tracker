@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,10 +25,15 @@ const (
 	titleHistory   = "History"
 	titleSources   = "Price Sources"
 	titleSettings  = "Settings"
+	percentScale   = 100
 )
 
 // Template helper functions.
 func formatNumber(num float64) string {
+	if math.IsNaN(num) || math.IsInf(num, 0) {
+		return "N/A"
+	}
+
 	if num == 0 {
 		return "0.00"
 	}
@@ -82,7 +88,7 @@ func formatPercent(n float64) string {
 }
 
 func formatTime(t time.Time) string {
-	return t.Format("2006-01-02 15:04 UTC")
+	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 func toJSON(v any) string {
@@ -124,7 +130,14 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	}
 
 	// Add template functions.
-	router.SetFuncMap(template.FuncMap{
+	funcs := template.FuncMap{
+		"coveragePercent": func(covered, total int) float64 {
+			if total == 0 {
+				return 0
+			}
+
+			return float64(covered) / float64(total) * percentScale
+		},
 		"formatNumber":   formatNumber,
 		"formatCurrency": formatCurrency,
 		"formatPercent":  formatPercent,
@@ -138,11 +151,12 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 		"add":            func(a, b int) int { return a + b },
 		"mul":            func(a, b float64) float64 { return a * b },
 		"div":            func(a, b float64) float64 { return a / b },
-	})
+	}
 
 	// Static files.
 	router.Static("/static", "./web/static")
-	router.LoadHTMLGlob("web/templates/*.html")
+	// Each page owns its content block; sharing one template tree overwrites it.
+	router.HTMLRender = newPageRenderer(funcs)
 
 	// API routes.
 	api := router.Group("/api")
@@ -152,6 +166,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	api.GET("/holdings/:id", handler.getHolding)
 	api.POST("/holdings", handler.createHolding)
 	api.PUT("/holdings/:id", handler.updateHolding)
+	api.PATCH("/holdings/:id", handler.patchHolding)
 	api.PATCH("/holdings/:id/est-price", handler.updateEstPrice)
 	api.PATCH("/holdings/:id/manual-price", handler.updateManualPrice)
 	api.DELETE("/holdings/:id/manual-price", handler.clearManualPrice)
@@ -294,7 +309,7 @@ func (handler *Handler) updateEstPrice(ctx *gin.Context) {
 	}
 
 	var req struct {
-		EstPrice float64 `json:"estPrice"`
+		EstPrice float64 `json:"estPrice" binding:"gte=0"`
 	}
 
 	err = ctx.ShouldBindJSON(&req)
@@ -325,7 +340,7 @@ func (handler *Handler) updateManualPrice(ctx *gin.Context) {
 	}
 
 	var req struct {
-		Price float64 `json:"price"`
+		Price float64 `json:"price" binding:"gte=0"`
 	}
 
 	err = ctx.ShouldBindJSON(&req)
@@ -424,14 +439,14 @@ func (handler *Handler) getSnapshots(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
 
 	limit, err := strconv.Atoi(ctx.DefaultQuery("limit", "50"))
-	if err != nil {
+	if err != nil || limit < 1 || limit > 1000 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid limit"})
 
 		return
 	}
 
 	offset, err := strconv.Atoi(ctx.DefaultQuery("offset", "0"))
-	if err != nil {
+	if err != nil || offset < 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid offset"})
 
 		return
@@ -451,7 +466,7 @@ func (handler *Handler) getChartData(ctx *gin.Context) {
 	requestCtx := ctx.Request.Context()
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
-	if err != nil {
+	if err != nil || days < 1 || days > 36500 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
 
 		return
@@ -478,7 +493,7 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 	}
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
-	if err != nil {
+	if err != nil || days < 1 || days > 36500 {
 		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
 
 		return
@@ -496,7 +511,7 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 
 // Price Sources API.
 func (handler *Handler) getProviders(ctx *gin.Context) {
-	health, err := handler.priceSvc.GetProviderHealth()
+	health, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
@@ -507,7 +522,7 @@ func (handler *Handler) getProviders(ctx *gin.Context) {
 }
 
 func (handler *Handler) getProviderMapping(ctx *gin.Context) {
-	mapping, err := handler.priceSvc.GetHoldingProviderMapping()
+	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
@@ -591,7 +606,12 @@ func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
 		return
 	}
 
-	err = handler.priceSvc.UpdateHoldingProvider(id, req.Provider, req.InstrumentID)
+	err = handler.priceSvc.UpdateHoldingProviderContext(
+		ctx.Request.Context(),
+		id,
+		req.Provider,
+		req.InstrumentID,
+	)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 
@@ -756,7 +776,7 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
-	if err != nil {
+	if err != nil || days < 1 || days > 36500 {
 		days = 365
 	}
 
@@ -794,12 +814,12 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 }
 
 func (handler *Handler) pageSources(ctx *gin.Context) {
-	providers, err := handler.priceSvc.GetProviderHealth()
+	providers, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
 	if err != nil {
 		providers = []models.ProviderHealth{}
 	}
 
-	mapping, err := handler.priceSvc.GetHoldingProviderMapping()
+	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
 	if err != nil {
 		mapping = []price.HoldingProviderMapping{}
 	}

@@ -27,7 +27,7 @@
                 <header class="card-header">
                     <h3>Estimated Value</h3>
                     <span class="badge badge-info" id="coverage-badge">
-                        Coverage: {{if gt .Data.TotalHoldings 0}}{{div .Data.CoverageCount .Data.TotalHoldings | mul 100 | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
+                        Coverage: {{if .Data.TotalHoldings}}{{coveragePercent .Data.CoverageCount .Data.TotalHoldings | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
                     </span>
                 </header>
                 <div class="value-main">
@@ -54,10 +54,10 @@
                 <header class="card-header">
                     <h3>Portfolio Value Over Time</h3>
                     <div class="chart-tabs" role="tablist" aria-label="Time range">
-                        <button class="chart-tab active" role="tab" aria-selected="true" data-range="1y" hx-get="/api/history/chart?days=365" hx-target="#portfolio-chart" hx-swap="innerHTML">1Y</button>
-                        <button class="chart-tab" role="tab" aria-selected="false" data-range="6m" hx-get="/api/history/chart?days=180" hx-target="#portfolio-chart" hx-swap="innerHTML">6M</button>
-                        <button class="chart-tab" role="tab" aria-selected="false" data-range="3m" hx-get="/api/history/chart?days=90" hx-target="#portfolio-chart" hx-swap="innerHTML">3M</button>
-                        <button class="chart-tab" role="tab" aria-selected="false" data-range="1m" hx-get="/api/history/chart?days=30" hx-target="#portfolio-chart" hx-swap="innerHTML">1M</button>
+                        <button type="button" class="chart-tab active" role="tab" aria-selected="true" data-range="1y">1Y</button>
+                        <button type="button" class="chart-tab" role="tab" aria-selected="false" data-range="6m">6M</button>
+                        <button type="button" class="chart-tab" role="tab" aria-selected="false" data-range="3m">3M</button>
+                        <button type="button" class="chart-tab" role="tab" aria-selected="false" data-range="1m">1M</button>
                     </div>
                 </header>
                 <div class="chart-container" style="height: 300px;">
@@ -70,10 +70,10 @@
                 <header class="card-header">
                     <h3>Allocation</h3>
                     <div class="allocation-tabs" role="tablist" aria-label="Allocation breakdown">
-                        <button class="alloc-tab active" role="tab" aria-selected="true" data-alloc="type" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "type"}' hx-swap="innerHTML">Asset Type</button>
-                        <button class="alloc-tab" role="tab" aria-selected="false" data-alloc="basket" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "basket"}' hx-swap="innerHTML">Basket</button>
-                        <button class="alloc-tab" role="tab" aria-selected="false" data-alloc="location" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "location"}' hx-swap="innerHTML">Location</button>
-                        <button class="alloc-tab" role="tab" aria-selected="false" data-alloc="currency" hx-get="/api/dashboard/allocation" hx-target="#allocation-chart" hx-vals='js:{type: "currency"}' hx-swap="innerHTML">Currency</button>
+                        <button type="button" class="alloc-tab active" role="tab" aria-selected="true" data-alloc="type">Asset Type</button>
+                        <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="basket">Basket</button>
+                        <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="location">Location</button>
+                        <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="currency">Currency</button>
                     </div>
                 </header>
                 <div class="chart-container" style="height: 300px;">
@@ -116,11 +116,5 @@
     </section>
 </div>
 
-<!-- Chart initialization script -->
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        PortfolioApp.initCharts({{.Data | toJSON}});
-    });
-</script>
 {{end}}
 {{template "layout" .}}
