@@ -30,6 +30,14 @@ func requireJSONBody() gin.HandlerFunc {
 			return
 		}
 
+		if ctx.Request.ContentLength > maxRequestBodyBytes {
+			ctx.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
+				errorKey: "request body too large",
+			})
+
+			return
+		}
+
 		ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxRequestBodyBytes)
 		ctx.Next()
 	}

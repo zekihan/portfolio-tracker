@@ -30,7 +30,7 @@ func TestRequireJSONBody(t *testing.T) {
 			status:      http.StatusUnsupportedMediaType,
 		},
 		{name: "missing content type", contentType: "", body: `{}`, status: http.StatusUnsupportedMediaType},
-		{name: "oversized", contentType: "application/json", body: oversized, status: http.StatusBadRequest},
+		{name: "oversized", contentType: "application/json", body: oversized, status: http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
