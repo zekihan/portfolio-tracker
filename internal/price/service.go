@@ -16,6 +16,8 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
+const breakerCooldown = 5 * time.Minute
+
 type Service struct {
 	db       *sqlx.DB
 	registry *Registry
@@ -67,11 +69,7 @@ func (s *Service) GetPrice(
 	}
 
 	// Check circuit breaker.
-	s.mu.RLock()
-	breakerOpen := s.breakers[providerName]
-	s.mu.RUnlock()
-
-	if breakerOpen {
+	if s.breakerBlocksRequest(providerName) {
 		// Return stale cached data if available.
 		if cached != nil {
 			price := models.Price{
@@ -278,6 +276,17 @@ func (s *Service) recordFailureContext(ctx context.Context, provider string, err
 		UPDATE price_cache SET error_count = error_count + 1, last_error = ?
 		WHERE provider = ?
 	`, err.Error(), provider)
+}
+
+// Retry after cooldown; a failed retry renews it and success closes the breaker.
+func (s *Service) breakerBlocksRequest(provider string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	lastFailure := s.lastFail[provider]
+
+	return s.breakers[provider] &&
+		(lastFailure.IsZero() || time.Since(lastFailure) < breakerCooldown)
 }
 
 func (s *Service) recordSuccess(provider string) {

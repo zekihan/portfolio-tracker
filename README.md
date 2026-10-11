@@ -6,7 +6,7 @@ Self-hosted personal portfolio tracker — HTMX + Go (server-rendered) • SQLit
 
 - **Multi-asset support**: Stocks, ETFs, Crypto, Gold, TR Funds, Cash
 - **12 price providers**: Yahoo Finance, Alpha Vantage, Twelve Data, Finnhub, Pusula Portföy, Garanti BBVA, İZKO Gold, TradingView BIST/Crypto, CoinGecko, Frankfurter, Manual
-- **Real-time prices** with caching, TTL, and circuit breaker (3 failures = open)
+- **Real-time prices** with caching, TTL, and circuit breaker (3 failures = open; retry after a 5-minute cooldown)
 - **Hourly snapshots** with DB advisory lock leader election
 - **Responsive UI**: Desktop table + mobile cards, dark/light mode
 - **Charts**: Portfolio value over time, allocation pies (by type/basket/location/currency)
