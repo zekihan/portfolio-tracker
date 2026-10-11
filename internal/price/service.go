@@ -124,16 +124,31 @@ func (s *Service) getPrice(
 		return models.Price{}, err
 	}
 
-	// Cache before recording success so expired requests cannot reset health.
-	s.cachePriceContext(ctx, providerName, instrumentID, price, getter.TTL())
-
-	if ctx.Err() != nil {
-		return models.Price{}, ctx.Err()
+	err = s.storeFetchedQuote(ctx, getter, instrumentID, price, forceRefresh)
+	if err != nil {
+		return models.Price{}, err
 	}
 
-	s.recordSuccess(providerName)
-
 	return price, nil
+}
+
+func (s *Service) storeFetchedQuote(
+	ctx context.Context, getter Getter, instrument string, quote models.Price, forceRefresh bool,
+) error {
+	// Cache before recording success so expired requests cannot reset health.
+	err := s.cachePriceContext(ctx, getter.Name(), instrument, quote, getter.TTL())
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// Explicit refresh must persist the quote; ordinary lookups can still use it.
+	if forceRefresh && err != nil {
+		return fmt.Errorf("persist refreshed quote: %w", err)
+	}
+
+	s.recordSuccess(getter.Name())
+
+	return nil
 }
 
 func canUseCachedQuote(cached *models.PriceCacheEntry, forceRefresh bool) bool {
