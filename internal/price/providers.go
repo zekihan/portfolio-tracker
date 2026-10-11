@@ -390,6 +390,10 @@ func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (mode
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("pusula returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
@@ -402,7 +406,7 @@ func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (mode
 		return models.Price{}, err
 	}
 
-	if !result.Success || result.Data.Price == 0 {
+	if !result.Success || result.Data.Price <= 0 {
 		return models.Price{}, fmt.Errorf("no price data for %s", instrumentID)
 	}
 
