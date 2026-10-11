@@ -448,6 +448,30 @@ const PortfolioApp = (function() {
     }
   }
 
+  const tableOriginalOrders = new WeakMap();
+
+  function sortTableRows(table, header, direction) {
+    const body = table.tBodies[0];
+    if (!body) return;
+    const rows = [...body.rows];
+    const original = (tableOriginalOrders.get(body) || rows).filter(row => row.parentNode === body);
+    rows.forEach(row => { if (!original.includes(row)) original.push(row); });
+    tableOriginalOrders.set(body, original);
+    const numeric = ['quantity', 'current_price', 'est_price'].includes(header.dataset.sort);
+    const value = row => {
+      const cell = row.cells[header.cellIndex];
+      if (!numeric) return cell.textContent.trim();
+      return Number(cell.dataset.sortValue ?? cell.textContent.replace(/[₺$,\s]/g, '')) || 0;
+    };
+    const ordered = direction === 'none' ? original : rows.sort((left, right) => {
+      const comparison = numeric ? value(left) - value(right) :
+        value(left).localeCompare(value(right), undefined, { numeric: true, sensitivity: 'base' });
+      return comparison ? comparison * (direction === 'asc' ? 1 : -1) :
+        original.indexOf(left) - original.indexOf(right);
+    });
+    body.append(...ordered);
+  }
+
   // Table interactions
   function initTableInteractions() {
     // Sortable headers
@@ -475,6 +499,8 @@ const PortfolioApp = (function() {
           th.classList.toggle('sort-desc', newDir === 'desc');
         }
         
+        sortTableRows(table, th, newDir);
+
         // Update other headers
         table.querySelectorAll('th[data-sort]').forEach(other => {
           if (other !== th) {
@@ -551,6 +577,7 @@ const PortfolioApp = (function() {
         }).then(response => {
           if (!response.ok) throw new Error(`Holding update failed: HTTP ${response.status}`);
           // Display the new value only after the server accepts the update.
+          if (numericField) td.dataset.sortValue = newValue;
           td.textContent = formatDisplayValue(newValue, field);
         }).catch(() => {
           td.textContent = currentValue;
