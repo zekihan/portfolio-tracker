@@ -596,7 +596,12 @@ func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
 		return
 	}
 
-	err = handler.priceSvc.UpdateHoldingProvider(id, req.Provider, req.InstrumentID)
+	err = handler.priceSvc.UpdateHoldingProviderContext(
+		ctx.Request.Context(),
+		id,
+		req.Provider,
+		req.InstrumentID,
+	)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 

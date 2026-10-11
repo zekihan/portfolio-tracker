@@ -336,7 +336,13 @@ type HoldingProviderMapping struct {
 }
 
 func (s *Service) UpdateHoldingProvider(holdingID int, provider, instrumentID string) error {
-	_, err := s.db.Exec(`
+	return s.UpdateHoldingProviderContext(context.Background(), holdingID, provider, instrumentID)
+}
+
+func (s *Service) UpdateHoldingProviderContext(
+	ctx context.Context, holdingID int, provider, instrumentID string,
+) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE holdings SET price_provider = ?, instrument_id = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, provider, instrumentID, holdingID)
