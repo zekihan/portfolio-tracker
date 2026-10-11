@@ -16,6 +16,17 @@
     <!-- Provider Registry -->
     <section class="card" aria-labelledby="provider-registry-heading">
         <h2 id="provider-registry-heading">Provider Registry</h2>
+        <details class="source-help">
+            <summary>Instrument examples and units</summary>
+            <ul>
+                <li>Yahoo Finance: TEAM, NASDAQ:TEAM, SPY, VGT, NASDAQ:QQQ.</li>
+                <li>Pusula Portföy: PRY. Garanti BBVA: GTL (TRY), GRO (USD).</li>
+                <li>TradingView BIST: ALTIN.S1. TradingView Crypto: ETH-USD, TRX, CURRENCY:BNBUSD, CURRENCY:XMRUSD, USDT, USDC.</li>
+                <li>İZKO Gold selling prices: ata, yenitam, yeniyarim, yeniceyrek. Use resat for the Ata proxy and gremse for the 16 × has-altın estimate.</li>
+                <li>İZKO yirmiiki is per gram: enter quantity 30 for a 30g bracelet.</li>
+                <li>USD and TL cash: choose Manual and set the holding's manual price to 1 in its base currency. Stablecoins can use live crypto prices or an explicit manual price.</li>
+            </ul>
+        </details>
         <div class="table-container">
             <table class="providers-table">
                 <thead>
@@ -45,6 +56,7 @@
                         <td>
                             <input class="form-input provider-test-instrument" aria-label="Test instrument for {{.Name}}" placeholder="Instrument ID">
                             <button class="btn btn-ghost btn-sm" data-test-provider="{{.Name}}">Test</button>
+                            <output class="source-test-result" aria-live="polite"></output>
                         </td>
                     </tr>
                     {{end}}
@@ -82,6 +94,7 @@
                         <td>
                             <button class="btn btn-secondary btn-sm" data-test-mapping>Test</button>
                             <button class="btn btn-primary btn-sm" data-save-mapping>Save</button>
+                            <output class="source-test-result" aria-live="polite"></output>
                         </td>
                     </tr>
                     {{end}}

@@ -1427,3 +1427,25 @@ td.numeric { white-space: nowrap; }
   .about-info a { overflow-wrap: anywhere; }
   .modal-footer { flex-wrap: wrap; padding: var(--space-3); }
 }
+
+.source-help {
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+}
+
+.source-help summary {
+  cursor: pointer;
+}
+
+.source-help li {
+  margin-top: 0.5rem;
+}
+
+.source-test-result {
+  display: block;
+  max-width: 24rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

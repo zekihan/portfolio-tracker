@@ -187,6 +187,11 @@ const PortfolioApp = (function() {
       const button = event.target.closest('[data-test-provider], [data-test-mapping], [data-save-mapping], #refresh-prices');
       if (!button) return;
       button.disabled = true;
+      const output = button.closest('tr')?.querySelector('.source-test-result');
+      if (output) {
+        output.textContent = 'Checking…';
+        output.classList.remove('text-error');
+      }
       try {
         if (button.id === 'refresh-prices') {
           await request('/api/sources/refresh', 'POST');
@@ -198,14 +203,23 @@ const PortfolioApp = (function() {
         const instrumentId = row.querySelector('.instrument-input, .provider-test-instrument').value.trim();
         if (button.hasAttribute('data-save-mapping')) {
           await request(`/api/holdings/${row.dataset.holdingId}/provider`, 'PUT', { provider, instrumentId });
+          if (output) output.textContent = 'Price source saved';
           showToast('Price source saved', 'success');
         } else {
           if (!provider || !instrumentId) throw new Error('Choose a provider and enter an instrument ID first.');
           const result = await request('/api/sources/test', 'POST', { provider, instrumentId });
-          showToast(`${provider}: ${formatCurrency(result.price, result.currency)}`, 'success');
+          const value = Number(result.price).toLocaleString(undefined, { maximumFractionDigits: 12 });
+          const message = `${value} ${result.currency} · ${result.source || provider}`;
+          if (output) output.textContent = `${instrumentId}: ${message}`;
+          showToast(message, 'success');
         }
-      } catch (error) { showToast(error.message, 'error'); }
-      finally { button.disabled = false; }
+      } catch (error) {
+        if (output) {
+          output.textContent = error.message;
+          output.classList.add('text-error');
+        }
+        showToast(error.message, 'error');
+      } finally { button.disabled = false; }
     });
     const interval = document.getElementById('refresh-interval');
     let savedInterval = interval.value;
