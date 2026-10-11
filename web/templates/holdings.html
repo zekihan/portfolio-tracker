@@ -137,13 +137,14 @@
                     </button>
                     <div class="dropdown-menu" role="menu">
                         <button class="dropdown-item" role="menuitem" hx-get="/partials/holding-form/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Edit</button>
+                        <button class="dropdown-item" role="menuitem" hx-get="/partials/holding-duplicate/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Duplicate</button>
                         <button class="dropdown-item" role="menuitem" hx-get="/partials/manual-price/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Manual Price</button>
                         <button class="dropdown-item dropdown-item-danger" role="menuitem" hx-delete="/api/holdings/{{.ID}}" hx-confirm="Delete {{.Name}}?" hx-target="closest .holding-card" hx-swap="outerHTML swap:1s">Delete</button>
                     </div>
                 </div>
             </header>
             <div class="card-body">
-                <p class="meta">Est: {{if gt .NormEstTotalTRY 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}} {{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}</p>
+                <p class="meta">Est: {{if gt .NormEstTotalTRY 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}} {{if gt .EstPrice 0}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
                 <p class="meta">Basket: {{.Basket}} • Location: {{.Location}}</p>
                 <div class="card-actions">
                     <button class="btn btn-sm btn-secondary" hx-get="/partials/holding-form/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Edit</button>

@@ -1292,6 +1292,10 @@ body.modal-open {
   .mobile-only {
     display: block;
   }
+
+  .mobile-cards.mobile-only {
+    display: flex;
+  }
   
   .value-primary {
     font-size: 1.5rem;
