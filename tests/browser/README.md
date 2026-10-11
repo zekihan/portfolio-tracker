@@ -23,4 +23,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `dropdown-swaps.js` runs on a fresh holdings page containing a holding. It verifies toggle behavior before and after three dispatched `htmx:afterSwap` events, then verifies delegated handling of a newly inserted dropdown and outside-click closure. It does not change persisted holdings.
 
+`table-sort-swaps.js` checks the ascending/descending/none direction control cycle before and after three real HTMX GET swaps, including a newly inserted table. Run on a fresh holdings page. This regression covers direction state and indicators, not row ordering; it performs no persisted writes.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

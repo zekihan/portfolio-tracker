@@ -40,7 +40,6 @@ const PortfolioApp = (function() {
     initPullToRefresh();
     
     // Listen for HTMX events
-    document.body.addEventListener('htmx:afterSwap', onHtmxAfterSwap);
     document.body.addEventListener('htmx:beforeRequest', onHtmxBeforeRequest);
     document.body.addEventListener('portfolio-updated', onPortfolioUpdated);
     
@@ -629,16 +628,6 @@ const PortfolioApp = (function() {
   }
 
   // HTMX event handlers
-  function onHtmxAfterSwap(e) {
-    // Dropdown clicks are delegated on document; no rebinding is needed.
-    // Re-initialize element-bound components in swapped content.
-    initTableInteractions();
-    
-    // Trigger chart updates if needed
-    if (e.detail.target.id === 'portfolio-chart') {
-      // Chart will be re-rendered by the partial
-    }
-  }
 
   function onHtmxBeforeRequest(e) {
     // Show loading state
