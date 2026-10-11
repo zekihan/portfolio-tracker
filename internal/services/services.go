@@ -438,10 +438,15 @@ func (s *SnapshotService) GetHoldingHistory(
 					valTRY = v
 				}
 
+				valUSD := 0.0
+				if v, ok := h["value_usd"].(float64); ok {
+					valUSD = v
+				}
+
 				points = append(points, HoldingHistoryPoint{
 					Timestamp: snap.Timestamp,
 					ValueTRY:  valTRY,
-					ValueUSD:  h["value_usd"].(float64),
+					ValueUSD:  valUSD,
 				})
 
 				break
