@@ -197,6 +197,8 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	api.PATCH("/settings/refresh-interval", handler.updateRefreshInterval)
 	api.DELETE("/settings/clear-all", handler.clearAllData)
 	api.GET("/settings/backup", handler.downloadBackup)
+	// Restore uploads multipart data, so it is registered outside the JSON-only API group.
+	router.POST("/api/settings/restore", requireRestoreConfirmation(), handler.restoreBackup)
 
 	// Page routes (server-rendered).
 	router.GET("/", handler.pageDashboard)
