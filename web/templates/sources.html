@@ -105,20 +105,14 @@
 
     <!-- Global Settings -->
     <section class="card" aria-labelledby="global-settings-heading">
-        <h2 id="global-settings-heading">Global Settings</h2>
+        <h2 id="global-settings-heading">Refresh and Caching</h2>
         <div class="settings-grid">
             <div class="setting-group">
-                <label for="refresh-interval">Refresh Interval</label>
-                <select id="refresh-interval" class="form-select">
-                    <option value="30" {{if eq .Settings.RefreshInterval 30}}selected{{end}}>30 seconds</option>
-                    <option value="60" {{if eq .Settings.RefreshInterval 60}}selected{{end}}>60 seconds</option>
-                    <option value="120" {{if eq .Settings.RefreshInterval 120}}selected{{end}}>2 minutes</option>
-                    <option value="300" {{if eq .Settings.RefreshInterval 300}}selected{{end}}>5 minutes</option>
-                    <option value="600" {{if eq .Settings.RefreshInterval 600}}selected{{end}}>10 minutes</option>
-                </select>
+                <h3>Price refresh</h3>
+                <p class="setting-note">Prices are fetched when needed after each provider's cache expires. Use Refresh All Now to request fresh prices immediately. Automatic portfolio snapshots run hourly.</p>
             </div>
             <div class="setting-group">
-                <label>Cache TTL</label>
+                <h3>Cache duration</h3>
                 <p class="setting-note">Configured individually by each price provider.</p>
             </div>
         </div>

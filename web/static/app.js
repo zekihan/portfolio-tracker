@@ -245,19 +245,7 @@ const PortfolioApp = (function() {
         showToast(error.message, 'error');
       } finally { button.disabled = false; }
     });
-    const interval = document.getElementById('refresh-interval');
-    let savedInterval = interval.value;
-    interval.addEventListener('change', async () => {
-      interval.disabled = true;
-      try {
-        await request('/api/settings/refresh-interval', 'PATCH', { interval: Number(interval.value) });
-        savedInterval = interval.value;
-        showToast('Refresh interval saved', 'success');
-      } catch (error) {
-        interval.value = savedInterval;
-        showToast(error.message, 'error');
-      } finally { interval.disabled = false; }
-    });
+
   }
 
   function initProviderHealth() {
