@@ -113,9 +113,9 @@
         </div>
         <div class="pagination">
             <button class="btn btn-ghost btn-sm" hx-get="/api/history/snapshots?offset=0" hx-target="#snapshots-tbody" hx-swap="innerHTML">First</button>
-            <button class="btn btn-ghost btn-sm" id="prev-page" hx-get="/api/history/snapshots?offset={{sub .Offset 50}}" hx-target="#snapshots-tbody" hx-swap="innerHTML">Previous</button>
+            <button class="btn btn-ghost btn-sm" id="prev-page" disabled hx-get="/api/history/snapshots?offset=0" hx-target="#snapshots-tbody" hx-swap="innerHTML">Previous</button>
             <span id="page-info">Page 1</span>
-            <button class="btn btn-ghost btn-sm" id="next-page" hx-get="/api/history/snapshots?offset={{add .Offset 50}}" hx-target="#snapshots-tbody" hx-swap="innerHTML">Next</button>
+            <button class="btn btn-ghost btn-sm" id="next-page" hx-get="/api/history/snapshots?offset=50" hx-target="#snapshots-tbody" hx-swap="innerHTML">Next</button>
         </div>
     </section>
 </div>

@@ -25,6 +25,7 @@ const (
 	titleHistory   = "History"
 	titleSources   = "Price Sources"
 	titleSettings  = "Settings"
+	percentScale   = 100
 )
 
 // Template helper functions.
@@ -129,7 +130,14 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	}
 
 	// Add template functions.
-	router.SetFuncMap(template.FuncMap{
+	funcs := template.FuncMap{
+		"coveragePercent": func(covered, total int) float64 {
+			if total == 0 {
+				return 0
+			}
+
+			return float64(covered) / float64(total) * percentScale
+		},
 		"formatNumber":   formatNumber,
 		"formatCurrency": formatCurrency,
 		"formatPercent":  formatPercent,
@@ -143,11 +151,12 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 		"add":            func(a, b int) int { return a + b },
 		"mul":            func(a, b float64) float64 { return a * b },
 		"div":            func(a, b float64) float64 { return a / b },
-	})
+	}
 
 	// Static files.
 	router.Static("/static", "./web/static")
-	router.LoadHTMLGlob("web/templates/*.html")
+	// Each page owns its content block; sharing one template tree overwrites it.
+	router.HTMLRender = newPageRenderer(funcs)
 
 	// API routes.
 	api := router.Group("/api")

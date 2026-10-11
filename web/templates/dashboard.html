@@ -27,7 +27,7 @@
                 <header class="card-header">
                     <h3>Estimated Value</h3>
                     <span class="badge badge-info" id="coverage-badge">
-                        Coverage: {{if gt .Data.TotalHoldings 0}}{{div .Data.CoverageCount .Data.TotalHoldings | mul 100 | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
+                        Coverage: {{if .Data.TotalHoldings}}{{coveragePercent .Data.CoverageCount .Data.TotalHoldings | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
                     </span>
                 </header>
                 <div class="value-main">
