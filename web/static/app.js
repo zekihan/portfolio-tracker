@@ -1,3 +1,18 @@
+// Send HTMX request bodies as JSON: the API handlers only accept application/json.
+if (window.htmx) {
+  htmx.defineExtension('json-body', {
+    onEvent: (name, evt) => {
+      if (name === 'htmx:configRequest') {
+        evt.detail.headers['Content-Type'] = 'application/json';
+      }
+    },
+    encodeParameters: (xhr, parameters) => {
+      xhr.overrideMimeType('text/json');
+      return JSON.stringify(parameters);
+    },
+  });
+}
+
 /**
  * Portfolio Tracker - Main Application JavaScript
  * Handles HTMX interactions, Chart.js, theme, and UI state
@@ -737,3 +752,30 @@ if (document.readyState === 'loading') {
 
 // Export for global access
 window.PortfolioApp = PortfolioApp;
+// Restore from a backup file chosen on the settings page.
+document.addEventListener('change', async (event) => {
+  const input = event.target;
+  if (!input || input.id !== 'restore-file' || !input.files || input.files.length === 0) return;
+
+  const file = input.files[0];
+  input.value = '';
+
+  if (!window.confirm('Restore will replace ALL current holdings, snapshots, and settings. Continue?')) return;
+
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const response = await fetch('/api/settings/restore', {
+      method: 'POST',
+      body: form,
+      headers: { 'X-Restore-Confirm': 'restore' },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
+
+    window.location.reload();
+  } catch (err) {
+    window.PortfolioApp.showToast(err.message, 'error');
+  }
+});

@@ -41,4 +41,3 @@ go.work
 
 # Release
 .goreleaser.yml
-.goreleaser.yaml

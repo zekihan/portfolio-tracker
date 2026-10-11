@@ -99,6 +99,44 @@ func (b *baseGetter) Name() string       { return b.name }
 func (b *baseGetter) Type() string       { return b.providerType }
 func (b *baseGetter) TTL() time.Duration { return b.ttl }
 
+// doGet issues a GET request with the given headers. Request construction
+// errors are returned instead of being discarded, so a bad URL cannot lead to
+// a nil request being dereferenced.
+func doGet(
+	ctx context.Context,
+	client *http.Client,
+	target string,
+	headers map[string]string,
+) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", redactURLError(err))
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, redactURLError(err)
+	}
+
+	return resp, nil
+}
+
+// redactURLError drops the request URL from *url.Error values. Provider URLs
+// can carry API keys in their query strings, and these messages are stored in
+// price_cache.last_error and returned by the sources test endpoint.
+// The wrapped cause is kept so errors.Is checks such as context.Canceled still work.
+func redactURLError(err error) error {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Errorf("%s request failed: %w", urlErr.Op, urlErr.Err)
+	}
+
+	return err
+}
+
 type YahooFinance struct{ baseGetter }
 
 func NewYahooFinance() *YahooFinance {
@@ -117,10 +155,10 @@ func (y *YahooFinance) GetPrice(ctx context.Context, instrumentID string) (model
 		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1m&range=1d",
 		url.PathEscape(instrumentID),
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
 
-	resp, err := y.client.Do(req)
+	headers := map[string]string{"User-Agent": "Mozilla/5.0"}
+
+	resp, err := doGet(ctx, y.client, url, headers)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -200,9 +238,8 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 		url.QueryEscape(instrumentID),
 		url.QueryEscape(key),
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := a.client.Do(req)
+	resp, err := doGet(ctx, a.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -284,9 +321,8 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 		url.QueryEscape(instrumentID),
 		url.QueryEscape(key),
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := t.client.Do(req)
+	resp, err := doGet(ctx, t.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -357,10 +393,8 @@ func (f *Finnhub) GetPrice(ctx context.Context, instrumentID string) (models.Pri
 	}
 
 	url := "https://finnhub.io/api/v1/quote?symbol=" + url.QueryEscape(instrumentID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	req.Header.Set("X-Finnhub-Token", key)
 
-	resp, err := f.client.Do(req)
+	resp, err := doGet(ctx, f.client, url, map[string]string{"X-Finnhub-Token": key})
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -409,9 +443,8 @@ func NewPusulaPortfoy() *PusulaPortfoy {
 
 func (p *PusulaPortfoy) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	url := "https://www.pusulaportfoy.com.tr/api/fund/" + url.PathEscape(instrumentID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := p.client.Do(req)
+	resp, err := doGet(ctx, p.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -463,9 +496,8 @@ func NewGarantiBBVA() *GarantiBBVA {
 
 func (g *GarantiBBVA) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	url := "https://www.garantibbva.com.tr/api/fund/" + url.PathEscape(instrumentID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := g.client.Do(req)
+	resp, err := doGet(ctx, g.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -514,9 +546,8 @@ func NewIZKOGold() *IZKOGold {
 
 func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Price, error) {
 	url := "https://www.izko.com.tr/api/gold-prices"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := i.client.Do(req)
+	resp, err := doGet(ctx, i.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -575,9 +606,8 @@ func (t *TradingViewBIST) GetPrice(ctx context.Context, instrumentID string) (mo
 		"https://symbol-search.tradingview.com/symbol_search/?text=%s&type=stock",
 		url.QueryEscape(instrumentID),
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := t.client.Do(req)
+	resp, err := doGet(ctx, t.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -639,9 +669,8 @@ func (t *TradingViewCrypto) GetPrice(
 		"https://symbol-search.tradingview.com/symbol_search/?text=%s&type=crypto",
 		url.QueryEscape(instrumentID),
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := t.client.Do(req)
+	resp, err := doGet(ctx, t.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -701,12 +730,12 @@ func (c *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (models.P
 		url.QueryEscape(instrumentID),
 	)
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	headers := map[string]string{}
 	if key := os.Getenv("COINGECKO_KEY"); key != "" {
-		req.Header.Set("X-Cg-Demo-Api-Key", key)
+		headers["X-Cg-Demo-Api-Key"] = key
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := doGet(ctx, c.client, url, headers)
 	if err != nil {
 		return models.Price{}, err
 	}
@@ -762,9 +791,8 @@ func (f *Frankfurter) GetPrice(ctx context.Context, instrumentID string) (models
 		"https://api.frankfurter.dev/v1/latest?from=%s&to=TRY",
 		url.QueryEscape(instrumentID),
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
-	resp, err := f.client.Do(req)
+	resp, err := doGet(ctx, f.client, url, nil)
 	if err != nil {
 		return models.Price{}, err
 	}

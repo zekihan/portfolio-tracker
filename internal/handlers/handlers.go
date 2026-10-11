@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -159,7 +161,7 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	router.HTMLRender = newPageRenderer(funcs)
 
 	// API routes.
-	api := router.Group("/api")
+	api := router.Group("/api", requireJSONBody())
 
 	// Holdings.
 	api.GET("/holdings", handler.getHoldings)
@@ -193,6 +195,10 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 	api.PATCH("/settings/currency", handler.updateCurrency)
 	api.PATCH("/settings/dark-mode", handler.updateDarkMode)
 	api.PATCH("/settings/refresh-interval", handler.updateRefreshInterval)
+	api.DELETE("/settings/clear-all", handler.clearAllData)
+	api.GET("/settings/backup", handler.downloadBackup)
+	// Restore uploads multipart data, so it is registered outside the JSON-only API group.
+	router.POST("/api/settings/restore", requireRestoreConfirmation(), handler.restoreBackup)
 
 	// Page routes (server-rendered).
 	router.GET("/", handler.pageDashboard)
@@ -211,7 +217,7 @@ func (handler *Handler) getHoldings(ctx *gin.Context) {
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -231,7 +237,7 @@ func (handler *Handler) getHolding(ctx *gin.Context) {
 
 	holding, err := handler.holdingSvc.GetByID(requestCtx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -259,7 +265,7 @@ func (handler *Handler) createHolding(ctx *gin.Context) {
 
 	err = handler.holdingSvc.Create(requestCtx, &holding)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -290,7 +296,7 @@ func (handler *Handler) updateHolding(ctx *gin.Context) {
 
 	err = handler.holdingSvc.Update(requestCtx, &holding)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -321,7 +327,7 @@ func (handler *Handler) updateEstPrice(ctx *gin.Context) {
 
 	err = handler.holdingSvc.UpdateEstPrice(requestCtx, id, req.EstPrice)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -352,7 +358,7 @@ func (handler *Handler) updateManualPrice(ctx *gin.Context) {
 
 	err = handler.holdingSvc.UpdateManualPrice(requestCtx, id, req.Price)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -372,7 +378,7 @@ func (handler *Handler) clearManualPrice(ctx *gin.Context) {
 
 	err = handler.holdingSvc.ClearManualPrice(requestCtx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -392,7 +398,7 @@ func (handler *Handler) deleteHolding(ctx *gin.Context) {
 
 	err = handler.holdingSvc.Delete(requestCtx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -407,7 +413,7 @@ func (handler *Handler) getDashboard(ctx *gin.Context) {
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -421,7 +427,7 @@ func (handler *Handler) getAllocation(ctx *gin.Context) {
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -454,7 +460,7 @@ func (handler *Handler) getSnapshots(ctx *gin.Context) {
 
 	snapshots, err := handler.snapshotSvc.GetSnapshots(requestCtx, limit, offset)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -474,7 +480,7 @@ func (handler *Handler) getChartData(ctx *gin.Context) {
 
 	points, err := handler.snapshotSvc.GetSnapshotsForChart(requestCtx, days)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -501,7 +507,7 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 
 	points, err := handler.snapshotSvc.GetHoldingHistory(requestCtx, id, days)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -509,11 +515,50 @@ func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, points)
 }
 
+// downloadBackup sends a consistent SQLite copy of the database as a file download.
+func (handler *Handler) downloadBackup(ctx *gin.Context) {
+	dir, err := os.MkdirTemp("", "portfolio-backup-")
+	if err != nil {
+		respondInternalError(ctx, err)
+
+		return
+	}
+
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
+
+	backupPath := filepath.Join(dir, "backup.db")
+
+	err = handler.settingsSvc.Backup(ctx.Request.Context(), backupPath)
+	if err != nil {
+		respondInternalError(ctx, err)
+
+		return
+	}
+
+	filename := "portfolio-backup-" + time.Now().UTC().Format("20060102-150405") + ".db"
+	ctx.FileAttachment(backupPath, filename)
+}
+
+// clearAllData deletes all user data and asks the browser to reload the page.
+func (handler *Handler) clearAllData(ctx *gin.Context) {
+	err := handler.settingsSvc.ClearAllData(ctx.Request.Context())
+	if err != nil {
+		respondInternalError(ctx, err)
+
+		return
+	}
+
+	ctx.Header("HX-Refresh", "true")
+	ctx.Status(http.StatusOK)
+}
+
 // Price Sources API.
 func (handler *Handler) getProviders(ctx *gin.Context) {
 	health, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -524,7 +569,7 @@ func (handler *Handler) getProviders(ctx *gin.Context) {
 func (handler *Handler) getProviderMapping(ctx *gin.Context) {
 	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -571,14 +616,14 @@ func (handler *Handler) refreshPrices(ctx *gin.Context) {
 
 	holdings, err := handler.holdingSvc.GetAll(requestCtx)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
 
 	err = handler.priceSvc.RefreshAll(requestCtx, holdings)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -613,7 +658,7 @@ func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
 		req.InstrumentID,
 	)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -625,7 +670,7 @@ func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
 func (handler *Handler) getSettings(ctx *gin.Context) {
 	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -655,7 +700,7 @@ func (handler *Handler) updateCurrency(ctx *gin.Context) {
 
 	err = handler.settingsSvc.SetDisplayCurrency(requestCtx, req.Currency)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -685,7 +730,7 @@ func (handler *Handler) updateDarkMode(ctx *gin.Context) {
 
 	err = handler.settingsSvc.SetDarkMode(requestCtx, req.Mode)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
@@ -718,7 +763,7 @@ func (handler *Handler) updateRefreshInterval(ctx *gin.Context) {
 
 	err = handler.settingsSvc.SetRefreshInterval(requestCtx, req.Interval)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}

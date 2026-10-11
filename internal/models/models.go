@@ -42,7 +42,8 @@ type Holding struct {
 	ManualPrice  sql.NullFloat64 `json:"manual_price"            db:"manual_price"`
 	CurrentPrice float64         `json:"current_price,omitempty" db:"-"`
 	ID           int             `json:"id"                      db:"id"`
-	Quantity     float64         `json:"quantity"                db:"quantity"`
+
+	Quantity float64 `json:"quantity" binding:"gte=0" db:"quantity"`
 
 	EstPrice float64 `json:"est_price" binding:"gte=0" db:"est_price"`
 

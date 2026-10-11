@@ -32,10 +32,10 @@ This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered 
 - `internal/services` — Business logic (HoldingService, SnapshotService, SettingsService)
 - `internal/charts` — Chart.js configuration helpers
 - `web/templates` — Go HTML templates (base, dashboard, holdings, history, sources, settings)
-- `web/static` — CSS, JS, Chart.js (embedded via //go:embed)
+- `web/static` — CSS, JS, Chart.js (served from disk at ./web/static; the Docker image copies ./web)
 
 **Key Design Decisions:**
-- **Single binary** with embedded templates/static assets
+- **Single binary** that reads templates and static assets from `./web` at runtime
 - **HTMX** for interactivity — minimal JS, server-rendered HTML
 - **SQLite** with migrations (v2 fixes NULL manual_price with DEFAULT 0)
 - **In-app cron** (robfig/cron/v3) for hourly snapshots

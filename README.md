@@ -39,39 +39,32 @@ Then visit http://localhost:8080
 
 ## Architecture
 
-- **Stack**: Go 1.23+ • Gin • HTMX • Chart.js • SQLite
-- **Single binary** with embedded templates/assets
+- **Stack**: Go 1.27+ • Gin • HTMX • Chart.js • SQLite
+- **Single binary**; templates and static assets are read from `./web` at runtime
 - **In-app cron** (robfig/cron) for hourly snapshots
 - **Leader election** via SQLite advisory lock
 - **Price cache** with TTL per provider
 - **Circuit breaker** after 3 consecutive failures
 
+## Authentication
+
+The application has no built-in authentication or authorization, by design.
+Run it behind a reverse proxy that handles authentication (for example
+OAuth2 Proxy, Authelia, or HTTP basic auth over TLS) and only expose the
+proxy. The API includes destructive endpoints (clearing all data and
+restoring from a backup), so the server must not be reachable without the
+proxy in front of it.
+
 ## Deployment
 
 ### Docker
 
-```dockerfile
-FROM golang:1.23-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go build -o portfolio-tracker ./cmd/server
-
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata sqlite-libs
-COPY --from=builder /app/portfolio-tracker /usr/local/bin/
-EXPOSE 8080
-VOLUME ["/data"]
-CMD ["portfolio-tracker"]
-```
-
-### Kubernetes (Helm)
-
 ```bash
-helm install portfolio-tracker ./deploy/helm/portfolio-tracker \
-  --set persistence.enabled=true \
-  --set ingress.enabled=true \
-  --set ingress.host=portfolio.example.com
+docker build -t portfolio-tracker .
+docker run -p 8080:8080 -v portfolio-data:/data portfolio-tracker
 ```
+
+The image is built with cgo (required by the SQLite driver) and includes the `web/` assets.
 
 ## Development
 
