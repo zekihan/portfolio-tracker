@@ -761,7 +761,7 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 	displayCurrency := ctx.DefaultQuery("currency", "TRY")
 
 	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
-	if err != nil {
+	if err != nil || days < 1 || days > 36500 {
 		days = 365
 	}
 
