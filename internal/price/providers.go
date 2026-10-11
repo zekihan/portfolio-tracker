@@ -489,6 +489,10 @@ func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Pr
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return models.Price{}, fmt.Errorf("izko gold returned HTTP %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 
 	var result []struct {
@@ -501,6 +505,10 @@ func (i *IZKOGold) GetPrice(ctx context.Context, instrumentID string) (models.Pr
 
 	for _, item := range result {
 		if strings.EqualFold(item.Name, instrumentID) {
+			if item.Price <= 0 {
+				return models.Price{}, fmt.Errorf("invalid gold price for %s", instrumentID)
+			}
+
 			return models.Price{
 				Value:     item.Price,
 				Currency:  "TRY",
