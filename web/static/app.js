@@ -235,6 +235,9 @@ const PortfolioApp = (function() {
 
   // Charts
   function initCharts() {
+    document.querySelectorAll('.chart-tab').forEach(tab => {
+      tab.addEventListener('click', () => loadPortfolioChart(tab.dataset.range));
+    });
     document.querySelectorAll('.alloc-tab').forEach(tab => {
       tab.addEventListener('click', () => loadAllocationChart(tab.dataset.alloc));
     });
