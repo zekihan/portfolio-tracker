@@ -198,7 +198,7 @@ func (a *AlphaVantage) GetPrice(ctx context.Context, instrumentID string) (model
 	url := fmt.Sprintf(
 		"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=%s&apikey=%s",
 		url.QueryEscape(instrumentID),
-		key,
+		url.QueryEscape(key),
 	)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
@@ -276,7 +276,7 @@ func (t *TwelveData) GetPrice(ctx context.Context, instrumentID string) (models.
 	url := fmt.Sprintf(
 		"https://api.twelvedata.com/price?symbol=%s&apikey=%s",
 		url.QueryEscape(instrumentID),
-		key,
+		url.QueryEscape(key),
 	)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 
