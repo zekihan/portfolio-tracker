@@ -1,0 +1,44 @@
+# Binaries
+portfolio-tracker
+*.exe
+*.test
+
+# Build artifacts
+dist/
+build/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.override.env
+
+# Go
+vendor/
+go.work
+
+# Release
+.goreleaser.yml
+.goreleaser.yaml
