@@ -17,6 +17,8 @@ import (
 
 const SchemaVersion = 6
 
+var errUnsupportedSchemaVersion = errors.New("unsupported schema version")
+
 var Migrations = []string{
 	// Schema v1 - Initial schema.
 	`
@@ -172,6 +174,11 @@ func migrate(db *sqlx.DB) error {
 	err = tx.GetContext(ctx, &version, "PRAGMA user_version")
 	if err != nil && !strings.Contains(err.Error(), "no such table") {
 		return fmt.Errorf("get user_version: %w", err)
+	}
+
+	if version < 0 || version > len(Migrations) {
+		return fmt.Errorf("%w: %d (supported: 0-%d)",
+			errUnsupportedSchemaVersion, version, len(Migrations))
 	}
 
 	for i := version; i < len(Migrations); i++ {
