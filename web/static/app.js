@@ -32,6 +32,9 @@ const PortfolioApp = (function() {
     }
   };
 
+  let portfolioRequest = 0;
+  let allocationRequest = 0;
+
   // Chart color palette
   const CHART_COLORS = [
     '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4',
@@ -48,6 +51,7 @@ const PortfolioApp = (function() {
     initCurrencySwitcher();
     initDisplaySettings();
     initSources();
+    initProviderHealth();
     initMobileMenu();
     initDropdowns();
     initToasts();
@@ -61,6 +65,12 @@ const PortfolioApp = (function() {
     // Listen for HTMX events
     document.body.addEventListener('htmx:beforeRequest', onHtmxBeforeRequest);
     document.body.addEventListener('portfolio-updated', onPortfolioUpdated);
+    document.body.addEventListener('htmx:afterRequest', event => {
+      if (event.detail.successful && event.detail.requestConfig?.verb === 'delete' &&
+          event.detail.requestConfig.path.startsWith('/api/holdings/')) window.location.reload();
+    });
+    document.body.addEventListener('htmx:responseError', () => showToast('The request failed. Please try again.', 'error'));
+    document.body.addEventListener('htmx:sendError', () => showToast('Unable to connect to the server.', 'error'));
     
     // Load initial chart data
     loadPortfolioChart('1y');
@@ -196,6 +206,47 @@ const PortfolioApp = (function() {
         showToast(error.message, 'error');
       } finally { interval.disabled = false; }
     });
+  }
+
+  function initProviderHealth() {
+    const button = document.getElementById('refresh-provider-health');
+    if (!button) return;
+    const refresh = async () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/sources/providers');
+        if (!response.ok) throw new Error('Unable to load provider health');
+        const providers = await response.json();
+        const container = document.getElementById('provider-health');
+        container.replaceChildren();
+        providers.forEach(provider => {
+          const row = document.createElement('div');
+          row.className = 'provider-row';
+          row.classList.toggle('failed', provider.Status.includes('FAILED'));
+          row.classList.toggle('warning', provider.Status.includes('Errors'));
+          const info = document.createElement('div');
+          info.className = 'provider-info';
+          const name = document.createElement('span');
+          name.className = 'provider-name';
+          name.textContent = provider.Name;
+          const status = document.createElement('span');
+          status.className = 'provider-status';
+          status.textContent = provider.Status;
+          info.append(name, status);
+          const time = document.createElement('div');
+          time.className = 'provider-time';
+          const lastOK = new Date(provider.LastOK);
+          time.textContent = !Number.isNaN(lastOK.getTime()) && lastOK.getUTCFullYear() > 1 ?
+            `${lastOK.toISOString().replace('T', ' ').slice(0, 16)} UTC` : 'Never';
+          row.append(info, time);
+          container.appendChild(row);
+        });
+      } catch (error) { showToast(error.message, 'error'); }
+      finally { button.disabled = false; }
+    };
+    button.addEventListener('click', refresh);
+    setInterval(refresh, 60000);
   }
 
   // Currency switcher
@@ -377,9 +428,13 @@ const PortfolioApp = (function() {
     const daysMap = { '1y': 365, '6m': 180, '3m': 90, '1m': 30 };
     const days = document.getElementById('date-range')?.value || daysMap[range] || 365;
     
+    const request = ++portfolioRequest;
     fetch(`/api/history/chart?days=${days}`)
-      .then(r => r.json())
-      .then(data => renderPortfolioChart(data, range))
+      .then(response => {
+        if (!response.ok) throw new Error('Unable to load portfolio history');
+        return response.json();
+      })
+      .then(data => { if (request === portfolioRequest) renderPortfolioChart(data, range); })
       .catch(e => console.error('Failed to load portfolio chart:', e));
   }
 
@@ -429,9 +484,13 @@ const PortfolioApp = (function() {
   function loadAllocationChart(type) {
     if (!document.getElementById('allocation-chart')) return;
     const params = new URLSearchParams({ type, currency: state.displayCurrency });
+    const request = ++allocationRequest;
     fetch(`/api/dashboard/allocation?${params}`)
-      .then(r => r.json())
-      .then(data => renderAllocationChart(data, type))
+      .then(response => {
+        if (!response.ok) throw new Error('Unable to load allocation');
+        return response.json();
+      })
+      .then(data => { if (request === allocationRequest) renderAllocationChart(data, type); })
       .catch(e => console.error('Failed to load allocation chart:', e));
   }
 
@@ -1005,8 +1064,11 @@ const PortfolioApp = (function() {
 
       if (delta > 60) {
         // Trigger refresh
-        document.body.dispatchEvent(new CustomEvent('portfolio-updated'));
         showToast('Refreshing prices...', 'info');
+        fetch('/api/sources/refresh', { method: 'POST' }).then(response => {
+          if (!response.ok) throw new Error('Price refresh failed');
+          window.location.reload();
+        }).catch(error => showToast(error.message, 'error'));
       }
     });
   }

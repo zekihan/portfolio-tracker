@@ -2,8 +2,15 @@
 (() => {
   if (window.scrollY !== 0) throw new Error('Scroll to the top before running');
   let refreshes = 0;
-  const count = () => refreshes++;
-  document.body.addEventListener('portfolio-updated',count);
+  const originalFetch = window.fetch;
+  window.fetch = (url, options) => {
+    if (url === '/api/sources/refresh' && options?.method === 'POST') {
+      refreshes++;
+      // Reject the synthetic refresh to prevent navigation or provider requests.
+      return Promise.resolve({ok:false});
+    }
+    return originalFetch(url, options);
+  };
   function touch(type,y) {
     const touches = type === 'touchend' || type === 'touchcancel' ? [] : [new Touch({identifier:1,target:document.body,clientY:y})];
     document.body.dispatchEvent(new TouchEvent(type,{bubbles:true,cancelable:true,touches}));
@@ -24,6 +31,6 @@
     if (refreshes !== 1) throw new Error('Next deliberate pull did not refresh once');
     return {cancelRestoredPage:true,canceledRefreshes:0,nextPullWorks:true};
   } finally {
-    document.body.removeEventListener('portfolio-updated',count);
+    window.fetch = originalFetch;
   }
 })()
