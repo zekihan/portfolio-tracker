@@ -301,7 +301,10 @@ func (s *HoldingService) GetDashboardData(
 		return nil, err
 	}
 
-	usdTryRate, _ := s.priceSvc.GetUSDTTRYRate(ctx)
+	usdTryRate, err := s.priceSvc.GetUSDTTRYRate(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	return &models.DashboardData{
 		CurrentValueTRY:    totalTRY,
