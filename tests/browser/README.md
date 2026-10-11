@@ -33,4 +33,6 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 Inline saves use `PATCH /api/holdings/:id` for name, ticker, basket, location, notes, quantity, and est_price. Omitted/null fields remain unchanged; empty text clears optional fields, but an empty name is rejected. Numeric values must be nonnegative. A successful update returns HTTP 204, a missing holding HTTP 404, and an empty or invalid patch HTTP 400. The existing full-record PUT contract is unchanged.
 
+`inline-lifecycle.js` checks that Enter followed by blur makes exactly one real PATCH request and Escape followed by blur makes none. It re-reads persistence and restores fixture notes in a finally block. Run ONLY on a disposable populated holdings database.
+
 The Go HTTP rendering tests separately ensure each page contains only the automatic `app.js` bootstrap. Browser regressions are not currently run by `go test` or CI.

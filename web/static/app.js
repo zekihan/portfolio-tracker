@@ -526,7 +526,10 @@ const PortfolioApp = (function() {
     input.focus();
     input.select();
 
+    let finished = false;
     const save = () => {
+      if (finished) return;
+      finished = true;
       const newValue = input.value.trim();
       if (newValue !== currentValue && (newValue !== '' || !numericField)) {
         // Send update via HTMX
@@ -552,7 +555,10 @@ const PortfolioApp = (function() {
     input.addEventListener('blur', save);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') save();
-      if (e.key === 'Escape') td.textContent = currentValue;
+      if (e.key === 'Escape') {
+        finished = true;
+        td.textContent = currentValue;
+      }
     });
   }
 
