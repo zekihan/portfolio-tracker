@@ -37,7 +37,7 @@ func (handler *Handler) patchHolding(ctx *gin.Context) {
 
 	updated, err := handler.holdingSvc.Patch(ctx.Request.Context(), id, patch)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		respondInternalError(ctx, err)
 
 		return
 	}
