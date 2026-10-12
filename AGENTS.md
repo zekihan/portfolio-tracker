@@ -49,9 +49,10 @@ This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered 
 
 ## Linting Rules
 
-The linter (`golangci-lint`, config in `.golangci.yaml`) uses the focused checks
-shared by sibling Go services: errcheck, govet, ineffassign, staticcheck, and unused.
-Formatting uses gofmt. `make lint` does not modify files; use `make fmt tidy` first.
+The linter (`golangci-lint`, config in `.golangci.yaml`) follows YouAud's strict
+configuration with all linters enabled by default and existing project-specific
+exclusions. Formatters include gci, gofmt, gofumpt, golines, and swaggo.
+`make lint` checks without rewriting files; `make fmt` applies the formatters.
 
 ## Development Workflow
 

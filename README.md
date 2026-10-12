@@ -81,8 +81,9 @@ make release-check    # validate GoReleaser configuration
 make container-test   # build and smoke-test the container with networking disabled
 ```
 
-Lint uses the focused errcheck, govet, ineffassign, staticcheck, and unused checks
-shared by the other Go services. `make lint` checks without rewriting files.
+Lint follows YouAud's configuration: all linters enabled by default, its shared
+rule settings and formatter suite, and this project's existing scoped exclusions.
+`make lint` checks without rewriting files; `make fmt` applies the configured formatters.
 `make test/cover` writes `coverage.out`; use `go tool cover -html=coverage.out` to view it.
 
 ## Releases

@@ -13,7 +13,7 @@ run: build
 	./$(BINARY)
 
 fmt:
-	gofmt -w cmd internal
+	golangci-lint fmt
 
 tidy:
 	$(GO) mod tidy

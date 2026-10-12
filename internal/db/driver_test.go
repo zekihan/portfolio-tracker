@@ -14,19 +14,29 @@ func TestOpenConfiguresReplacementConnections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(func() { _ = database.Close() })
 	database.SetMaxIdleConns(0)
 
 	for range 2 {
 		var foreignKeys, busyTimeout int
-		if err := database.GetContext(t.Context(), &foreignKeys, "PRAGMA foreign_keys"); err != nil {
+
+		err = database.GetContext(t.Context(), &foreignKeys, "PRAGMA foreign_keys")
+		if err != nil {
 			t.Fatal(err)
 		}
-		if err := database.GetContext(t.Context(), &busyTimeout, "PRAGMA busy_timeout"); err != nil {
+
+		err = database.GetContext(t.Context(), &busyTimeout, "PRAGMA busy_timeout")
+		if err != nil {
 			t.Fatal(err)
 		}
+
 		if foreignKeys != 1 || busyTimeout != 5000 {
-			t.Fatalf("connection settings: foreign_keys=%d, busy_timeout=%d", foreignKeys, busyTimeout)
+			t.Fatalf(
+				"connection settings: foreign_keys=%d, busy_timeout=%d",
+				foreignKeys,
+				busyTimeout,
+			)
 		}
 	}
 }
@@ -35,10 +45,12 @@ func TestOpenPreservesExistingTimestamps(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "portfolio.db")
+
 	database, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(func() { _ = database.Close() })
 
 	_, err = database.ExecContext(t.Context(), `
@@ -48,7 +60,9 @@ func TestOpenPreservesExistingTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Close(); err != nil {
+
+	err = database.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,21 +70,30 @@ func TestOpenPreservesExistingTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(func() { _ = reopened.Close() })
 
 	var row struct {
-		Quantity  float64   `db:"quantity"`
 		CreatedAt time.Time `db:"created_at"`
 		UpdatedAt time.Time `db:"updated_at"`
+		Quantity  float64   `db:"quantity"`
 	}
-	if err := reopened.GetContext(t.Context(), &row,
-		"SELECT quantity, created_at, updated_at FROM holdings WHERE name = 'Legacy holding'"); err != nil {
+
+	err = reopened.GetContext(
+		t.Context(),
+		&row,
+		"SELECT quantity, created_at, updated_at FROM holdings WHERE name = 'Legacy holding'",
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
+
 	wantCreated := time.Date(2026, time.October, 12, 9, 10, 11, 123456789,
 		time.FixedZone("", 3*60*60))
+
 	wantUpdated := time.Date(2026, time.October, 12, 9, 10, 11, 0, time.UTC)
-	if row.Quantity != 42 || !row.CreatedAt.Equal(wantCreated) || !row.UpdatedAt.Equal(wantUpdated) {
+	if row.Quantity != 42 || !row.CreatedAt.Equal(wantCreated) ||
+		!row.UpdatedAt.Equal(wantUpdated) {
 		t.Fatalf("existing holding changed: %+v", row)
 	}
 
@@ -79,11 +102,15 @@ func TestOpenPreservesExistingTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var manualPriceAt time.Time
-	if err := reopened.GetContext(t.Context(), &manualPriceAt,
-		"SELECT manual_price_at FROM holdings WHERE name = 'Legacy holding'"); err != nil {
+
+	err = reopened.GetContext(t.Context(), &manualPriceAt,
+		"SELECT manual_price_at FROM holdings WHERE name = 'Legacy holding'")
+	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !manualPriceAt.Equal(wantCreated) {
 		t.Fatalf("timestamp round trip = %v, want %v", manualPriceAt, wantCreated)
 	}

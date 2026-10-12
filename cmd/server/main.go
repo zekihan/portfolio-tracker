@@ -52,7 +52,8 @@ func main() {
 		return
 	}
 	defer func() {
-		if closeErr := database.Close(); closeErr != nil {
+		closeErr := database.Close()
+		if closeErr != nil {
 			log.Error().Err(closeErr).Msg("failed to close database")
 		}
 	}()
