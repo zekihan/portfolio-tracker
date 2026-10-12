@@ -8,12 +8,12 @@ import (
 )
 
 // Patch updates supplied editable fields atomically without reading/replacing the holding.
-func (s *HoldingService) Patch(
+func (service *HoldingService) Patch(
 	ctx context.Context,
 	id int,
 	patch models.HoldingPatch,
 ) (bool, error) {
-	result, err := s.db.ExecContext(
+	result, err := service.db.ExecContext(
 		ctx,
 		`UPDATE holdings SET
  name = COALESCE(?, name), ticker = COALESCE(?, ticker),

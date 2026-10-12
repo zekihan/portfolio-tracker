@@ -175,6 +175,7 @@ linters:
         - stdlib
         - generic
         - UniversalClient
+        - Getter
     paralleltest:
       ignore-missing: true
     varnamelen:
@@ -383,77 +384,9 @@ linters:
         text: 'Do not use os.Exit — handle errors gracefully instead.'
         linters:
           - forbidigo
-      - path: internal/price/providers\.go$
-        linters:
-          - ireturn
-          - varnamelen
-          - goconst
-          - mnd
-          - wrapcheck
-          - noinlineerr
-          - err113
-          - gosec
-          - govet
-          - tagliatelle
-          - importShadow
-          - errcheck
-          - gocritic
-          - dupl
-      - path: internal/services/services\.go$
-        linters:
-          - varnamelen
-          - goconst
-          - mnd
-          - wrapcheck
-          - noinlineerr
-          - err113
-          - govet
-          - tagliatelle
-          - importShadow
-          - unqueryvet
-          - noctx
-          - lll
-          - contextcheck
-          - nilnil
-          - nonamedreturns
-          - forcetypeassert
-          - rangeValCopy
-          - gocritic
-          - errcheck
-          - funcorder
-          - gosec
-          - errchkjson
-      - path: internal/handlers/handlers\.go$
-        linters:
-          - tagliatelle
-      - path: internal/price/service\.go$
-        linters:
-          - varnamelen
-          - goconst
-          - mnd
-          - wrapcheck
-          - noinlineerr
-          - err113
-          - govet
-          - tagliatelle
-          - funcorder
-          - sloglint
-          - prealloc
-          - gocritic
-          - nilnil
-          - nonamedreturns
-          - dupl
-          - unqueryvet
-          - noctx
-          - lll
-          - contextcheck
-          - forcetypeassert
-          - rangeValCopy
-          - hugeParam
-          - importShadow
-          - errcheck
-          - gosec
-          - errchkjson
+      - path: internal/(price/providers|handlers/handlers|services/services)\.go$
+        text: 'json\(snake\)'
+        linters: [tagliatelle]
 
 output:
   sort-order:

@@ -37,7 +37,7 @@ func TestCanceledPriceLookupsRejectFastPaths(t *testing.T) {
 					service.breakers[provider] = true
 				}
 
-				err = service.cachePrice(provider, instrument, models.Price{
+				err = service.cachePrice(provider, instrument, &models.Price{
 					Value: 100, Currency: "USD", Source: provider, FetchedAt: time.Now().UTC(),
 					Error: nil, IsStale: false, IsFailed: false,
 				}, ttl)

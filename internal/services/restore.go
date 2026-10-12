@@ -24,8 +24,8 @@ const restoreSchema = "restore_src"
 // RestoreFrom replaces holdings, snapshots, cached prices, and settings with the
 // contents of the SQLite database at path. The file is validated first and the
 // replacement runs in one transaction, so a failure leaves the live data unchanged.
-func (s *SettingsService) RestoreFrom(ctx context.Context, path string) error {
-	conn, err := s.db.Connx(ctx)
+func (service *SettingsService) RestoreFrom(ctx context.Context, path string) error {
+	conn, err := service.db.Connx(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
 	}

@@ -8,8 +8,8 @@ import (
 // ClearAllData deletes holdings, snapshots, and cached prices, and resets
 // settings to their defaults, in a single transaction. Provider configuration
 // (provider_registry) is kept.
-func (s *SettingsService) ClearAllData(ctx context.Context) error {
-	tx, err := s.db.BeginTxx(ctx, nil)
+func (service *SettingsService) ClearAllData(ctx context.Context) error {
+	tx, err := service.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin clear all data: %w", err)
 	}
