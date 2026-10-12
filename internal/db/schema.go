@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -171,13 +172,14 @@ func sqliteDSN(dbPath string) (string, error) {
 	)
 	if strings.HasPrefix(dbPath, "file:") {
 		uri, err = url.Parse(dbPath)
+		if err == nil {
+			err = normalizeWindowsFileURL(uri)
+		}
 	} else {
 		var absolute string
 
 		absolute, err = filepath.Abs(dbPath)
-		uri = new(url.URL)
-		uri.Scheme = "file"
-		uri.Path = absolute
+		uri = sqlitePathURL(absolute, runtime.GOOS == "windows")
 	}
 
 	if err != nil {
