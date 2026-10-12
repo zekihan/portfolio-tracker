@@ -1,5 +1,9 @@
 version: 2
 project_name: portfolio-tracker
+before:
+  hooks:
+    - go fmt ./...
+    - go mod tidy
 builds:
   - id: all
     main: ./cmd/server
@@ -7,7 +11,12 @@ builds:
     no_unique_dist_dir: true
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: [-s -w]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.buildDate={{.CommitTimestamp}}
+      - -X main.commitHash={{.Commit}}
+      - -X main.gitTreeState={{.GitTreeState}}
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
   - id: docker
@@ -16,7 +25,12 @@ builds:
     no_unique_dist_dir: true
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: [-s -w]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.buildDate={{.CommitTimestamp}}
+      - -X main.commitHash={{.Commit}}
+      - -X main.gitTreeState={{.GitTreeState}}
     goos: [linux]
     goarch: [amd64, arm64]
 universal_binaries:
@@ -27,6 +41,7 @@ universal_binaries:
 archives:
   - id: all
     ids: [all, darwin-universal]
+    name_template: '{{ .ProjectName }}_v{{ .Version }}_{{ .Os }}_{{ .Arch }}'
     formats: [tar.gz]
     strip_binary_directory: true
     format_overrides:
@@ -37,12 +52,51 @@ archives:
       - README.md
       - src: web
         dst: web
+snapshot:
+  version_template: "{{ incpatch .Version }}-SNAPSHOT-{{.ShortCommit}}"
+
+report_sizes: true
+
 checksum:
-  name_template: checksums.txt
+  name_template: 'checksums.txt'
+
 changelog:
+  disable: false
+  use: github
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Chores"
+      regexp: '^.*?chore(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "CI"
+      regexp: '^.*?ci(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Others
+      order: 999
+
 release:
   github:
     owner: zekihan
     name: portfolio-tracker
-  ids: [all]
+  ids:
+    - all
+  disable: false
+  draft: false
+  replace_existing_draft: true
+  prerelease: auto
+  make_latest: true
+  mode: keep-existing
+  footer: |
+    Docker images
+    ---
+    - `docker pull docker.io/zekihan/{{ .ProjectName }}:v{{.Version}}`
+    - `docker pull ghcr.io/zekihan/{{ .ProjectName }}:v{{.Version}}`
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"

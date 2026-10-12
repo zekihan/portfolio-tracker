@@ -21,6 +21,13 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
 
+var (
+	version      = "dev"
+	buildDate    = "unknown"
+	commitHash   = "unknown"
+	gitTreeState = "unknown"
+)
+
 func main() {
 	// Setup structured logging.
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -36,6 +43,13 @@ func main() {
 			zerolog.MessageFieldName,
 		},
 	})
+
+	log.Info().
+		Str("version", version).
+		Str("buildDate", buildDate).
+		Str("commitHash", commitHash).
+		Str("gitTreeState", gitTreeState).
+		Msg("Starting portfolio tracker")
 
 	// Configuration.
 	dbPath := getEnv("DB_PATH", "/data/portfolio.db")

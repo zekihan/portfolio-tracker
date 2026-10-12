@@ -1,13 +1,23 @@
 GO ?= go
-BINARY := dist/portfolio-tracker
+PROJECT_NAME := portfolio-tracker
+RELEASE_VERSION := $(shell tr -d '[:space:]' < VERSION)
+OS_INFO := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH_INFO := $(shell uname -m | sed 's/x86_64/amd64/')
+BINARY := dist/$(PROJECT_NAME)_$(OS_INFO)_$(ARCH_INFO)/$(PROJECT_NAME)
 
-.PHONY: help build run fmt tidy lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test
+.PHONY: help build run fmt tidy build/local build/all build/release new_version new_version/patch new_version/minor new_version/major lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test
 help:
-	@echo "Targets: build run fmt tidy lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test"
+	@echo "Targets: build run fmt tidy build/local build/all build/release new_version new_version/patch new_version/minor new_version/major lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test"
 
-build:
-	mkdir -p dist
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '-s -w' -o $(BINARY) ./cmd/server
+build: tidy build/local
+
+build/local:
+	goreleaser build --clean --id all --snapshot --single-target
+
+build/all:
+	goreleaser build --clean --id all --snapshot
+
+build/release: build/release/all
 
 run: build
 	./$(BINARY)
@@ -18,33 +28,50 @@ fmt:
 tidy:
 	$(GO) mod tidy
 
-lint:
-	@test -z "$$(gofmt -l cmd internal)" || (gofmt -l cmd internal; exit 1)
+lint: tidy
+	golangci-lint fmt
+	golangci-lint run --fix || true
 	golangci-lint run
 
-test:
-	$(GO) test -race -count=1 ./...
+test: tidy
+	$(GO) test -count=1 -buildvcs -vet=all ./...
+	$(GO) test -race -count=1 -buildvcs -vet=all ./...
 
 test/cover:
 	$(GO) test -race -coverprofile=coverage.out ./...
 
-audit: lint test
+audit: tidy
 	$(GO) mod verify
+	$(GO) vet ./...
+	golangci-lint run --enable-only=staticcheck
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	$(GO) test -buildvcs -vet=all ./...
 
 release-check:
 	goreleaser check
 
 build/release/all:
-	goreleaser build --clean --snapshot --id all
+	GORELEASER_CURRENT_TAG=v$(RELEASE_VERSION) goreleaser build --clean --id all --skip=validate
 
 build/docker:
 	goreleaser build --clean --snapshot --id docker
 
 build/release/docker:
-	goreleaser build --clean --id docker --skip=validate
+	GORELEASER_CURRENT_TAG=v$(RELEASE_VERSION) goreleaser build --clean --id docker --skip=validate
 
 release:
 	goreleaser release --clean
 
 container-test: build/docker
 	./scripts/container_smoke.sh
+
+new_version:
+	./scripts/new_version.sh $(VERSION)
+
+new_version/patch: new_version
+
+new_version/minor:
+	./scripts/new_version.sh "$$(awk -F. '{printf "%d.%d.0", $$1, $$2 + 1}' VERSION)"
+
+new_version/major:
+	./scripts/new_version.sh "$$(awk -F. '{printf "%d.0.0", $$1 + 1}' VERSION)"

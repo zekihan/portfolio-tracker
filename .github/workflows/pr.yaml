@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
@@ -26,16 +28,19 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
-      - run: make test build
+      - run: make lint test
       - uses: goreleaser/goreleaser-action@v7.2.3
         with:
           install-only: true
           version: v2.18.3
-      - run: make release-check
+      - run: make release-check build/release/all
+      - run: git diff --exit-code
   container:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod

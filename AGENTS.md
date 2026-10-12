@@ -6,11 +6,11 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 ```bash
 make fmt tidy      # format source + go mod tidy
-make lint          # check formatting + golangci-lint
+make lint          # format + apply lint fixes + check
 make test          # run all tests with -race
 make test/cover    # write coverage.out
-make audit         # lint + tests + go mod verify
-make build         # build dist/portfolio-tracker
+make audit         # module verification + vet + staticcheck + govulncheck + tests
+make build         # GoReleaser build for the local platform
 make build/docker  # cross-compile Linux binaries for Docker
 make release-check # validate release configuration
 make container-test # build and smoke-test Docker image
@@ -50,9 +50,9 @@ This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered 
 ## Linting Rules
 
 The linter (`golangci-lint`, config in `.golangci.yaml`) follows YouAud's strict
-configuration with all linters enabled by default and existing project-specific
-exclusions. Formatters include gci, gofmt, gofumpt, golines, and swaggo.
-`make lint` checks without rewriting files; `make fmt` applies the formatters.
+configuration with all linters enabled by default and JSON naming exceptions
+for the existing API and upstream providers. Formatters include gci, gofmt, gofumpt, golines, and swaggo.
+`make lint` formats and applies fixes before checking; CI rejects resulting changes.
 
 ## Development Workflow
 
@@ -60,4 +60,4 @@ exclusions. Formatters include gci, gofmt, gofumpt, golines, and swaggo.
 2. Run `make fmt tidy` and `make lint` to format and check the source
 3. Run `make test` to ensure tests pass
 4. Run `make build` to verify build succeeds
-5. Test manually: `DB_PATH=/tmp/portfolio.db PORT=8080 ./dist/portfolio-tracker`
+5. Test manually: `DB_PATH=/tmp/portfolio.db PORT=8080 ./dist/portfolio-tracker_$(go env GOOS)_$(go env GOARCH)/portfolio-tracker`

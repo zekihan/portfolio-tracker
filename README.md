@@ -17,7 +17,7 @@ Self-hosted personal portfolio tracker — HTMX + Go (server-rendered) • SQLit
 
 ```bash
 make build
-DB_PATH=./portfolio.db PORT=8080 ./dist/portfolio-tracker
+DB_PATH=./portfolio.db PORT=8080 ./dist/portfolio-tracker_$(go env GOOS)_$(go env GOARCH)/portfolio-tracker
 ```
 
 Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite uses the pure-Go
@@ -73,35 +73,49 @@ Install [golangci-lint](https://golangci-lint.run/) v2.14.0 and
 
 ```sh
 make fmt tidy         # format source and tidy modules
-make lint             # check formatting and run golangci-lint
+make lint             # format, apply lint fixes, and check source
 make test             # run tests with the race detector
 make build            # build dist/portfolio-tracker
-make audit            # lint, test, and verify module checksums
+make audit            # verify modules, vet, staticcheck, vulnerability scan, and tests
 make release-check    # validate GoReleaser configuration
 make container-test   # build and smoke-test the container with networking disabled
 ```
 
 Lint follows YouAud's configuration: all linters enabled by default, its shared
-rule settings and formatter suite, and this project's existing scoped exclusions.
-`make lint` checks without rewriting files; `make fmt` applies the configured formatters.
+rule settings and formatter suite. Only JSON naming exceptions needed for the
+existing API and upstream providers remain. `make lint` formats and applies fixes
+before checking; CI rejects uncommitted changes produced by those steps.
 `make test/cover` writes `coverage.out`; use `go tool cover -html=coverage.out` to view it.
 
 ## Releases
 
-PR checks are also reusable by both release workflows. A `v*` tag runs lint,
-tests, build, release validation, and the container smoke test before publishing.
+PR checks cross-compile every supported platform and are reused by the release
+workflows. Tags run checks before publishing GitHub releases. Every push to
+`main` (or a manual run) publishes Docker images after those checks.
 GoReleaser cross-compiles Linux, macOS, and Windows binaries for amd64 and arm64
 with `CGO_ENABLED=0`, plus a universal macOS binary. Releases contain tar.gz
 archives (zip on Windows) and `checksums.txt`. Archives include `web/`; extract
 the entire archive and run from that directory.
 
-The separate container workflow publishes Linux amd64 and arm64 images to
-`ghcr.io/zekihan/portfolio-tracker` and `docker.io/zekihan/portfolio-tracker`, with
-version, major-version, and commit tags. CI runs `make build/release/docker`
-for tags (or `make build/docker` for manual snapshot builds) before building
-images; Docker copies the matching Linux binary from `dist/`,
-following YouAud's build workflow. The image runs as UID 25110 and stores its database in `/data`; bind mounts must be writable by
-that UID.
+The container workflow publishes Linux amd64 and arm64 images to
+`ghcr.io/zekihan/portfolio-tracker` and `docker.io/zekihan/portfolio-tracker`.
+Tags come from `VERSION`: `latest`, full version, major/minor, major, equivalents
+prefixed with `v`, and full-version tags suffixed with the workflow run number.
+CI runs `make build/release/docker` before building images; Docker copies the matching
+Linux binary from `dist/`, following YouAud's workflow. The final image uses
+`zekihan/distroless`, runs as UID 25110, and stores its database in `/data`.
+Bind mounts must be writable by that UID. The image has no shell; container
+smoke tests use a separate BusyBox container sharing its isolated network.
+
+Builds embed version, commit timestamp, commit hash, and working-tree state.
+The server reports them in its startup log. Releases use grouped changelogs,
+automatic prerelease detection, and Docker pull commands in the release notes.
+
+`VERSION` starts at `0.1.0`. Use `make new_version/patch`,
+`make new_version/minor`, `make new_version/major`, or
+`make new_version VERSION=0.2.0` to create a local version commit and signed tag.
+These helpers require a clean checkout, passing lint/tests, and configured Git
+signing. They never push; publication requires a separate explicit push.
 
 Repository secrets `DOCKER_USERNAME` and `DOCKER_PASSWORD` are required for
 Docker Hub publication and README updates. GHCR and GitHub releases use the
