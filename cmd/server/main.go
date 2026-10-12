@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
@@ -54,9 +53,6 @@ func main() {
 	// Configuration.
 	dbPath := getEnv("DB_PATH", "/data/portfolio.db")
 	port := getEnv("PORT", "8080")
-	ginMode := getEnv("GIN_MODE", "release")
-
-	gin.SetMode(ginMode)
 
 	// Open database.
 	database, err := db.Open(dbPath)

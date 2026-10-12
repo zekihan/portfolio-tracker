@@ -15,7 +15,7 @@ COPY LICENSE /usr/share/licenses/portfolio-tracker/LICENSE
 USER 25110:25110
 EXPOSE 8080
 VOLUME ["/data"]
-ENV DB_PATH=/data/portfolio.db PORT=8080 GIN_MODE=release
+ENV DB_PATH=/data/portfolio.db PORT=8080
 ENTRYPOINT ["portfolio-tracker"]
 LABEL org.opencontainers.image.authors="zekihan@noqer.com" \
       org.opencontainers.image.url="https://noqer.com/" \

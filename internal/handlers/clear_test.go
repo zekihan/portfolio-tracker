@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -36,8 +34,8 @@ func TestClearAllDataEndpoint(t *testing.T) {
 		services.NewSettingsService(database),
 		nil,
 	)
-	router := gin.New()
-	router.DELETE("/api/settings/clear-all", handler.clearAllData)
+	router := http.NewServeMux()
+	router.HandleFunc("DELETE /api/settings/clear-all", handler.clearAllData)
 
 	request := httptest.NewRequestWithContext(
 		t.Context(),

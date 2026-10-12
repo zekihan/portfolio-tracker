@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gin-gonic/gin"
 )
 
 func TestRequireJSONBody(t *testing.T) {
@@ -35,19 +33,19 @@ func TestRequireJSONBody(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			router := gin.New()
-			router.Use(requireJSONBody())
-			router.POST("/x", func(ctx *gin.Context) {
+			router := http.NewServeMux()
+			router.HandleFunc("POST /x", func(writer http.ResponseWriter, request *http.Request,
+			) {
 				var payload map[string]any
 
-				err := ctx.ShouldBindJSON(&payload)
+				err := decodeJSON(request, &payload)
 				if err != nil {
-					ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+					writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 					return
 				}
 
-				ctx.Status(http.StatusOK)
+				writer.WriteHeader(http.StatusOK)
 			})
 
 			request := httptest.NewRequestWithContext(
@@ -61,7 +59,7 @@ func TestRequireJSONBody(t *testing.T) {
 			}
 
 			response := httptest.NewRecorder()
-			router.ServeHTTP(response, request)
+			requireJSONBody()(router).ServeHTTP(response, request)
 
 			if response.Code != test.status {
 				t.Errorf("status = %d, want %d", response.Code, test.status)
@@ -73,13 +71,15 @@ func TestRequireJSONBody(t *testing.T) {
 func TestRequireJSONBodyAllowsBodylessRequests(t *testing.T) {
 	t.Parallel()
 
-	router := gin.New()
-	router.Use(requireJSONBody())
-	router.DELETE("/x", func(ctx *gin.Context) { ctx.Status(http.StatusOK) })
+	router := http.NewServeMux()
+	router.HandleFunc("DELETE /x", func(writer http.ResponseWriter, request *http.Request,
+	) {
+		writer.WriteHeader(http.StatusOK)
+	})
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/x", http.NoBody)
 	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
+	requireJSONBody()(router).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", response.Code, http.StatusOK)
@@ -108,12 +108,13 @@ func TestBrowserOriginProtection(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			router := gin.New()
-			router.Use(protectBrowserRequests())
-			router.Handle(
-				test.method,
-				"/write",
-				func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) },
+			router := http.NewServeMux()
+			router.HandleFunc(
+				test.method+" /write",
+				func(writer http.ResponseWriter, request *http.Request,
+				) {
+					writer.WriteHeader(http.StatusNoContent)
+				},
 			)
 			request := httptest.NewRequestWithContext(
 				t.Context(),
@@ -125,7 +126,7 @@ func TestBrowserOriginProtection(t *testing.T) {
 			request.Header.Set("Sec-Fetch-Site", test.site)
 
 			response := httptest.NewRecorder()
-			router.ServeHTTP(response, request)
+			protectBrowserRequests()(router).ServeHTTP(response, request)
 
 			if response.Code != test.status {
 				t.Errorf("status = %d, want %d", response.Code, test.status)

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/models"
 	"github.com/zekihan/portfolio-tracker/internal/price"
 	"github.com/zekihan/portfolio-tracker/internal/services"
@@ -115,6 +113,7 @@ type Handler struct {
 	snapshotSvc *services.SnapshotService
 	settingsSvc *services.SettingsService
 	priceSvc    *price.Service
+	renderer    *pageRenderer
 }
 
 func New(
@@ -131,14 +130,8 @@ func New(
 	}
 }
 
-func (handler *Handler) SetupRoutes() *gin.Engine {
-	router := gin.Default()
-	router.Use(protectBrowserRequests())
-
-	setTrustedProxiesErr := router.SetTrustedProxies(nil)
-	if setTrustedProxiesErr != nil {
-		return nil
-	}
+func (handler *Handler) SetupRoutes() http.Handler {
+	router := http.NewServeMux()
 
 	// Add template functions.
 	funcs := template.FuncMap{
@@ -165,150 +158,206 @@ func (handler *Handler) SetupRoutes() *gin.Engine {
 		"div":            func(a, b float64) float64 { return a / b },
 	}
 
-	// Static files.
-	router.Static("/static", "./web/static")
 	// Each page owns its content block; sharing one template tree overwrites it.
-	router.HTMLRender = newPageRenderer(funcs)
+	handler.renderer = newPageRenderer(funcs)
+	static := staticFiles("./web/static")
+	router.Handle("GET /static/{path...}", static)
+	router.Handle("HEAD /static/{path...}", static)
+	router.Handle("GET /api/holdings", requireJSONBody()(http.HandlerFunc(handler.getHoldings)))
+	router.Handle("GET /api/holdings/{id}", requireJSONBody()(http.HandlerFunc(handler.getHolding)))
+	router.Handle("POST /api/holdings", requireJSONBody()(http.HandlerFunc(handler.createHolding)))
+	router.Handle(
+		"PUT /api/holdings/{id}",
+		requireJSONBody()(http.HandlerFunc(handler.updateHolding)),
+	)
+	router.Handle(
+		"PATCH /api/holdings/{id}",
+		requireJSONBody()(http.HandlerFunc(handler.patchHolding)),
+	)
+	router.Handle(
+		"PATCH /api/holdings/{id}/est-price",
+		requireJSONBody()(http.HandlerFunc(handler.updateEstPrice)),
+	)
+	router.Handle(
+		"PATCH /api/holdings/{id}/manual-price",
+		requireJSONBody()(http.HandlerFunc(handler.updateManualPrice)),
+	)
+	router.Handle(
+		"DELETE /api/holdings/{id}/manual-price",
+		requireJSONBody()(http.HandlerFunc(handler.clearManualPrice)),
+	)
+	router.Handle(
+		"DELETE /api/holdings/{id}",
+		requireJSONBody()(http.HandlerFunc(handler.deleteHolding)),
+	)
+	router.Handle("GET /api/dashboard", requireJSONBody()(http.HandlerFunc(handler.getDashboard)))
+	router.Handle(
+		"GET /api/dashboard/allocation",
+		requireJSONBody()(http.HandlerFunc(handler.getAllocation)),
+	)
+	router.Handle(
+		"GET /api/history/snapshots",
+		requireJSONBody()(http.HandlerFunc(handler.getSnapshots)),
+	)
+	router.Handle(
+		"GET /api/history/chart",
+		requireJSONBody()(http.HandlerFunc(handler.getChartData)),
+	)
+	router.Handle(
+		"GET /api/history/holding/{id}",
+		requireJSONBody()(http.HandlerFunc(handler.getHoldingHistory)),
+	)
+	router.Handle(
+		"GET /api/sources/providers",
+		requireJSONBody()(http.HandlerFunc(handler.getProviders)),
+	)
+	router.Handle(
+		"GET /api/sources/mapping",
+		requireJSONBody()(http.HandlerFunc(handler.getProviderMapping)),
+	)
+	router.Handle(
+		"POST /api/sources/test",
+		requireJSONBody()(http.HandlerFunc(handler.testProvider)),
+	)
+	router.Handle(
+		"POST /api/sources/refresh",
+		requireJSONBody()(http.HandlerFunc(handler.refreshPrices)),
+	)
+	router.Handle(
+		"PUT /api/holdings/{id}/provider",
+		requireJSONBody()(http.HandlerFunc(handler.updateHoldingProvider)),
+	)
+	router.Handle("GET /api/settings", requireJSONBody()(http.HandlerFunc(handler.getSettings)))
+	router.Handle(
+		"PATCH /api/settings/currency",
+		requireJSONBody()(http.HandlerFunc(handler.updateCurrency)),
+	)
+	router.Handle(
+		"PATCH /api/settings/dark-mode",
+		requireJSONBody()(http.HandlerFunc(handler.updateDarkMode)),
+	)
+	router.Handle(
+		"PATCH /api/settings/refresh-interval",
+		requireJSONBody()(http.HandlerFunc(handler.updateRefreshInterval)),
+	)
+	router.Handle(
+		"DELETE /api/settings/clear-all",
+		requireJSONBody()(http.HandlerFunc(handler.clearAllData)),
+	)
+	router.Handle(
+		"GET /api/settings/backup",
+		requireJSONBody()(http.HandlerFunc(handler.downloadBackup)),
+	)
+	router.Handle(
+		"POST /api/settings/restore",
+		requireRestoreConfirmation()(http.HandlerFunc(handler.restoreBackup)),
+	)
+	router.Handle("GET /partials/holding-form", http.HandlerFunc(handler.holdingForm))
+	router.Handle("GET /partials/holding-form/{id}", http.HandlerFunc(handler.holdingForm))
+	router.Handle("GET /partials/holding-duplicate/{id}", http.HandlerFunc(handler.holdingForm))
+	router.Handle("GET /partials/manual-price/{id}", http.HandlerFunc(handler.holdingForm))
+	router.HandleFunc("GET /{$}", handler.pageDashboard)
+	router.HandleFunc("GET /holdings", handler.pageHoldings)
+	router.HandleFunc("GET /history", handler.pageHistory)
+	router.HandleFunc("GET /sources", handler.pageSources)
+	router.HandleFunc("GET /settings", handler.pageSettings)
+	router.HandleFunc("/", notFound)
 
-	// API routes.
-	api := router.Group("/api", requireJSONBody())
-
-	// Holdings.
-	api.GET("/holdings", handler.getHoldings)
-	api.GET("/holdings/:id", handler.getHolding)
-	api.POST("/holdings", handler.createHolding)
-	api.PUT("/holdings/:id", handler.updateHolding)
-	api.PATCH("/holdings/:id", handler.patchHolding)
-	api.PATCH("/holdings/:id/est-price", handler.updateEstPrice)
-	api.PATCH("/holdings/:id/manual-price", handler.updateManualPrice)
-	api.DELETE("/holdings/:id/manual-price", handler.clearManualPrice)
-	api.DELETE("/holdings/:id", handler.deleteHolding)
-
-	// Dashboard.
-	api.GET("/dashboard", handler.getDashboard)
-	api.GET("/dashboard/allocation", handler.getAllocation)
-
-	// History.
-	api.GET("/history/snapshots", handler.getSnapshots)
-	api.GET("/history/chart", handler.getChartData)
-	api.GET("/history/holding/:id", handler.getHoldingHistory)
-
-	// Price Sources.
-	api.GET("/sources/providers", handler.getProviders)
-	api.GET("/sources/mapping", handler.getProviderMapping)
-	api.POST("/sources/test", handler.testProvider)
-	api.POST("/sources/refresh", handler.refreshPrices)
-	api.PUT("/holdings/:id/provider", handler.updateHoldingProvider)
-
-	// Settings.
-	api.GET("/settings", handler.getSettings)
-	api.PATCH("/settings/currency", handler.updateCurrency)
-	api.PATCH("/settings/dark-mode", handler.updateDarkMode)
-	api.PATCH("/settings/refresh-interval", handler.updateRefreshInterval)
-	api.DELETE("/settings/clear-all", handler.clearAllData)
-	api.GET("/settings/backup", handler.downloadBackup)
-	// Restore uploads multipart data, so it is registered outside the JSON-only API group.
-	router.POST("/api/settings/restore", requireRestoreConfirmation(), handler.restoreBackup)
-
-	router.GET("/partials/holding-form", handler.holdingForm)
-	router.GET("/partials/holding-form/:id", handler.holdingForm)
-	router.GET("/partials/holding-duplicate/:id", handler.holdingForm)
-	router.GET("/partials/manual-price/:id", handler.holdingForm)
-
-	// Page routes (server-rendered).
-	router.GET("/", handler.pageDashboard)
-	router.GET("/holdings", handler.pageHoldings)
-	router.GET("/history", handler.pageHistory)
-	router.GET("/sources", handler.pageSources)
-	router.GET("/settings", handler.pageSettings)
-
-	return router
+	return logRequests(recoverRequests(compatibleRoutes(router, static)))
 }
 
 // Holdings API.
-func (handler *Handler) getHoldings(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", currencyTRY)
+func (handler *Handler) getHoldings(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
+	displayCurrency := queryDefault(request, "currency", currencyTRY)
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, holdings)
+	writeJSON(writer, http.StatusOK, holdings)
 }
 
-func (handler *Handler) getHolding(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) getHolding(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	holding, err := handler.holdingSvc.GetByID(requestCtx, id)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	if holding == nil {
-		ctx.JSON(http.StatusNotFound, gin.H{errorKey: "holding not found"})
+		writeJSON(writer, http.StatusNotFound, map[string]any{errorKey: "holding not found"})
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, holding)
+	writeJSON(writer, http.StatusOK, holding)
 }
 
-func (handler *Handler) createHolding(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) createHolding(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
 	var holding models.Holding
 
-	err := ctx.ShouldBindJSON(&holding)
+	err := decodeJSON(request, &holding)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	if holding.ManualPrice.Valid && holding.ManualPrice.Float64 < 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "manual price must be nonnegative"})
+		writeJSON(
+			writer,
+			http.StatusBadRequest,
+			map[string]any{errorKey: "manual price must be nonnegative"},
+		)
 
 		return
 	}
 
 	err = handler.holdingSvc.Create(requestCtx, &holding)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusCreated, holding)
+	writeJSON(writer, http.StatusCreated, holding)
 }
 
-func (handler *Handler) updateHolding(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	var holding models.Holding
 
-	err = ctx.ShouldBindJSON(&holding)
+	err = decodeJSON(request, &holding)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
@@ -317,143 +366,149 @@ func (handler *Handler) updateHolding(ctx *gin.Context) {
 
 	err = handler.holdingSvc.Update(requestCtx, &holding)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, holding)
+	writeJSON(writer, http.StatusOK, holding)
 }
 
-func (handler *Handler) updateEstPrice(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) updateEstPrice(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	var req struct {
-		EstPrice float64 `json:"estPrice" binding:"gte=0"`
+		EstPrice float64 `json:"estPrice" validate:"gte=0"`
 	}
 
-	err = ctx.ShouldBindJSON(&req)
+	err = decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	err = handler.holdingSvc.UpdateEstPrice(requestCtx, id, req.EstPrice)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
-func (handler *Handler) updateManualPrice(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) updateManualPrice(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	var req struct {
-		Price float64 `json:"price" binding:"gte=0"`
+		Price float64 `json:"price" validate:"gte=0"`
 	}
 
-	err = ctx.ShouldBindJSON(&req)
+	err = decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	err = handler.holdingSvc.UpdateManualPrice(requestCtx, id, req.Price)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
-func (handler *Handler) clearManualPrice(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) clearManualPrice(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	err = handler.holdingSvc.ClearManualPrice(requestCtx, id)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
-func (handler *Handler) deleteHolding(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) deleteHolding(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	err = handler.holdingSvc.Delete(requestCtx, id)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
 // Dashboard API.
-func (handler *Handler) getDashboard(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", currencyTRY)
+func (handler *Handler) getDashboard(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
+	displayCurrency := queryDefault(request, "currency", currencyTRY)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, data)
+	writeJSON(writer, http.StatusOK, data)
 }
 
-func (handler *Handler) getAllocation(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
-	displayCurrency := ctx.DefaultQuery("currency", currencyTRY)
+func (handler *Handler) getAllocation(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
+	displayCurrency := queryDefault(request, "currency", currencyTRY)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
+	writeJSON(writer, http.StatusOK, map[string]any{
 		"by_type":   data.AllocationByType,
 		"by_basket": data.AllocationByBasket,
 		"by_loc":    data.AllocationByLoc,
@@ -462,92 +517,96 @@ func (handler *Handler) getAllocation(ctx *gin.Context) {
 }
 
 // History API.
-func (handler *Handler) getSnapshots(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) getSnapshots(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	limit, err := strconv.Atoi(ctx.DefaultQuery("limit", "50"))
+	limit, err := strconv.Atoi(queryDefault(request, "limit", "50"))
 	if err != nil || limit < 1 || limit > 1000 {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid limit"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid limit"})
 
 		return
 	}
 
-	offset, err := strconv.Atoi(ctx.DefaultQuery("offset", "0"))
+	offset, err := strconv.Atoi(queryDefault(request, "offset", "0"))
 	if err != nil || offset < 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid offset"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid offset"})
 
 		return
 	}
 
-	days, err := strconv.Atoi(ctx.DefaultQuery("days", "0"))
+	days, err := strconv.Atoi(queryDefault(request, "days", "0"))
 	if err != nil || days < 0 || days > 36500 {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid days"})
 
 		return
 	}
 
 	snapshots, err := handler.snapshotSvc.GetSnapshots(requestCtx, limit, offset, days)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, snapshots)
+	writeJSON(writer, http.StatusOK, snapshots)
 }
 
-func (handler *Handler) getChartData(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) getChartData(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
+	days, err := strconv.Atoi(queryDefault(request, "days", "365"))
 	if err != nil || days < 1 || days > 36500 {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid days"})
 
 		return
 	}
 
 	points, err := handler.snapshotSvc.GetSnapshotsForChart(requestCtx, days)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, points)
+	writeJSON(writer, http.StatusOK, points)
 }
 
-func (handler *Handler) getHoldingHistory(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) getHoldingHistory(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
-	id, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
-	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
+	days, err := strconv.Atoi(queryDefault(request, "days", "365"))
 	if err != nil || days < 1 || days > 36500 {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid days"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid days"})
 
 		return
 	}
 
 	points, err := handler.snapshotSvc.GetHoldingHistory(requestCtx, id, days)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, points)
+	writeJSON(writer, http.StatusOK, points)
 }
 
 // downloadBackup sends a consistent SQLite copy of the database as a file download.
-func (handler *Handler) downloadBackup(ctx *gin.Context) {
+func (handler *Handler) downloadBackup(writer http.ResponseWriter, request *http.Request,
+) {
 	dir, err := os.MkdirTemp("", "portfolio-backup-")
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
@@ -558,71 +617,75 @@ func (handler *Handler) downloadBackup(ctx *gin.Context) {
 
 	backupPath := filepath.Join(dir, "backup.db")
 
-	err = handler.settingsSvc.Backup(ctx.Request.Context(), backupPath)
+	err = handler.settingsSvc.Backup(request.Context(), backupPath)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	filename := "portfolio-backup-" + time.Now().UTC().Format("20060102-150405") + ".db"
-	ctx.FileAttachment(backupPath, filename)
+	sendAttachment(writer, request, backupPath, filename)
 }
 
 // clearAllData deletes all user data and asks the browser to reload the page.
-func (handler *Handler) clearAllData(ctx *gin.Context) {
-	err := handler.settingsSvc.ClearAllData(ctx.Request.Context())
+func (handler *Handler) clearAllData(writer http.ResponseWriter, request *http.Request,
+) {
+	err := handler.settingsSvc.ClearAllData(request.Context())
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Header("HX-Refresh", "true")
-	ctx.Status(http.StatusOK)
+	writer.Header().Set("Hx-Refresh", "true")
+	writer.WriteHeader(http.StatusOK)
 }
 
 // Price Sources API.
-func (handler *Handler) getProviders(ctx *gin.Context) {
-	health, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
+func (handler *Handler) getProviders(writer http.ResponseWriter, request *http.Request,
+) {
+	health, err := handler.priceSvc.GetProviderHealthContext(request.Context())
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, health)
+	writeJSON(writer, http.StatusOK, health)
 }
 
-func (handler *Handler) getProviderMapping(ctx *gin.Context) {
-	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
+func (handler *Handler) getProviderMapping(writer http.ResponseWriter, request *http.Request,
+) {
+	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(request.Context())
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, mapping)
+	writeJSON(writer, http.StatusOK, mapping)
 }
 
-func (handler *Handler) testProvider(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) testProvider(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
 	var req struct {
 		Provider     string `json:"provider"`
 		InstrumentID string `json:"instrumentId"`
 	}
 
-	err := ctx.ShouldBindJSON(&req)
+	err := decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	priceData, err := handler.priceSvc.TestProvider(requestCtx, req.Provider, req.InstrumentID)
 	if err != nil {
-		ctx.JSON(http.StatusOK, gin.H{
+		writeJSON(writer, http.StatusOK, map[string]any{
 			"success": false,
 			"error":   err.Error(),
 		})
@@ -630,7 +693,7 @@ func (handler *Handler) testProvider(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
+	writeJSON(writer, http.StatusOK, map[string]any{
 		"success":    true,
 		"price":      priceData.Value,
 		"currency":   priceData.Currency,
@@ -639,30 +702,32 @@ func (handler *Handler) testProvider(ctx *gin.Context) {
 	})
 }
 
-func (handler *Handler) refreshPrices(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) refreshPrices(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
 	holdings, err := handler.holdingSvc.GetAll(requestCtx)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	err = handler.priceSvc.RefreshAll(requestCtx, holdings)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
-func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
-	id, err := strconv.Atoi(ctx.Param("id"))
+func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, request *http.Request,
+) {
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
@@ -672,118 +737,123 @@ func (handler *Handler) updateHoldingProvider(ctx *gin.Context) {
 		InstrumentID string `json:"instrumentId"`
 	}
 
-	err = ctx.ShouldBindJSON(&req)
+	err = decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	err = handler.priceSvc.UpdateHoldingProviderContext(
-		ctx.Request.Context(),
+		request.Context(),
 		id,
 		req.Provider,
 		req.InstrumentID,
 	)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
 // Settings API.
-func (handler *Handler) getSettings(ctx *gin.Context) {
-	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
+func (handler *Handler) getSettings(writer http.ResponseWriter, request *http.Request,
+) {
+	settings, err := handler.settingsSvc.GetAll(request.Context())
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, settings)
+	writeJSON(writer, http.StatusOK, settings)
 }
 
-func (handler *Handler) updateCurrency(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) updateCurrency(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
 	var req struct {
 		Currency string `json:"currency"`
 	}
 
-	err := ctx.ShouldBindJSON(&req)
+	err := decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	if req.Currency != currencyTRY && req.Currency != currencyUSD {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid currency"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid currency"})
 
 		return
 	}
 
 	err = handler.settingsSvc.SetDisplayCurrency(requestCtx, req.Currency)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
-func (handler *Handler) updateDarkMode(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) updateDarkMode(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
 	var req struct {
 		Mode string `json:"mode"`
 	}
 
-	err := ctx.ShouldBindJSON(&req)
+	err := decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	if req.Mode != "system" && req.Mode != "light" && req.Mode != "dark" {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid mode"})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid mode"})
 
 		return
 	}
 
 	err = handler.settingsSvc.SetDarkMode(requestCtx, req.Mode)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
-func (handler *Handler) updateRefreshInterval(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
+func (handler *Handler) updateRefreshInterval(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
 
 	var req struct {
 		Interval int `json:"interval"`
 	}
 
-	err := ctx.ShouldBindJSON(&req)
+	err := decodeJSON(request, &req)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	if req.Interval < 10 || req.Interval > 3600 {
-		ctx.JSON(
+		writeJSON(
+			writer,
 			http.StatusBadRequest,
-			gin.H{errorKey: "interval must be between 10 and 3600 seconds"},
+			map[string]any{errorKey: "interval must be between 10 and 3600 seconds"},
 		)
 
 		return
@@ -791,34 +861,36 @@ func (handler *Handler) updateRefreshInterval(ctx *gin.Context) {
 
 	err = handler.settingsSvc.SetRefreshInterval(requestCtx, req.Interval)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
 }
 
 // Page handlers (server-rendered with HTMX).
-func (handler *Handler) pageDashboard(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
-	displayCurrency := handler.pageCurrency(ctx)
+func (handler *Handler) pageDashboard(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
+	displayCurrency := handler.pageCurrency(request)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
 		data = &models.DashboardData{} //nolint:exhaustruct_v5 // Empty struct for error fallback
 	}
 
-	handler.renderPage(ctx, "dashboard.html", gin.H{
+	handler.renderPage(writer, request, "dashboard.html", map[string]any{
 		"Data":            data,
 		"DisplayCurrency": displayCurrency,
 		"Title":           titleDashboard, //nolint:goconst // Map key is required
 	})
 }
 
-func (handler *Handler) pageHoldings(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
-	displayCurrency := handler.pageCurrency(ctx)
+func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
+	displayCurrency := handler.pageCurrency(request)
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
@@ -843,7 +915,7 @@ func (handler *Handler) pageHoldings(ctx *gin.Context) {
 		}
 	}
 
-	handler.renderPage(ctx, "holdings.html", gin.H{
+	handler.renderPage(writer, request, "holdings.html", map[string]any{
 		"Holdings":        holdings,
 		"CoverageCount":   coverage,
 		"TotalHoldings":   len(holdings),
@@ -854,11 +926,12 @@ func (handler *Handler) pageHoldings(ctx *gin.Context) {
 	})
 }
 
-func (handler *Handler) pageHistory(ctx *gin.Context) {
-	requestCtx := ctx.Request.Context()
-	displayCurrency := handler.pageCurrency(ctx)
+func (handler *Handler) pageHistory(writer http.ResponseWriter, request *http.Request,
+) {
+	requestCtx := request.Context()
+	displayCurrency := handler.pageCurrency(request)
 
-	days, err := strconv.Atoi(ctx.DefaultQuery("days", "365"))
+	days, err := strconv.Atoi(queryDefault(request, "days", "365"))
 	if err != nil || days < 1 || days > 36500 {
 		days = 365
 	}
@@ -881,7 +954,7 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 	// Hardcoded from the model's AssetType constants.
 	assetTypes := []string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"}
 
-	handler.renderPage(ctx, "history.html", gin.H{
+	handler.renderPage(writer, request, "history.html", map[string]any{
 		"ChartData":       chartData,
 		"DisplayCurrency": displayCurrency,
 		"Days":            days,
@@ -892,31 +965,33 @@ func (handler *Handler) pageHistory(ctx *gin.Context) {
 	})
 }
 
-func (handler *Handler) pageSources(ctx *gin.Context) {
-	providers, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
+func (handler *Handler) pageSources(writer http.ResponseWriter, request *http.Request,
+) {
+	providers, err := handler.priceSvc.GetProviderHealthContext(request.Context())
 	if err != nil {
 		providers = []models.ProviderHealth{}
 	}
 
-	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(ctx.Request.Context())
+	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(request.Context())
 	if err != nil {
 		mapping = []price.HoldingProviderMapping{}
 	}
 
-	handler.renderPage(ctx, "sources.html", gin.H{
+	handler.renderPage(writer, request, "sources.html", map[string]any{
 		"Providers": providers,
 		"Mapping":   mapping,
 		"Title":     titleSources,
 	})
 }
 
-func (handler *Handler) pageSettings(ctx *gin.Context) {
-	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
+func (handler *Handler) pageSettings(writer http.ResponseWriter, request *http.Request,
+) {
+	settings, err := handler.settingsSvc.GetAll(request.Context())
 	if err != nil {
 		settings = models.Settings{} //nolint:exhaustruct_v5 // Empty struct for error fallback
 	}
 
-	handler.renderPage(ctx, "settings.html", gin.H{
+	handler.renderPage(writer, request, "settings.html", map[string]any{
 		"Settings": settings,
 		"Title":    titleSettings,
 	})

@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -95,8 +93,11 @@ func TestRestoreEndpoint(t *testing.T) {
 		services.NewSettingsService(live),
 		nil,
 	)
-	router := gin.New()
-	router.POST("/api/settings/restore", requireRestoreConfirmation(), handler.restoreBackup)
+	router := http.NewServeMux()
+	router.Handle(
+		"POST /api/settings/restore",
+		requireRestoreConfirmation()(http.HandlerFunc(handler.restoreBackup)),
+	)
 
 	tests := []struct {
 		name    string

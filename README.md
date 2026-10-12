@@ -29,7 +29,6 @@ Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite us
 |----------|---------|-------------|
 | `DB_PATH` | `/data/portfolio.db` | SQLite database path |
 | `PORT` | `8080` | HTTP server port |
-| `GIN_MODE` | `release` | Gin mode (debug/release) |
 | `ALPHA_VANTAGE_KEY` | - | Alpha Vantage API key |
 | `TWELVE_DATA_KEY` | - | Twelve Data API key |
 | `FINNHUB_KEY` | - | Finnhub API key |
@@ -37,7 +36,7 @@ Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite us
 
 ## Architecture
 
-- **Stack**: Go (see `go.mod`) • Gin • HTMX • Chart.js • SQLite
+- **Stack**: Go (see `go.mod`) • net/http • HTMX • Chart.js • SQLite
 - **Single binary**; templates and static assets are read from `./web` at runtime
 - **In-app cron** (robfig/cron) for hourly snapshots
 - **Leader election** via SQLite advisory lock

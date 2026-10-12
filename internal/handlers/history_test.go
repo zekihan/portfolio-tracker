@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -23,8 +21,8 @@ func TestSnapshotPaginationValidation(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	handler := New(nil, services.NewSnapshotService(database, nil, nil), nil, nil)
-	router := gin.New()
-	router.GET("/snapshots", handler.getSnapshots)
+	router := http.NewServeMux()
+	router.HandleFunc("GET /snapshots", handler.getSnapshots)
 
 	tests := []struct {
 		query  string

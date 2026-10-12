@@ -1,14 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-
-	"github.com/gin-gonic/gin"
 
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -22,44 +22,69 @@ const sqliteHeader = "SQLite format 3\x00"
 // header. Browsers cannot set it on cross-site requests without a CORS
 // preflight, which this server does not grant, so cross-site form posts cannot
 // trigger a restore.
-func requireRestoreConfirmation() gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		if ctx.GetHeader("X-Restore-Confirm") != "restore" {
-			ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				errorKey: "restore must be confirmed from the settings page",
-			})
+func requireRestoreConfirmation() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.Header.Get("X-Restore-Confirm") != "restore" {
+				writeJSON(writer, http.StatusForbidden, map[string]any{
+					errorKey: "restore must be confirmed from the settings page",
+				})
 
-			return
-		}
+				return
+			}
 
-		ctx.Next()
+			next.ServeHTTP(writer, request)
+		})
 	}
 }
 
 // restoreBackup replaces all holdings, snapshots, prices, and settings with the
 // uploaded SQLite backup.
-func (handler *Handler) restoreBackup(ctx *gin.Context) {
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxRestoreBytes)
+func (handler *Handler) restoreBackup(writer http.ResponseWriter, request *http.Request,
+) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRestoreBytes)
 
-	fileHeader, err := ctx.FormFile("file")
+	upload, _, err := request.FormFile("file")
 	if err != nil {
 		if tooLarge, isTooLarge := errors.AsType[*http.MaxBytesError](err); isTooLarge {
-			ctx.AbortWithStatusJSON(
+			writeJSON(
+				writer,
 				http.StatusRequestEntityTooLarge,
-				gin.H{errorKey: fmt.Sprintf("backup file exceeds %d bytes", tooLarge.Limit)},
+				map[string]any{
+					errorKey: fmt.Sprintf("backup file exceeds %d bytes", tooLarge.Limit),
+				},
 			)
 
 			return
 		}
 
-		ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{errorKey: "backup file is required"})
+		writeJSON(
+			writer,
+			http.StatusBadRequest,
+			map[string]any{errorKey: "backup file is required"},
+		)
 
 		return
 	}
 
+	defer func(requestCtx context.Context) {
+		_ = upload.Close()
+
+		if request.MultipartForm != nil {
+			cleanupErr := request.MultipartForm.RemoveAll()
+			if cleanupErr != nil {
+				slog.ErrorContext(
+					requestCtx,
+					"Upload cleanup failed",
+					slog.Any("error", cleanupErr),
+				)
+			}
+		}
+	}(request.Context())
+
 	dir, err := os.MkdirTemp("", "portfolio-restore-")
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
@@ -70,43 +95,54 @@ func (handler *Handler) restoreBackup(ctx *gin.Context) {
 
 	uploadPath := filepath.Join(dir, "upload.db")
 
-	err = ctx.SaveUploadedFile(fileHeader, uploadPath)
+	destination, err := os.Create(uploadPath)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
+
+		return
+	}
+
+	_, copyErr := io.Copy(destination, upload)
+	closeErr := destination.Close()
+
+	err = errors.Join(copyErr, closeErr)
+	if err != nil {
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	isSQLite, err := hasSQLiteHeader(uploadPath)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	if !isSQLite {
-		ctx.AbortWithStatusJSON(
+		writeJSON(
+			writer,
 			http.StatusBadRequest,
-			gin.H{errorKey: "file is not a SQLite database"},
+			map[string]any{errorKey: "file is not a SQLite database"},
 		)
 
 		return
 	}
 
-	err = handler.settingsSvc.RestoreFrom(ctx.Request.Context(), uploadPath)
+	err = handler.settingsSvc.RestoreFrom(request.Context(), uploadPath)
 	if errors.Is(err, services.ErrIncompatibleBackup) {
-		ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
 
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"success": true})
+	writeJSON(writer, http.StatusOK, map[string]any{"success": true})
 }
 
 func hasSQLiteHeader(path string) (bool, error) {

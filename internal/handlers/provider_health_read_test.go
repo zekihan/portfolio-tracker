@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
@@ -36,8 +34,8 @@ func TestProviderHealthReadRespectsCancellation(t *testing.T) {
 			t.Cleanup(func() { _ = database.Close() })
 
 			handler := New(nil, nil, nil, price.NewService(database, price.DefaultRegistry()))
-			router := gin.New()
-			router.GET("/providers", handler.getProviders)
+			router := http.NewServeMux()
+			router.HandleFunc("GET /providers", handler.getProviders)
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

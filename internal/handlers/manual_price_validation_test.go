@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -43,8 +41,8 @@ func TestManualPriceRejectsNegativeUpdates(t *testing.T) {
 			}
 
 			handler := New(services.NewHoldingService(database, nil), nil, nil, nil)
-			router := gin.New()
-			router.PUT("/manual/:id", handler.updateManualPrice)
+			router := http.NewServeMux()
+			router.HandleFunc("PUT /manual/{id}", handler.updateManualPrice)
 
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/manual/1",
 				strings.NewReader(test.body))
@@ -99,8 +97,8 @@ func TestCreateHoldingStoresManualPrice(t *testing.T) {
 			t.Cleanup(func() { _ = database.Close() })
 
 			service := services.NewHoldingService(database, nil)
-			router := gin.New()
-			router.POST("/holdings", New(service, nil, nil, nil).createHolding)
+			router := http.NewServeMux()
+			router.HandleFunc("POST /holdings", New(service, nil, nil, nil).createHolding)
 
 			body := `{"name":"Cash","asset_type":"Cash","base_currency":"TRY","quantity":1,"manual_price":` + test.manual + `}`
 			request := httptest.NewRequestWithContext(

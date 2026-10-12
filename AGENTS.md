@@ -27,7 +27,7 @@ go test -v -run TestFunctionName ./internal/...
 This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered templates.
 
 **Packages:**
-- `cmd/server` — Entry point, Gin server, cron scheduler, graceful shutdown
+- `cmd/server` — Entry point, net/http server, cron scheduler, graceful shutdown
 - `internal/db` — SQLite schema, migrations (v1-v2), connection management
 - `internal/models` — Domain types (Holding, Price, Snapshot, Provider, DashboardData)
 - `internal/handlers` — HTTP handlers (REST API + server-rendered pages)

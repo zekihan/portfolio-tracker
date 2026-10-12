@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
@@ -41,8 +39,8 @@ func TestProviderUpdateRespectsCancellation(t *testing.T) {
 			}
 
 			handler := New(nil, nil, nil, price.NewService(database, price.DefaultRegistry()))
-			router := gin.New()
-			router.PUT("/provider/:id", handler.updateHoldingProvider)
+			router := http.NewServeMux()
+			router.HandleFunc("PUT /provider/{id}", handler.updateHoldingProvider)
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

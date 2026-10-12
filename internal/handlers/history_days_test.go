@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -23,9 +21,9 @@ func TestHistoryDayRangeValidation(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	handler := New(nil, services.NewSnapshotService(database, nil, nil), nil, nil)
-	router := gin.New()
-	router.GET("/chart", handler.getChartData)
-	router.GET("/holding/:id", handler.getHoldingHistory)
+	router := http.NewServeMux()
+	router.HandleFunc("GET /chart", handler.getChartData)
+	router.HandleFunc("GET /holding/{id}", handler.getHoldingHistory)
 
 	for _, path := range []string{"/chart", "/holding/1"} {
 		for _, test := range []struct {

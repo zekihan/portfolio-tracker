@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -43,8 +41,8 @@ func TestEstimatedPriceRejectsNegativeUpdates(t *testing.T) {
 			}
 
 			handler := New(services.NewHoldingService(database, nil), nil, nil, nil)
-			router := gin.New()
-			router.PUT("/estimate/:id", handler.updateEstPrice)
+			router := http.NewServeMux()
+			router.HandleFunc("PUT /estimate/{id}", handler.updateEstPrice)
 
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/estimate/1",
 				strings.NewReader(test.body))

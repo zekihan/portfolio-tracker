@@ -25,27 +25,27 @@ type Holding struct {
 	CurrentCurrency string       `json:"current_currency,omitempty" db:"-"`
 	InstrumentID    string       `json:"instrument_id"              db:"instrument_id"`
 
-	BaseCurrency string `json:"base_currency" binding:"oneof=TRY USD" db:"base_currency"`
+	BaseCurrency string `json:"base_currency" db:"base_currency" validate:"oneof=TRY USD"`
 
 	Basket     string `json:"basket"                db:"basket"`
 	Location   string `json:"location"              db:"location"`
 	Notes      string `json:"notes"                 db:"notes"`
 	PriceError string `json:"price_error,omitempty" db:"-"`
 
-	Name string `json:"name" binding:"required" db:"name"`
+	Name string `json:"name" db:"name" validate:"required"`
 
 	PriceSource string `json:"price_source,omitempty" db:"-"`
 
-	AssetType AssetType `json:"asset_type" binding:"oneof=Stock ETF 'TR Fund' Crypto Gold Cash" db:"asset_type"`
+	AssetType AssetType `json:"asset_type" db:"asset_type" validate:"oneof=Stock ETF 'TR Fund' Crypto Gold Cash"`
 
 	Ticker       string          `json:"ticker"                  db:"ticker"`
 	ManualPrice  sql.NullFloat64 `json:"manual_price"            db:"manual_price"`
 	CurrentPrice float64         `json:"current_price,omitempty" db:"-"`
 	ID           int             `json:"id"                      db:"id"`
 
-	Quantity float64 `json:"quantity" binding:"gte=0" db:"quantity"`
+	Quantity float64 `json:"quantity" db:"quantity" validate:"gte=0"`
 
-	EstPrice float64 `json:"est_price" binding:"gte=0" db:"est_price"`
+	EstPrice float64 `json:"est_price" db:"est_price" validate:"gte=0"`
 
 	IsStale  bool `json:"is_stale,omitempty"  db:"-"`
 	IsFailed bool `json:"is_failed,omitempty" db:"-"`

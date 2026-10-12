@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -38,8 +36,8 @@ func TestCreateHoldingRejectsNegativeQuantity(t *testing.T) {
 			t.Cleanup(func() { _ = database.Close() })
 
 			handler := New(services.NewHoldingService(database, nil), nil, nil, nil)
-			router := gin.New()
-			router.POST("/api/holdings", handler.createHolding)
+			router := http.NewServeMux()
+			router.HandleFunc("POST /api/holdings", handler.createHolding)
 
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/holdings",
 				strings.NewReader(test.body))

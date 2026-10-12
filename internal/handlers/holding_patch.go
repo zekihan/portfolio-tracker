@@ -4,24 +4,23 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
-func (handler *Handler) patchHolding(ctx *gin.Context) {
-	id, err := strconv.Atoi(ctx.Param("id"))
+func (handler *Handler) patchHolding(writer http.ResponseWriter, request *http.Request,
+) {
+	id, err := strconv.Atoi(request.PathValue("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: invalidIDMsg})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
 
 		return
 	}
 
 	var patch models.HoldingPatch
 
-	err = ctx.ShouldBindJSON(&patch)
+	err = decodeJSON(request, &patch)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
 		return
 	}
@@ -30,23 +29,27 @@ func (handler *Handler) patchHolding(ctx *gin.Context) {
 		patch.Basket == nil && patch.Location == nil && patch.Notes == nil &&
 		patch.Quantity == nil &&
 		patch.EstPrice == nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{errorKey: "at least one editable field is required"})
+		writeJSON(
+			writer,
+			http.StatusBadRequest,
+			map[string]any{errorKey: "at least one editable field is required"},
+		)
 
 		return
 	}
 
-	updated, err := handler.holdingSvc.Patch(ctx.Request.Context(), id, patch)
+	updated, err := handler.holdingSvc.Patch(request.Context(), id, patch)
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	if !updated {
-		ctx.JSON(http.StatusNotFound, gin.H{errorKey: "holding not found"})
+		writeJSON(writer, http.StatusNotFound, map[string]any{errorKey: "holding not found"})
 
 		return
 	}
 
-	ctx.Status(http.StatusNoContent)
+	writer.WriteHeader(http.StatusNoContent)
 }

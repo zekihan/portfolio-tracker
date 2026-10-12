@@ -6,8 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gin-gonic/gin"
 )
 
 // errDBDetail stands in for a driver error that must never reach clients.
@@ -16,9 +14,10 @@ var errDBDetail = errors.New("pq: relation \"holdings\" does not exist")
 func TestRespondInternalErrorHidesDetails(t *testing.T) {
 	t.Parallel()
 
-	router := gin.New()
-	router.GET("/x", func(ctx *gin.Context) {
-		respondInternalError(ctx, errDBDetail)
+	router := http.NewServeMux()
+	router.HandleFunc("GET /x", func(writer http.ResponseWriter, request *http.Request,
+	) {
+		respondInternalError(writer, request, errDBDetail)
 	})
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", http.NoBody)

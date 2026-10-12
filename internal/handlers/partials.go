@@ -4,34 +4,33 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
-func (handler *Handler) holdingForm(ctx *gin.Context) {
+func (handler *Handler) holdingForm(writer http.ResponseWriter, request *http.Request,
+) {
 	var holding models.Holding
 
 	holding.BaseCurrency = currencyTRY
 	holding.AssetType = models.AssetTypeStock
 
-	if ctx.Param("id") != "" {
-		id, err := strconv.Atoi(ctx.Param("id"))
+	if request.PathValue("id") != "" {
+		id, err := strconv.Atoi(request.PathValue("id"))
 		if err != nil || id <= 0 {
-			ctx.AbortWithStatus(http.StatusBadRequest)
+			writer.WriteHeader(http.StatusBadRequest)
 
 			return
 		}
 
-		existing, err := handler.holdingSvc.GetByID(ctx.Request.Context(), id)
+		existing, err := handler.holdingSvc.GetByID(request.Context(), id)
 		if err != nil {
-			respondInternalError(ctx, err)
+			respondInternalError(writer, request, err)
 
 			return
 		}
 
 		if existing == nil {
-			ctx.AbortWithStatus(http.StatusNotFound)
+			writer.WriteHeader(http.StatusNotFound)
 
 			return
 		}
@@ -39,22 +38,28 @@ func (handler *Handler) holdingForm(ctx *gin.Context) {
 		holding = *existing
 	}
 
-	if ctx.FullPath() == "/partials/holding-duplicate/:id" {
+	if request.Pattern == "GET /partials/holding-duplicate/{id}" {
 		holding.ID = 0
 		holding.Name += " (copy)"
 	}
 
-	providers, err := handler.priceSvc.GetProviderHealthContext(ctx.Request.Context())
+	providers, err := handler.priceSvc.GetProviderHealthContext(request.Context())
 	if err != nil {
-		respondInternalError(ctx, err)
+		respondInternalError(writer, request, err)
 
 		return
 	}
 
 	name := "holding-form"
-	if ctx.FullPath() == "/partials/manual-price/:id" {
+	if request.Pattern == "GET /partials/manual-price/{id}" {
 		name = "manual-price"
 	}
 
-	ctx.HTML(http.StatusOK, name, gin.H{"Holding": holding, "Providers": providers})
+	handler.renderer.
+		render(
+			writer,
+			http.StatusOK,
+			name,
+			map[string]any{"Holding": holding, "Providers": providers},
+		)
 }

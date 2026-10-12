@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -55,9 +53,9 @@ func checkHoldingNameWrite(t *testing.T, method, nameField string, valid bool) {
 	}
 
 	handler := New(services.NewHoldingService(database, nil), nil, nil, nil)
-	router := gin.New()
-	router.POST("/holdings", handler.createHolding)
-	router.PUT("/holdings/:id", handler.updateHolding)
+	router := http.NewServeMux()
+	router.HandleFunc("POST /holdings", handler.createHolding)
+	router.HandleFunc("PUT /holdings/{id}", handler.updateHolding)
 
 	path := "/holdings"
 	wantStatus := http.StatusCreated

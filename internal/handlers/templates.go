@@ -4,14 +4,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/render"
 )
 
 const (
@@ -56,18 +54,32 @@ func newPageRenderer(funcs template.FuncMap) *pageRenderer {
 	return &pageRenderer{pages: pages}
 }
 
-//nolint:ireturn // Signature required by Gin's render.HTMLRender interface.
-func (r *pageRenderer) Instance(name string, data any) render.Render {
-	return render.HTML{Template: r.pages[name], Name: name, Data: data}
+func (renderer *pageRenderer) render(
+	writer http.ResponseWriter,
+	status int,
+	name string,
+	data any,
+) {
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.WriteHeader(status)
+
+	err := renderer.pages[name].ExecuteTemplate(writer, name, data)
+	if err != nil {
+		slog.Error(
+			"Template rendering failed",
+			slog.String("template", name),
+			slog.Any("error", err),
+		)
+	}
 }
 
-func (handler *Handler) pageCurrency(ctx *gin.Context) string {
-	currency := ctx.Query("currency")
+func (handler *Handler) pageCurrency(request *http.Request) string {
+	currency := request.URL.Query().Get("currency")
 	if currency == currencyTRY || currency == currencyUSD {
 		return currency
 	}
 
-	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
+	settings, err := handler.settingsSvc.GetAll(request.Context())
 	if err == nil && settings.DisplayCurrency == currencyUSD {
 		return currencyUSD
 	}
@@ -75,14 +87,16 @@ func (handler *Handler) pageCurrency(ctx *gin.Context) string {
 	return currencyTRY
 }
 
-func (handler *Handler) renderPage(ctx *gin.Context, name string, data gin.H) {
-	settings, err := handler.settingsSvc.GetAll(ctx.Request.Context())
+func (handler *Handler) renderPage(writer http.ResponseWriter, request *http.Request,
+	name string, data map[string]any,
+) {
+	settings, err := handler.settingsSvc.GetAll(request.Context())
 	if err == nil {
 		data["Theme"] = settings.DarkMode
 		data["Settings"] = settings
 	}
 
-	data["DisplayCurrency"] = handler.pageCurrency(ctx)
+	data["DisplayCurrency"] = handler.pageCurrency(request)
 	data["BuildInfo"] = "Development build"
 
 	if build, ok := debug.ReadBuildInfo(); ok {
@@ -94,5 +108,6 @@ func (handler *Handler) renderPage(ctx *gin.Context, name string, data gin.H) {
 	}
 
 	data["ActivePage"] = strings.TrimSuffix(name, ".html")
-	ctx.HTML(http.StatusOK, name, data)
+	handler.renderer.
+		render(writer, http.StatusOK, name, data)
 }

@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
@@ -44,8 +42,8 @@ func TestProviderMappingReadRespectsCancellation(t *testing.T) {
 			}
 
 			handler := New(nil, nil, nil, price.NewService(database, price.DefaultRegistry()))
-			router := gin.New()
-			router.GET("/mapping", handler.getProviderMapping)
+			router := http.NewServeMux()
+			router.HandleFunc("GET /mapping", handler.getProviderMapping)
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

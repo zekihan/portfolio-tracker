@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -29,8 +27,8 @@ func TestDownloadBackupReturnsSQLiteFile(t *testing.T) {
 		services.NewSettingsService(database),
 		nil,
 	)
-	router := gin.New()
-	router.GET("/api/settings/backup", handler.downloadBackup)
+	router := http.NewServeMux()
+	router.HandleFunc("GET /api/settings/backup", handler.downloadBackup)
 
 	request := httptest.NewRequestWithContext(
 		t.Context(),

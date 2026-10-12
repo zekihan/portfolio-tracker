@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
@@ -32,11 +30,15 @@ func TestHistoryPageValidatesDayRange(t *testing.T) {
 
 	handler := New(services.NewHoldingService(database, nil),
 		services.NewSnapshotService(database, nil, nil), services.NewSettingsService(database), nil)
-	router := gin.New()
-	router.SetHTMLTemplate(
-		template.Must(template.New("history.html").Parse(`{{.Days}}/{{len .ChartData}}`)),
-	)
-	router.GET("/history", handler.pageHistory)
+	router := http.NewServeMux()
+	handler.renderer = &pageRenderer{
+		pages: map[string]*template.Template{
+			"history.html": template.Must(
+				template.New("history.html").Parse(`{{.Days}}/{{len .ChartData}}`),
+			),
+		},
+	}
+	router.HandleFunc("GET /history", handler.pageHistory)
 
 	for _, test := range []struct {
 		query string
