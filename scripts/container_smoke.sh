@@ -25,6 +25,12 @@ fetch() {
     docker run --rm --network "container:$container" "$probe" \
         wget -q -O - "http://127.0.0.1:8080$1"
 }
+fetch_response() {
+    # HTTP/1.0 keeps the body unchunked for the assertions below.
+    printf 'GET %s HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n' "$1" |
+        docker run --rm --interactive --network "container:$container" "$probe" \
+            nc -w 10 127.0.0.1 8080
+}
 wait_ready() {
     attempts=0
     until fetch /api/settings > /dev/null; do
@@ -34,7 +40,26 @@ wait_ready() {
     done
 }
 wait_ready
-fetch / | grep -q '<!DOCTYPE html>'
+fetch_response /settings > "$fixture/settings-page.txt"
+head -n 1 "$fixture/settings-page.txt" | grep -q '^HTTP/1\.[01] 200 '
+grep -qi '^Content-Type: text/html' "$fixture/settings-page.txt"
+for marker in '<!DOCTYPE html>' 'class="settings-page"' '<h1>Settings</h1>' '</html>'; do
+    grep -Fq "$marker" "$fixture/settings-page.txt"
+done
+# A fresh, network-isolated database has no FX quote. Require the intentional
+# unavailable page, not a generic 503 or a misleading zero-valued dashboard.
+fetch_response / > "$fixture/dashboard-page.txt"
+head -n 1 "$fixture/dashboard-page.txt" | grep -q '^HTTP/1\.[01] 503 '
+grep -qi '^Content-Type: text/html' "$fixture/dashboard-page.txt"
+for marker in '<!DOCTYPE html>' 'class="dashboard"' 'role="alert"' \
+    '<h1>Portfolio valuation unavailable</h1>' \
+    'Values and allocations are unavailable.' 'href="/?currency=TRY">Retry</a>' '</html>'; do
+    grep -Fq "$marker" "$fixture/dashboard-page.txt"
+done
+if grep -Eq 'id="(current-value-try|current-value-usd|allocation-chart)"|No holdings yet' "$fixture/dashboard-page.txt"; then
+    echo "Offline dashboard displayed misleading portfolio values" >&2
+    exit 1
+fi
 fetch /static/style.css > /dev/null
 fetch /static/app.js > /dev/null
 # Change durable state: comparing defaults alone cannot detect a reset database.

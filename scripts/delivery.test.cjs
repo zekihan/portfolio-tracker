@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
-const { readFileSync } = require('node:fs');
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
@@ -59,4 +60,92 @@ test('make run uses Go architecture names and a writable local database default'
   const result = spawnSync('make', ['-n', 'run', 'DB_PATH=/tmp/custom portfolio.db'], { cwd: root, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /DB_PATH="\/tmp\/custom portfolio\.db"/);
+});
+
+const settingsPage = '<!DOCTYPE html><html><div class="settings-page"><h1>Settings</h1></div></html>';
+const offlineDashboard = '<!DOCTYPE html><html><div class="dashboard"><section role="alert">' +
+  '<h1>Portfolio valuation unavailable</h1><p>Values and allocations are unavailable.</p>' +
+  '<a href="/?currency=TRY">Retry</a></section></div></html>';
+function htmlResponse(status, body) {
+  return `HTTP/1.0 ${status}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${body}`;
+}
+
+function containerSmoke(t, responses = {}) {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'portfolio-smoke-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(path.join(directory, 'settings'), responses.settings ?? htmlResponse('200 OK', settingsPage));
+  writeFileSync(path.join(directory, 'dashboard'), responses.dashboard ?? htmlResponse('503 Service Unavailable', offlineDashboard));
+  writeFileSync(path.join(directory, 'docker'), `#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$MOCK_DIR/calls"
+case "$*" in
+  'build --tag '*) ;;
+  'image inspect --format {{.Config.User}} '*) printf '25110:25110\\n' ;;
+  'run --detach --network none '*) printf 'smoke-container\\n' ;;
+  'run --rm --network container:smoke-container '*'/api/settings')
+    if test -f "$MOCK_DIR/updated"; then
+      printf '{"display_currency":"USD"}\\n'
+    else
+      printf '{"display_currency":"TRY"}\\n'
+    fi ;;
+  'run --rm --network container:smoke-container '*'/static/style.css' | \\
+  'run --rm --network container:smoke-container '*'/static/app.js') printf 'asset\\n' ;;
+  'run --rm --interactive --network container:smoke-container '*' nc -w 10 127.0.0.1 8080')
+    request=$(cat)
+    case "$request" in
+      'GET /settings HTTP/1.0'*) cat "$MOCK_DIR/settings" ;;
+      'GET / HTTP/1.0'*) cat "$MOCK_DIR/dashboard" ;;
+      'PATCH /api/settings/currency HTTP/1.1'*)
+        touch "$MOCK_DIR/updated"
+        printf 'HTTP/1.1 200 OK\\r\\n\\r\\n' ;;
+      *) echo "Unexpected request: $request" >&2; exit 1 ;;
+    esac ;;
+  'cp smoke-container:/data/portfolio.db '* | \\
+  'cp smoke-container:/usr/share/licenses/portfolio-tracker/LICENSE '*) printf 'fixture\\n' > "$3" ;;
+  'restart smoke-container') printf 'smoke-container\\n' ;;
+  'logs smoke-container' | 'rm --force --volumes smoke-container') ;;
+  *) echo "Unexpected Docker command: $*" >&2; exit 1 ;;
+esac
+`, { mode: 0o755 });
+  const result = spawnSync('sh', [path.join(__dirname, 'container_smoke.sh')], {
+    cwd: root,
+    env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}`, MOCK_DIR: directory },
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  const calls = readFileSync(path.join(directory, 'calls'), 'utf8');
+  assert.match(calls, /run --detach --network none /, 'application must remain network-isolated');
+  assert.match(calls, /rm --force --volumes smoke-container/, 'container must be cleaned up');
+  return { ...result, calls };
+}
+
+test('container smoke accepts only the intended offline pages and still checks persistence', t => {
+  const result = containerSmoke(t);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Container smoke test passed/);
+  assert.match(result.calls, /restart smoke-container/);
+  assert.match(result.calls, /cp smoke-container:\/data\/portfolio.db /);
+  assert.match(result.calls, /cp smoke-container:\/usr\/share\/licenses\/portfolio-tracker\/LICENSE /);
+});
+
+test('container smoke rejects unavailable, incomplete, or misleading page responses', async t => {
+  for (const [name, responses] of [
+    ['settings failure', { settings: htmlResponse('503 Service Unavailable', settingsPage) }],
+    ['settings wrong page', { settings: htmlResponse('200 OK', offlineDashboard) }],
+    ['settings truncated', { settings: htmlResponse('200 OK', settingsPage.replace('</html>', '')) }],
+    ['generic dashboard 503', { dashboard: htmlResponse('503 Service Unavailable', 'Service Unavailable') }],
+    ['wrong dashboard status', { dashboard: htmlResponse('500 Internal Server Error', offlineDashboard) }],
+    ['dashboard falsely succeeds', { dashboard: htmlResponse('200 OK', offlineDashboard) }],
+    ['dashboard not HTML', { dashboard: htmlResponse('503 Service Unavailable', offlineDashboard).replace('text/html', 'text/plain') }],
+    ['dashboard truncated', { dashboard: htmlResponse('503 Service Unavailable', offlineDashboard.replace('</html>', '')) }],
+    ['dashboard missing retry', { dashboard: htmlResponse('503 Service Unavailable', offlineDashboard.replace('>Retry</a>', '>Back</a>')) }],
+    ['dashboard misleading values', { dashboard: htmlResponse('503 Service Unavailable', offlineDashboard.replace('</div>', '<div id="current-value-try">0.00</div></div>')) }],
+  ]) {
+    await t.test(name, t => {
+      const result = containerSmoke(t, responses);
+      assert.notEqual(result.status, 0, 'smoke accepted an invalid page');
+      assert.doesNotMatch(result.stdout, /Container smoke test passed/);
+      assert.doesNotMatch(result.calls, /restart smoke-container/, 'must stop before persistence checks');
+    });
+  }
 });

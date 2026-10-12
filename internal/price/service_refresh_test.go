@@ -84,7 +84,13 @@ func newGatedGetter(name string) *gatedQuoteGetter {
 func newRefreshTestService(t *testing.T, getters ...Getter) *Service {
 	t.Helper()
 
-	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
+	return newRefreshTestServiceAt(t, filepath.Join(t.TempDir(), "portfolio.db"), getters...)
+}
+
+func newRefreshTestServiceAt(t *testing.T, path string, getters ...Getter) *Service {
+	t.Helper()
+
+	database, err := db.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +230,9 @@ func TestRefreshConcurrencyCapsAndPendingBound(t *testing.T) {
 		getters = append(getters, getter)
 	}
 
-	service := newRefreshTestService(t, getters...)
+	// Exercise scheduler limits independently of filesystem flush latency. Cache
+	// persistence remains real SQLite; disk-backed fixtures cover durability.
+	service := newRefreshTestServiceAt(t, ":memory:", getters...)
 
 	flights := make([]*priceFlight, 0, maxPendingFetches)
 	for index := range maxPendingFetches {
