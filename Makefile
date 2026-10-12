@@ -1,13 +1,13 @@
 GO ?= go
 BINARY := dist/portfolio-tracker
 
-.PHONY: help build run fmt tidy lint test test/cover audit release-check build/release/all release container-test
+.PHONY: help build run fmt tidy lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test
 help:
-	@echo "Targets: build run fmt tidy lint test test/cover audit release-check build/release/all release container-test"
+	@echo "Targets: build run fmt tidy lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test"
 
 build:
 	mkdir -p dist
-	CGO_ENABLED=1 $(GO) build -trimpath -ldflags '-s -w' -o $(BINARY) ./cmd/server
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '-s -w' -o $(BINARY) ./cmd/server
 
 run: build
 	./$(BINARY)
@@ -37,8 +37,14 @@ release-check:
 build/release/all:
 	goreleaser build --clean --snapshot --id all
 
+build/docker:
+	goreleaser build --clean --snapshot --id docker
+
+build/release/docker:
+	goreleaser build --clean --id docker --skip=validate
+
 release:
 	goreleaser release --clean
 
-container-test:
+container-test: build/docker
 	./scripts/container_smoke.sh

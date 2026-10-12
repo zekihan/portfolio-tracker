@@ -1,12 +1,10 @@
 *
-!go.mod
-!go.sum
-!cmd/
-!cmd/**
-!internal/
-!internal/**
+!dist/
+!dist/portfolio-tracker_linux_amd64/
+!dist/portfolio-tracker_linux_amd64/portfolio-tracker
+!dist/portfolio-tracker_linux_arm64/
+!dist/portfolio-tracker_linux_arm64/portfolio-tracker
 !web/
 !web/**
 !LICENSE
 !Dockerfile
-**/*_test.go

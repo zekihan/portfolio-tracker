@@ -11,6 +11,7 @@ make test          # run all tests with -race
 make test/cover    # write coverage.out
 make audit         # lint + tests + go mod verify
 make build         # build dist/portfolio-tracker
+make build/docker  # cross-compile Linux binaries for Docker
 make release-check # validate release configuration
 make container-test # build and smoke-test Docker image
 make release       # goreleaser release
@@ -39,7 +40,7 @@ This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered 
 **Key Design Decisions:**
 - **Single binary** that reads templates and static assets from `./web` at runtime
 - **HTMX** for interactivity — minimal JS, server-rendered HTML
-- **SQLite** with migrations (v2 fixes NULL manual_price with DEFAULT 0)
+- **SQLite** via the pure-Go modernc driver with migrations (v2 fixes NULL manual_price with DEFAULT 0)
 - **In-app cron** (robfig/cron/v3) for hourly snapshots
 - **Leader election** via SQLite advisory lock for cron
 - **Price cache** with TTL per provider + circuit breaker (3 failures = open)

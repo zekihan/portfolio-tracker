@@ -20,8 +20,8 @@ make build
 DB_PATH=./portfolio.db PORT=8080 ./dist/portfolio-tracker
 ```
 
-Then visit http://localhost:8080. Requires the Go version in `go.mod` and a C
-compiler for the SQLite driver. Run from the repository root so `./web` is available.
+Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite uses the pure-Go
+[modernc driver](https://pkg.go.dev/modernc.org/sqlite), so builds need no C compiler. Run from the repository root so `./web` is available.
 
 ### Environment Variables
 
@@ -58,11 +58,13 @@ proxy in front of it.
 ### Docker
 
 ```bash
+make build/docker
 docker build -t portfolio-tracker .
 docker run --rm -p 127.0.0.1:8080:8080 -v portfolio-data:/data portfolio-tracker
 ```
 
-The image is built with cgo (required by the SQLite driver) and includes the `web/` assets.
+GoReleaser builds the Linux binaries before Docker runs. The Dockerfile selects
+the prebuilt binary for the target architecture and includes the `web/` assets.
 
 ## Development
 
@@ -87,15 +89,17 @@ shared by the other Go services. `make lint` checks without rewriting files.
 
 PR checks are also reusable by both release workflows. A `v*` tag runs lint,
 tests, build, release validation, and the container smoke test before publishing.
-GoReleaser produces Linux amd64 archives and `checksums.txt`. Archives include
-`web/`; extract the entire archive and run from that directory. The binary uses
-cgo and requires a compatible Linux glibc runtime.
+GoReleaser cross-compiles Linux, macOS, and Windows binaries for amd64 and arm64
+with `CGO_ENABLED=0`, plus a universal macOS binary. Releases contain tar.gz
+archives (zip on Windows) and `checksums.txt`. Archives include `web/`; extract
+the entire archive and run from that directory.
 
 The separate container workflow publishes Linux amd64 and arm64 images to
 `ghcr.io/zekihan/portfolio-tracker` and `docker.io/zekihan/portfolio-tracker`, with
-version, major-version, and commit tags. Container builds compile natively for
-each target platform through QEMU, retaining SQLite cgo support. The image runs
-as UID 25110 and stores its database in `/data`; bind mounts must be writable by
+version, major-version, and commit tags. CI runs `make build/release/docker`
+for tags (or `make build/docker` for manual snapshot builds) before building
+images; Docker copies the matching Linux binary from `dist/`,
+following YouAud's build workflow. The image runs as UID 25110 and stores its database in `/data`; bind mounts must be writable by
 that UID.
 
 Repository secrets `DOCKER_USERNAME` and `DOCKER_PASSWORD` are required for

@@ -3,17 +3,35 @@ project_name: portfolio-tracker
 builds:
   - id: all
     main: ./cmd/server
-    binary: portfolio-tracker
-    # SQLite needs cgo; Linux releases are built with the runner's native gcc.
-    env: [CGO_ENABLED=1]
+    binary: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}/{{ .ProjectName }}'
+    no_unique_dist_dir: true
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+  - id: docker
+    main: ./cmd/server
+    binary: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}/{{ .ProjectName }}'
+    no_unique_dist_dir: true
+    env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: [-s -w]
     goos: [linux]
-    goarch: [amd64]
+    goarch: [amd64, arm64]
+universal_binaries:
+  - id: darwin-universal
+    ids: [all]
+    name_template: portfolio-tracker
+    replace: false
 archives:
   - id: all
-    ids: [all]
+    ids: [all, darwin-universal]
     formats: [tar.gz]
+    strip_binary_directory: true
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     files:
       - LICENSE
       - README.md
