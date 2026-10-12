@@ -25,11 +25,18 @@ fetch() {
     docker run --rm --network "container:$container" "$probe" \
         wget -q -O - "http://127.0.0.1:8080$1"
 }
+http_request() {
+    # In -e mode nc gives the command its connected socket. Write the request
+    # without half-closing it, then read until the server closes the response.
+    # Preserve Docker stdout on fd 9 because nc redirects stdout to the socket.
+    docker run --rm --network "container:$container" "$probe" sh -c '
+        exec 9>&1
+        exec timeout 15 nc -w 10 127.0.0.1 8080 -e sh -c "$@"
+    ' sh 'printf "$@"; exec cat >&9' sh "$@"
+}
 fetch_response() {
     # HTTP/1.0 keeps the body unchunked for the assertions below.
-    printf 'GET %s HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n' "$1" |
-        docker run --rm --interactive --network "container:$container" "$probe" \
-            nc -w 10 127.0.0.1 8080
+    http_request 'GET %s HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n' "$1"
 }
 wait_ready() {
     attempts=0
@@ -63,9 +70,7 @@ fi
 fetch /static/style.css > /dev/null
 fetch /static/app.js > /dev/null
 # Change durable state: comparing defaults alone cannot detect a reset database.
-printf 'PATCH /api/settings/currency HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 18\r\nConnection: close\r\n\r\n{"currency":"USD"}' |
-    docker run --rm --interactive --network "container:$container" "$probe" \
-        nc -w 10 127.0.0.1 8080 > "$fixture/update-response.txt"
+http_request 'PATCH /api/settings/currency HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 18\r\nConnection: close\r\n\r\n{"currency":"USD"}' > "$fixture/update-response.txt"
 grep -q '^HTTP/1.1 200 ' "$fixture/update-response.txt"
 fetch /api/settings > "$fixture/settings-before.json"
 grep -q '"display_currency":"USD"' "$fixture/settings-before.json"
