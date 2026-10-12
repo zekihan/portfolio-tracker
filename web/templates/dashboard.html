@@ -1,25 +1,42 @@
 {{define "content"}}
 <div class="dashboard" hx-ext="json-body">
+    {{if .ValuationUnavailable}}
+    <section class="card" role="alert">
+        <h1>Portfolio valuation unavailable</h1>
+        <p>We could not load a complete portfolio valuation. Values and allocations are unavailable. Please try again.</p>
+        <a class="btn btn-primary" href="/?currency={{.DisplayCurrency}}">Retry</a>
+        <a class="btn btn-secondary" href="/holdings?currency={{.DisplayCurrency}}">Manage holdings</a>
+    </section>
+    {{else}}
+    {{if not .Data.ValuationComplete}}
+    <section class="card" role="alert">
+        <h2>Partial portfolio valuation</h2>
+        <p>{{.Data.ValuedCount}} of {{.Data.TotalHoldings}} holdings valued; {{.Data.UnvaluedCount}} unavailable. Current value and allocations include only valued holdings.</p>
+        <a class="btn btn-secondary" href="/holdings?currency={{.DisplayCurrency}}">Review unavailable holdings</a>
+        <a class="btn btn-secondary" href="/sources">Check price sources</a>
+    </section>
+    {{end}}
     <!-- Value Cards -->
     <section class="value-cards" aria-labelledby="value-heading">
         <h2 id="value-heading" class="visually-hidden">Portfolio Value</h2>
         <div class="card-row">
             <article class="card value-card">
                 <header class="card-header">
-                    <h3>Current Value</h3>
+                    <h3>{{if .Data.ValuationComplete}}Current Value{{else}}Partial Current Value{{end}}</h3>
                     <span class="badge badge-info" id="stale-badge" {{if not .Data.StaleCount}}hidden{{end}}>{{.Data.StaleCount}} stale</span>
                     <span class="badge badge-error" id="failed-badge" {{if not .Data.FailedCount}}hidden{{end}}>{{.Data.FailedCount}} failed</span>
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="current-value-try">
-                        {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{else}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{end}}
+                        {{if or .Data.ValuationComplete .Data.ValuedCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{else}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{end}}{{else}}Unavailable{{end}}
                     </div>
                     <div class="value-secondary" id="current-value-usd">
-                        ≈ {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{else}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{end}} (1 USD={{formatNumber .Data.USDTRYRate}})
+                        {{if or .Data.ValuationComplete .Data.ValuedCount}}≈ {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{else}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{end}} (1 USD={{formatNumber .Data.USDTRYRate}}){{end}}
+                        {{if .Data.FXIsStale}}<span class="badge badge-warning">Stale exchange rate</span>{{if not .Data.FXFetchedAt.IsZero}} · FX as of {{formatTime .Data.FXFetchedAt}}{{end}}{{end}}
                     </div>
                 </div>
                 <footer class="card-footer">
-                    <span id="last-updated">Updated {{formatTime .Data.LastUpdated}}</span>
+                    <span id="last-updated">Calculated {{formatTime .Data.LastUpdated}}{{if .Data.StaleCount}} · Includes stale price or exchange-rate data; check quote times{{end}}</span>
                 </footer>
             </article>
 
@@ -35,9 +52,9 @@
                         {{if .Data.CoverageCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}—{{end}}
                     </div>
                     <div class="value-secondary" id="estimated-value-usd">
-                        {{if and .Data.CoverageCount (eq .Data.CoverageCount .Data.TotalHoldings)}}
+                        {{if and .Data.ValuationComplete .Data.CoverageCount (eq .Data.CoverageCount .Data.TotalHoldings)}}
                         Diff: {{if eq .DisplayCurrency "USD"}}{{formatCurrency (sub .Data.EstimatedValueUSD .Data.CurrentValueUSD) "USD"}}{{else}}{{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}{{end}}
-                        {{else if .Data.CoverageCount}}Partial estimate — add prices for the remaining holdings to compare totals.
+                        {{else if not .Data.ValuationComplete}}Comparison unavailable until all holdings are valued.{{else if .Data.CoverageCount}}Partial estimate — add prices for the remaining holdings to compare totals.
                         {{else}}Add estimated prices to your holdings to compare values.{{end}}
                     </div>
                 </div>
@@ -71,7 +88,7 @@
             <!-- Allocation Charts -->
             <article class="card chart-card">
                 <header class="card-header">
-                    <h3>Allocation</h3>
+                    <h3>{{if .Data.ValuationComplete}}Allocation{{else}}Partial Allocation{{end}}</h3>
                     <div class="allocation-tabs" role="tablist" aria-label="Allocation breakdown">
                         <button type="button" class="alloc-tab active" role="tab" aria-selected="true" data-alloc="type">Asset Type</button>
                         <button type="button" class="alloc-tab" role="tab" aria-selected="false" data-alloc="basket">Basket</button>
@@ -117,6 +134,7 @@
             </article>
         </div>
     </section>
+    {{end}}
 </div>
 
 {{end}}

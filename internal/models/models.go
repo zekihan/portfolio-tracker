@@ -47,8 +47,9 @@ type Holding struct {
 
 	EstPrice float64 `json:"est_price" db:"est_price" validate:"gte=0"`
 
-	IsStale  bool `json:"is_stale,omitempty"  db:"-"`
-	IsFailed bool `json:"is_failed,omitempty" db:"-"`
+	ValuationAvailable bool `json:"valuation_available" db:"-"`
+	IsStale            bool `json:"is_stale,omitempty"  db:"-"`
+	IsFailed           bool `json:"is_failed,omitempty" db:"-"`
 }
 
 func (h *Holding) TotalValue() float64 {
@@ -127,6 +128,7 @@ type Settings struct {
 }
 
 type DashboardData struct {
+	FXFetchedAt        time.Time
 	LastUpdated        time.Time
 	AllocationByCurr   map[string]float64
 	AllocationByLoc    map[string]float64
@@ -134,14 +136,19 @@ type DashboardData struct {
 	AllocationByType   map[string]float64
 	ProviderHealth     []ProviderHealth
 	EstimatedValueUSD  float64
-	CoverageCount      int
-	TotalHoldings      int
-	FailedCount        int
-	StaleCount         int
 	USDTRYRate         float64
 	CurrentValueTRY    float64
 	EstimatedValueTRY  float64
 	CurrentValueUSD    float64
+	ValuedCount        int
+	UnvaluedCount      int
+	CoverageCount      int
+	TotalHoldings      int
+	FailedCount        int
+	StaleCount         int
+	ValuationComplete  bool
+	FXIsStale          bool
+	FXIsFailed         bool
 }
 
 type ProviderHealth struct {

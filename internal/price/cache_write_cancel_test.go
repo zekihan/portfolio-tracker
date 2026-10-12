@@ -37,7 +37,7 @@ func (getter *poolBlockingGetter) GetPrice(ctx context.Context, _ string) (model
 	}, nil
 }
 
-func TestPriceCacheWriteRespectsDeadline(t *testing.T) {
+func TestPriceCacheWriteRespectsCancellation(t *testing.T) {
 	t.Parallel()
 
 	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
@@ -53,7 +53,7 @@ func TestPriceCacheWriteRespectsDeadline(t *testing.T) {
 	service := NewService(database, registry)
 	service.failures[getter.Name()] = 2
 
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	result := make(chan error, 1)
@@ -72,10 +72,13 @@ func TestPriceCacheWriteRespectsDeadline(t *testing.T) {
 
 	defer connection.Close()
 
+	// The provider owns the only DB connection, so the quote cannot be persisted.
+	cancel()
+
 	select {
 	case lookupErr := <-result:
-		if !errors.Is(lookupErr, context.DeadlineExceeded) {
-			t.Errorf("error = %v, want deadline", lookupErr)
+		if !errors.Is(lookupErr, context.Canceled) {
+			t.Errorf("error = %v, want cancellation", lookupErr)
 		}
 	case <-time.After(time.Second):
 		_ = connection.Close()

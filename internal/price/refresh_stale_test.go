@@ -42,6 +42,8 @@ func checkRefreshFallback(t *testing.T, age time.Duration) {
 	registry.Register(getter)
 	service := NewService(database, registry)
 
+	t.Cleanup(func() { _ = service.Close() })
+
 	_, err = database.ExecContext(t.Context(), `
 		INSERT INTO price_cache
 		(provider, instrument_id, price, currency, source, expires_at, last_error)
@@ -69,7 +71,7 @@ func checkRefreshFallback(t *testing.T, age time.Duration) {
 	}
 
 	wantStale := age < 0
-	if cached.Value != 10 || cached.IsStale != wantStale || cached.IsFailed != wantStale {
+	if cached.Value != 10 || cached.IsStale != wantStale || !cached.IsFailed {
 		t.Fatalf("stale fallback was not preserved: %+v", cached)
 	}
 }

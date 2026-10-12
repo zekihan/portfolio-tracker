@@ -136,6 +136,13 @@ var Migrations = []string{
 		acquired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	`,
+	// Schema v8 - Ownership tokens prevent a stale worker deleting a new lease.
+	`ALTER TABLE snapshot_lock ADD COLUMN owner TEXT NOT NULL DEFAULT '';`,
+	// Schema v9 - Align network provider metadata with the 15-minute cache lifetime.
+	`UPDATE provider_registry SET ttl_seconds = 900, updated_at = CURRENT_TIMESTAMP
+	 WHERE name IN ('Yahoo Finance', 'Alpha Vantage', 'Twelve Data', 'Finnhub',
+	 'Pusula Portföy', 'Garanti BBVA', 'İZKO Gold', 'TradingView BIST',
+	 'TradingView Crypto', 'CoinGecko', 'Frankfurter');`,
 }
 
 func sqliteDSN(dbPath string) (string, error) {

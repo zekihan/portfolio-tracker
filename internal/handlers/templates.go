@@ -90,6 +90,12 @@ func (handler *Handler) pageCurrency(request *http.Request) string {
 func (handler *Handler) renderPage(writer http.ResponseWriter, request *http.Request,
 	name string, data map[string]any,
 ) {
+	handler.renderPageStatus(writer, request, http.StatusOK, name, data)
+}
+
+func (handler *Handler) renderPageStatus(writer http.ResponseWriter, request *http.Request,
+	status int, name string, data map[string]any,
+) {
 	settings, err := handler.settingsSvc.GetAll(request.Context())
 	if err == nil {
 		data["Theme"] = settings.DarkMode
@@ -109,5 +115,5 @@ func (handler *Handler) renderPage(writer http.ResponseWriter, request *http.Req
 
 	data["ActivePage"] = strings.TrimSuffix(name, ".html")
 	handler.renderer.
-		render(writer, http.StatusOK, name, data)
+		render(writer, status, name, data)
 }

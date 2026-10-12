@@ -57,7 +57,7 @@ func TestFailurePersistenceRespectsDeadline(t *testing.T) {
 	result := make(chan error, 1)
 
 	go func() {
-		_, lookupErr := service.GetPrice(ctx, getter.Name(), "TEST")
+		_, lookupErr := service.getPrice(ctx, getter.Name(), "TEST", true)
 		result <- lookupErr
 	}()
 

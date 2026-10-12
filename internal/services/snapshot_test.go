@@ -61,6 +61,8 @@ func TestSnapshotRequiresFXRate(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			// The holding provider is valid even when no FX provider is registered.
+			test.registry.Register(price.NewManual())
 			priceService := price.NewService(database, test.registry)
 			holdingService := NewHoldingService(database, priceService)
 

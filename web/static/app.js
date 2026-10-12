@@ -463,19 +463,55 @@ const PortfolioApp = (function() {
     });
   }
 
+  function chartStatus(id, message, retry) {
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+    let status = document.getElementById(`${id}-status`);
+    if (!status) {
+      status = document.createElement('p');
+      status.id = `${id}-status`;
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      canvas.parentNode.before(status);
+    }
+    status.replaceChildren(document.createTextNode(message));
+    status.hidden = !message;
+    if (retry) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-sm btn-secondary';
+      button.textContent = 'Retry';
+      button.addEventListener('click', retry);
+      status.appendChild(button);
+    }
+  }
+
+  function snapshotChartValue(point, currency) {
+    // Older snapshots can contain partial totals after a failed provider lookup.
+    // Keep an explicit gap rather than drawing a misleading portfolio loss.
+    return point.failed_count > 0 || point.valuation_complete === false || point.valuation_available === false ? null :
+      (currency === 'USD' ? point.value_usd : point.value_try);
+  }
+
   function loadPortfolioChart(range) {
     if (!document.getElementById('portfolio-chart')) return;
     const daysMap = { '1y': 365, '6m': 180, '3m': 90, '1m': 30 };
     const days = document.getElementById('date-range')?.value || daysMap[range] || 365;
     
     const request = ++portfolioRequest;
+    state.charts.portfolio?.destroy();
+    state.charts.portfolio = null;
+    chartStatus('portfolio-chart', 'Loading portfolio history…');
     fetch(`/api/history/chart?days=${days}`)
       .then(response => {
         if (!response.ok) throw new Error('Unable to load portfolio history');
         return response.json();
       })
       .then(data => { if (request === portfolioRequest) renderPortfolioChart(data, range); })
-      .catch(e => console.error('Failed to load portfolio chart:', e));
+      .catch(() => {
+        if (request === portfolioRequest) chartStatus('portfolio-chart',
+          'Portfolio history unavailable. ', () => loadPortfolioChart(range));
+      });
   }
 
   function renderPortfolioChart(data, range) {
@@ -487,8 +523,12 @@ const PortfolioApp = (function() {
     }
 
     const labels = data.map(d => new Date(d.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
-    const valuesTry = data.map(d => d.value_try);
-    const valuesUsd = data.map(d => d.value_usd);
+    const valuesTry = data.map(d => snapshotChartValue(d, 'TRY'));
+    const valuesUsd = data.map(d => snapshotChartValue(d, 'USD'));
+    const hasFailures = data.some(d => d.failed_count > 0 || d.valuation_complete === false);
+    chartStatus('portfolio-chart', hasFailures ?
+      'Snapshots with failed prices are omitted from the line because their totals may be incomplete.' :
+      data.length ? '' : 'No snapshots in this date range.');
 
     const isUSD = (document.getElementById('filter-currency')?.value || state.displayCurrency) === 'USD';
     const values = isUSD ? valuesUsd : valuesTry;
@@ -508,7 +548,7 @@ const PortfolioApp = (function() {
           tension: 0.1,
           pointRadius: 0,
           pointHoverRadius: 4,
-          spanGaps: true
+          spanGaps: false
         }]
       },
       options: getChartOptions(currency)
@@ -525,13 +565,19 @@ const PortfolioApp = (function() {
     if (!document.getElementById('allocation-chart')) return;
     const params = new URLSearchParams({ type, currency: state.displayCurrency });
     const request = ++allocationRequest;
+    state.charts.allocation?.destroy();
+    state.charts.allocation = null;
+    chartStatus('allocation-chart', 'Loading allocation…');
     fetch(`/api/dashboard/allocation?${params}`)
       .then(response => {
         if (!response.ok) throw new Error('Unable to load allocation');
         return response.json();
       })
       .then(data => { if (request === allocationRequest) renderAllocationChart(data, type); })
-      .catch(e => console.error('Failed to load allocation chart:', e));
+      .catch(() => {
+        if (request === allocationRequest) chartStatus('allocation-chart',
+          'Allocation unavailable. ', () => loadAllocationChart(type));
+      });
   }
 
   function renderAllocationChart(data, type) {
@@ -547,6 +593,9 @@ const PortfolioApp = (function() {
     const labels = Object.keys(allocation);
     const values = Object.values(allocation);
     const total = values.reduce((a, b) => a + b, 0);
+    chartStatus('allocation-chart', data.valuation_complete === false ?
+      `Partial allocation: ${data.valued_count} holdings valued; ${data.unvalued_count} unavailable. Percentages cover valued holdings only.` :
+      total > 0 ? '' : 'No positive valued holdings to display.');
 
     // Filter out zero values
     const filtered = labels.map((label, i) => ({ label, value: values[i] }))
@@ -656,23 +705,33 @@ const PortfolioApp = (function() {
       const request = ++holdingRequest;
       state.charts.holding?.destroy();
       state.charts.holding = null;
-      if (!select.value) return;
+      if (!select.value) {
+        chartStatus('holding-chart', 'Select a holding to view its history.');
+        return;
+      }
+      chartStatus('holding-chart', 'Loading holding history…');
       try {
         const response = await fetch(`/api/history/holding/${select.value}?days=${range.value}`);
         if (!response.ok) throw new Error('Unable to load holding history');
         const data = await response.json();
         if (request !== holdingRequest) return;
+        chartStatus('holding-chart', data.some(point => point.valuation_available === false) ?
+          'Unavailable historical valuations are shown as gaps.' :
+          data.length ? '' : 'No snapshots for this holding in this date range.');
         state.charts.holding = new Chart(document.getElementById('holding-chart'), {
           type: 'line',
           data: {
             labels: data.map(point => new Date(point.timestamp).toLocaleDateString()),
             datasets: [{ label: `Holding value (${currency.value})`,
-              data: data.map(point => currency.value === 'USD' ? point.value_usd : point.value_try),
-              borderColor: CHART_COLORS[0], tension: 0.1 }]
+              data: data.map(point => snapshotChartValue(point, currency.value)),
+              borderColor: CHART_COLORS[0], tension: 0.1, spanGaps: false }]
           },
           options: getChartOptions(currency.value)
         });
-      } catch (error) { showToast(error.message, 'error'); }
+      } catch {
+        if (request === holdingRequest) chartStatus('holding-chart',
+          'Holding history unavailable. ', loadHolding);
+      }
     }
 
     const first = document.getElementById('first-page');
@@ -695,7 +754,7 @@ const PortfolioApp = (function() {
         snapshots.slice(0, 50).forEach(snapshot => {
           const row = body.insertRow();
           [new Date(snapshot.timestamp).toISOString().replace('T', ' ').slice(0, 19),
-            formatCurrency(currency.value === 'USD' ? snapshot.total_value_usd : snapshot.total_value_try, currency.value), snapshot.usd_try_rate,
+            (snapshot.failed_count > 0 ? 'Possibly incomplete: ' : '') + formatCurrency(currency.value === 'USD' ? snapshot.total_value_usd : snapshot.total_value_try, currency.value), snapshot.usd_try_rate,
             snapshot.stale_count, snapshot.failed_count, ''].forEach(value => {
             row.insertCell().textContent = value;
           });
@@ -788,10 +847,16 @@ const PortfolioApp = (function() {
     const numeric = ['quantity', 'current_price', 'est_price'].includes(header.dataset.sort);
     const value = row => {
       const cell = row.cells[header.cellIndex];
+      if (!cell) return numeric ? null : '';
       if (!numeric) return cell.textContent.trim();
-      return Number(cell.dataset.sortValue ?? cell.textContent.replace(/[₺$,\s]/g, '')) || 0;
+      const raw = cell.dataset.sortValue ?? cell.textContent.replace(/[₺$,\s]/g, '');
+      return raw === '' || !Number.isFinite(Number(raw)) ? null : Number(raw);
     };
     const ordered = direction === 'none' ? original : rows.sort((left, right) => {
+      if (numeric && (value(left) === null || value(right) === null)) {
+        return value(left) === value(right) ? original.indexOf(left) - original.indexOf(right) :
+          value(left) === null ? 1 : -1;
+      }
       const comparison = numeric ? value(left) - value(right) :
         value(left).localeCompare(value(right), undefined, { numeric: true, sensitivity: 'base' });
       return comparison ? comparison * (direction === 'asc' ? 1 : -1) :

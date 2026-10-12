@@ -43,6 +43,27 @@ Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite us
 - **Price cache** with TTL per provider
 - **Circuit breaker** after 3 consecutive failures
 
+## Valuation and refresh behavior
+
+Unsupported or missing quotes leave the affected holding visible but unvalued.
+Dashboard totals and allocations are explicitly marked partial until every holding
+can be valued; incomplete valuations are not saved as complete snapshots. Known
+unreliable historical points are shown as gaps rather than apparent losses.
+
+Network-provider prices are cached for 15 minutes, including FX rates.
+Expired cached prices return immediately with stale status while a background
+refresh runs. Cold lookups and explicit refreshes share in-flight work, with at
+most four upstream requests globally and one per provider. Valuation uses four
+workers and a shared 20-second budget. Pusula fund lists and Garanti shared
+metadata use coalesced 15-minute caches. Explicit refresh waits for results.
+FX freshness is shown alongside quote freshness, and each valuation uses one
+consistent FX sample. Failure to persist a newly fetched price makes that lookup
+unavailable rather than presenting it as successfully refreshed.
+
+Shutdown cancels and joins background work before closing SQLite. Clear/restore
+blocks new refreshes and drains the previous generation so old responses cannot
+repopulate replaced data.
+
 ## Authentication
 
 The application has no built-in authentication or authorization, by design.
@@ -53,6 +74,13 @@ restoring from a backup), so the server must not be reachable without the
 proxy in front of it.
 
 ## Deployment
+
+### Upgrading snapshot-lock ownership
+
+The database migration adds ownership tokens to snapshot locks while preserving
+existing locks until their normal expiry. Stop all older application instances
+before starting this version against a shared database. Mixed old/new instances
+are not safe: older code can unconditionally delete a newer instance's lock.
 
 ### Docker
 
@@ -68,12 +96,13 @@ the prebuilt binary for the target architecture and includes the `web/` assets.
 ## Development
 
 Install [golangci-lint](https://golangci-lint.run/) v2.14.0 and
-[GoReleaser](https://goreleaser.com/) v2.18.3 to match CI.
+[GoReleaser](https://goreleaser.com/) v2.18.3 to match CI. Node.js 24.19.0 runs the dependency-free browser-logic tests.
 
 ```sh
 make fmt tidy         # format source and tidy modules
 make lint             # format, apply lint fixes, and check source
-make test             # run tests with the race detector
+make test             # run browser-logic tests plus Go tests with the race detector
+make test/web         # run only dependency-free JavaScript checks
 make build            # build dist/portfolio-tracker
 make audit            # verify modules, vet, staticcheck, vulnerability scan, and tests
 make release-check    # validate GoReleaser configuration

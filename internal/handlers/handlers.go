@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
@@ -270,7 +271,11 @@ func (handler *Handler) SetupRoutes() http.Handler {
 func (handler *Handler) getHoldings(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
-	displayCurrency := queryDefault(request, "currency", currencyTRY)
+
+	displayCurrency, valid := apiDisplayCurrency(writer, request)
+	if !valid {
+		return
+	}
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
@@ -334,7 +339,7 @@ func (handler *Handler) createHolding(writer http.ResponseWriter, request *http.
 
 	err = handler.holdingSvc.Create(requestCtx, &holding)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -366,7 +371,7 @@ func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.
 
 	err = handler.holdingSvc.Update(requestCtx, &holding)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -398,7 +403,7 @@ func (handler *Handler) updateEstPrice(writer http.ResponseWriter, request *http
 
 	err = handler.holdingSvc.UpdateEstPrice(requestCtx, id, req.EstPrice)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -430,7 +435,7 @@ func (handler *Handler) updateManualPrice(writer http.ResponseWriter, request *h
 
 	err = handler.holdingSvc.UpdateManualPrice(requestCtx, id, req.Price)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -451,7 +456,7 @@ func (handler *Handler) clearManualPrice(writer http.ResponseWriter, request *ht
 
 	err = handler.holdingSvc.ClearManualPrice(requestCtx, id)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -472,7 +477,7 @@ func (handler *Handler) deleteHolding(writer http.ResponseWriter, request *http.
 
 	err = handler.holdingSvc.Delete(requestCtx, id)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -484,7 +489,11 @@ func (handler *Handler) deleteHolding(writer http.ResponseWriter, request *http.
 func (handler *Handler) getDashboard(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
-	displayCurrency := queryDefault(request, "currency", currencyTRY)
+
+	displayCurrency, valid := apiDisplayCurrency(writer, request)
+	if !valid {
+		return
+	}
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
@@ -499,7 +508,11 @@ func (handler *Handler) getDashboard(writer http.ResponseWriter, request *http.R
 func (handler *Handler) getAllocation(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
-	displayCurrency := queryDefault(request, "currency", currencyTRY)
+
+	displayCurrency, valid := apiDisplayCurrency(writer, request)
+	if !valid {
+		return
+	}
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
@@ -509,10 +522,13 @@ func (handler *Handler) getAllocation(writer http.ResponseWriter, request *http.
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"by_type":   data.AllocationByType,
-		"by_basket": data.AllocationByBasket,
-		"by_loc":    data.AllocationByLoc,
-		"by_curr":   data.AllocationByCurr,
+		"valuation_complete": data.ValuationComplete,
+		"valued_count":       data.ValuedCount,
+		"unvalued_count":     data.UnvaluedCount,
+		"by_type":            data.AllocationByType,
+		"by_basket":          data.AllocationByBasket,
+		"by_loc":             data.AllocationByLoc,
+		"by_curr":            data.AllocationByCurr,
 	})
 }
 
@@ -631,7 +647,10 @@ func (handler *Handler) downloadBackup(writer http.ResponseWriter, request *http
 // clearAllData deletes all user data and asks the browser to reload the page.
 func (handler *Handler) clearAllData(writer http.ResponseWriter, request *http.Request,
 ) {
-	err := handler.settingsSvc.ClearAllData(request.Context())
+	//nolint:contextcheck // The reset callback intentionally closes over this request context.
+	err := handler.withPriceCacheReset(request.Context(), func() error {
+		return handler.settingsSvc.ClearAllData(request.Context())
+	})
 	if err != nil {
 		respondInternalError(writer, request, err)
 
@@ -751,7 +770,7 @@ func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, reques
 		req.InstrumentID,
 	)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -876,14 +895,19 @@ func (handler *Handler) pageDashboard(writer http.ResponseWriter, request *http.
 	displayCurrency := handler.pageCurrency(request)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
+	status := http.StatusOK
+
 	if err != nil {
-		data = &models.DashboardData{} //nolint:exhaustruct_v5 // Empty struct for error fallback
+		slog.ErrorContext(requestCtx, "Dashboard valuation unavailable", slog.Any("error", err))
+
+		status = http.StatusServiceUnavailable
 	}
 
-	handler.renderPage(writer, request, "dashboard.html", map[string]any{
-		"Data":            data,
-		"DisplayCurrency": displayCurrency,
-		"Title":           titleDashboard, //nolint:goconst // Map key is required
+	handler.renderPageStatus(writer, request, status, "dashboard.html", map[string]any{
+		"ValuationUnavailable": err != nil,
+		"Data":                 data,
+		"DisplayCurrency":      displayCurrency,
+		"Title":                titleDashboard, //nolint:goconst // Map key is required
 	})
 }
 
@@ -893,8 +917,31 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 	displayCurrency := handler.pageCurrency(request)
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
-	if err != nil {
-		holdings = []models.HoldingWithPrice{}
+	valuationUnavailable := err != nil
+	holdingsUnavailable := false
+	status := http.StatusOK
+
+	if valuationUnavailable {
+		slog.ErrorContext(requestCtx, "Holdings valuation unavailable", slog.Any("error", err))
+
+		status = http.StatusServiceUnavailable
+		holdings = nil
+
+		// Keep saved metadata editable without presenting incomplete valuations.
+		savedHoldings, listErr := handler.holdingSvc.GetAll(requestCtx)
+		if listErr != nil {
+			slog.ErrorContext(
+				requestCtx,
+				"Holdings metadata unavailable",
+				slog.Any("error", listErr),
+			)
+
+			holdingsUnavailable = true
+		} else {
+			for index := range savedHoldings {
+				holdings = append(holdings, models.HoldingWithPrice{Holding: savedHoldings[index]})
+			}
+		}
 	}
 
 	baskets, err := handler.holdingSvc.GetUniqueBaskets(requestCtx)
@@ -908,21 +955,30 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 	}
 
 	coverage := 0
+	valued := 0
 
 	for i := range holdings {
+		if holdings[i].ValuationAvailable {
+			valued++
+		}
+
 		if holdings[i].EstPrice > 0 {
 			coverage++
 		}
 	}
 
-	handler.renderPage(writer, request, "holdings.html", map[string]any{
-		"Holdings":        holdings,
-		"CoverageCount":   coverage,
-		"TotalHoldings":   len(holdings),
-		"DisplayCurrency": displayCurrency,
-		"Baskets":         baskets,
-		"Locations":       locations,
-		"Title":           titleHoldings,
+	handler.renderPageStatus(writer, request, status, "holdings.html", map[string]any{
+		"ValuationUnavailable": valuationUnavailable,
+		"HoldingsUnavailable":  holdingsUnavailable,
+		"Holdings":             holdings,
+		"CoverageCount":        coverage,
+		"ValuedCount":          valued,
+		"UnvaluedCount":        len(holdings) - valued,
+		"TotalHoldings":        len(holdings),
+		"DisplayCurrency":      displayCurrency,
+		"Baskets":              baskets,
+		"Locations":            locations,
+		"Title":                titleHoldings,
 	})
 }
 

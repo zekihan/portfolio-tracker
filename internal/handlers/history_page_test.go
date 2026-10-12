@@ -21,7 +21,7 @@ func TestHistoryPageValidatesDayRange(t *testing.T) {
 
 	t.Cleanup(func() { _ = database.Close() })
 
-	_, err = database.Exec(`INSERT INTO snapshots
+	_, err = database.ExecContext(t.Context(), `INSERT INTO snapshots
 		(timestamp, total_value_try, total_value_usd, usd_try_rate, holdings_json)
 		VALUES (datetime('now', '-2 days'), 400, 10, 40, '[]')`)
 	if err != nil {

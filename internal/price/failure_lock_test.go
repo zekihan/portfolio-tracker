@@ -29,7 +29,7 @@ func TestFailurePersistenceDoesNotBlockHealthLock(t *testing.T) {
 	finished := make(chan struct{})
 
 	go func() {
-		service.recordFailure("Yahoo Finance", errProviderUnavailable)
+		service.recordFailure("Yahoo Finance", "TEST", errProviderUnavailable)
 		close(finished)
 	}()
 

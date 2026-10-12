@@ -5,9 +5,9 @@ OS_INFO := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH_INFO := $(shell uname -m | sed 's/x86_64/amd64/')
 BINARY := dist/$(PROJECT_NAME)_$(OS_INFO)_$(ARCH_INFO)/$(PROJECT_NAME)
 
-.PHONY: help build run fmt tidy build/local build/all build/release new_version new_version/patch new_version/minor new_version/major lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test
+.PHONY: help build run fmt tidy build/local build/all build/release new_version new_version/patch new_version/minor new_version/major lint test test/web test/cover audit release-check build/release/all build/docker build/release/docker release container-test
 help:
-	@echo "Targets: build run fmt tidy build/local build/all build/release new_version new_version/patch new_version/minor new_version/major lint test test/cover audit release-check build/release/all build/docker build/release/docker release container-test"
+	@echo "Targets: build run fmt tidy build/local build/all build/release new_version new_version/patch new_version/minor new_version/major lint test test/web test/cover audit release-check build/release/all build/docker build/release/docker release container-test"
 
 build: tidy build/local
 
@@ -33,9 +33,13 @@ lint: tidy
 	golangci-lint run --fix || true
 	golangci-lint run
 
-test: tidy
+test: tidy test/web
 	$(GO) test -count=1 -buildvcs -vet=all ./...
 	$(GO) test -race -count=1 -buildvcs -vet=all ./...
+
+test/web:
+	node --check web/static/app.js
+	node --test web/tests/*.test.cjs
 
 test/cover:
 	$(GO) test -race -coverprofile=coverage.out ./...

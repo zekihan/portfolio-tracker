@@ -61,6 +61,8 @@ func TestProvidersRejectTruncatedResponses(t *testing.T) {
 
 func providerTestClient(getter Getter) *http.Client {
 	switch provider := getter.(type) {
+	case *YahooFinance:
+		return provider.client
 	case *AlphaVantage:
 		return provider.client
 	case *TwelveData:

@@ -13,14 +13,14 @@ func TestValuationRejectsUnsupportedQuoteCurrencies(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		currency string
-		wantTRY  float64
-		wantUSD  float64
-		wantErr  bool
+		currency    string
+		wantTRY     float64
+		wantUSD     float64
+		unavailable bool
 	}{
-		{currency: "EUR", wantTRY: 0, wantUSD: 0, wantErr: true},
-		{currency: "TRY", wantTRY: 100, wantUSD: 2.5, wantErr: false},
-		{currency: "USD", wantTRY: 4000, wantUSD: 100, wantErr: false},
+		{currency: "EUR", wantTRY: 0, wantUSD: 0, unavailable: true},
+		{currency: "TRY", wantTRY: 100, wantUSD: 2.5, unavailable: false},
+		{currency: "USD", wantTRY: 4000, wantUSD: 100, unavailable: false},
 	} {
 		t.Run(test.currency, func(t *testing.T) {
 			t.Parallel()
@@ -54,24 +54,21 @@ func TestValuationRejectsUnsupportedQuoteCurrencies(t *testing.T) {
 			service := NewHoldingService(database, prices)
 
 			holdings, err := service.GetWithPrices(t.Context(), "TRY")
-			if test.wantErr {
-				if err == nil {
-					t.Error("accepted unsupported quote currency")
-				}
-
-				if len(holdings) != 0 {
-					t.Error("returned misleading valuations")
-				}
-
-				return
-			}
-
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			if len(holdings) != 1 {
 				t.Fatalf("got %d holdings, want 1", len(holdings))
+			}
+
+			if holdings[0].ValuationAvailable == test.unavailable ||
+				holdings[0].IsFailed != test.unavailable {
+				t.Fatalf("incorrect availability/failure flags: %+v", holdings[0])
+			}
+
+			if test.unavailable && holdings[0].PriceError == "" {
+				t.Fatal("unavailable quote lacks an explanation")
 			}
 
 			if [2]float64{holdings[0].NormTotalTRY, holdings[0].NormTotalUSD} !=

@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -50,16 +55,24 @@ func main() {
 		Str("gitTreeState", gitTreeState).
 		Msg("Starting portfolio tracker")
 
-	// Configuration.
-	dbPath := getEnv("DB_PATH", "/data/portfolio.db")
-	port := getEnv("PORT", "8080")
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	err := run(ctx, getEnv("DB_PATH", "/data/portfolio.db"), getEnv("PORT", "8080"))
 
-	// Open database.
+	stop()
+
+	if err != nil {
+		log.Error().Err(err).Msg("server failed")
+		os.Exit(1)
+	}
+}
+
+// run owns every resource and returns only after its users have stopped.
+//
+//nolint:contextcheck // Database migration API predates context-aware startup.
+func run(ctx context.Context, dbPath, port string) error {
 	database, err := db.Open(dbPath)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to open database")
-
-		return
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer func() {
 		closeErr := database.Close()
@@ -68,87 +81,141 @@ func main() {
 		}
 	}()
 
-	// Initialize price registry and service.
-	priceRegistry := price.DefaultRegistry()
-	priceService := price.NewService(database, priceRegistry)
+	priceService := price.NewService(database, price.DefaultRegistry())
+	defer func() {
+		closeErr := priceService.Close()
+		if closeErr != nil {
+			log.Error().Err(closeErr).Msg("failed to stop price refreshes")
+		}
+	}()
 
-	// Initialize services.
 	holdingService := services.NewHoldingService(database, priceService)
 	snapshotService := services.NewSnapshotService(database, priceService, holdingService)
 	settingsService := services.NewSettingsService(database)
-
-	// Initialize handlers.
 	handler := handlers.New(holdingService, snapshotService, settingsService, priceService)
 
-	// Setup snapshot cron with leader election.
-	cronScheduler := cron.New(cron.WithSeconds())
+	snapshotCtx, cancelSnapshots := context.WithCancel(ctx)
+	defer cancelSnapshots()
 
-	_, addErr := cronScheduler.AddFunc(snapshotSchedule, func() {
-		if acquireSnapshotLock(database) {
-			ctx, cancel := context.WithTimeout(context.Background(), snapshotTimeout)
-			defer cancel()
+	cronScheduler := cron.New(cron.WithSeconds(), cron.WithChain(cron.Recover(cron.DefaultLogger)))
 
-			snapshotErr := snapshotService.CreateSnapshot(ctx)
-			if snapshotErr != nil {
-				log.Error().Err(snapshotErr).Msg("failed to create snapshot")
-			} else {
-				log.Info().Msg("snapshot created successfully")
-			}
-
-			releaseSnapshotLock(database)
-		} else {
-			log.Debug().Msg("snapshot lock not acquired, skipping")
-		}
+	_, err = cronScheduler.AddFunc(snapshotSchedule, func() {
+		createScheduledSnapshot(snapshotCtx, database, snapshotService.CreateSnapshot)
 	})
-	if addErr != nil {
-		log.Error().Err(addErr).Msg("failed to add cron job")
-
-		return
+	if err != nil {
+		return fmt.Errorf("add snapshot job: %w", err)
 	}
 
-	cronScheduler.Start()
-	defer cronScheduler.Stop()
+	listenConfig := new(net.ListenConfig)
 
-	// Setup HTTP server.
-	router := handler.SetupRoutes()
+	listener, err := listenConfig.Listen(ctx, "tcp", ":"+port)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
 
+	// HTTP requests get their graceful period independently of the signal context.
+	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelRequests()
+
+	tracked := &activeHandlers{handler: handler.SetupRoutes()}
 	//nolint:exhaustruct // http.Server has many optional fields
 	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           router,
+		Handler:           tracked,
+		BaseContext:       func(net.Listener) context.Context { return requestCtx },
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
-	// Graceful shutdown.
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-
-		log.Info().Msg("shutting down server...")
-
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-
-		shutdownErr := server.Shutdown(ctx)
-		if shutdownErr != nil {
-			log.Error().Err(shutdownErr).Msg("server shutdown failed")
-		}
-	}()
-
+	cronScheduler.Start()
 	log.Info().Str("port", port).Msg("starting server")
 
-	listenErr := server.ListenAndServe()
-	if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
-		log.Error().Err(listenErr).Msg("server failed")
+	return serve(ctx, server, listener, tracked, cancelRequests,
+		cronScheduler, cancelSnapshots, shutdownTimeout)
+}
+
+// activeHandlers prevents late-starting requests from touching closed resources.
+// Server.Close does not wait for handlers; this explicit barrier does.
+type activeHandlers struct {
+	handler  http.Handler
+	mu       sync.Mutex
+	stopping bool
+	active   sync.WaitGroup
+}
+
+func (tracked *activeHandlers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tracked.mu.Lock()
+	if tracked.stopping {
+		tracked.mu.Unlock()
+		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
 
 		return
 	}
 
-	log.Info().Msg("server stopped")
+	tracked.active.Add(1)
+
+	tracked.mu.Unlock()
+	defer tracked.active.Done()
+
+	tracked.handler.ServeHTTP(w, r)
+}
+
+func (tracked *activeHandlers) wait() {
+	tracked.mu.Lock()
+	tracked.stopping = true
+	tracked.mu.Unlock()
+	tracked.active.Wait()
+}
+
+func serve(ctx context.Context, server *http.Server, listener net.Listener,
+	tracked *activeHandlers, cancelRequests context.CancelFunc,
+	scheduler *cron.Cron, cancelSnapshots context.CancelFunc, timeout time.Duration,
+) error {
+	result := make(chan error, 1)
+	go func() { result <- server.Serve(listener) }()
+
+	var serveErr error
+
+	serveReturned := false
+
+	select {
+	case <-ctx.Done():
+	case serveErr = <-result:
+		serveReturned = true
+	}
+
+	cancelSnapshots()
+
+	jobsStopped := scheduler.Stop()
+
+	log.Info().Msg("shutting down server...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+
+	shutdownErr := server.Shutdown(shutdownCtx)
+	// On timeout, cancel cooperative handlers and close their connections, then
+	// still wait for their cleanup before the database can be closed.
+	cancelRequests()
+
+	if shutdownErr != nil {
+		_ = server.Close()
+	}
+
+	tracked.wait()
+
+	if !serveReturned {
+		serveErr = <-result
+	}
+
+	<-jobsStopped.Done()
+
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		serveErr = nil
+	}
+
+	return errors.Join(serveErr, shutdownErr)
 }
 
 const (
@@ -175,65 +242,97 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func acquireSnapshotLock(database *sqlx.DB) bool {
-	// Always acquire the lock, even when the portfolio is empty.
-	// Database errors must fail closed rather than bypass leader election.
-	// Use a transaction to ensure we use the same connection for the lock check.
-	tx, err := database.Beginx()
+func createScheduledSnapshot(
+	parent context.Context,
+	database *sqlx.DB,
+	create func(context.Context) error,
+) {
+	ctx, cancel := context.WithTimeout(parent, snapshotTimeout)
+	defer cancel()
+
+	owner, ok := acquireSnapshotLock(ctx, database)
+	if !ok {
+		log.Debug().Msg("snapshot lock not acquired, skipping")
+
+		return
+	}
+	// Deferred release also runs during panic unwinding, before cron recovers.
+	defer releaseSnapshotLock(ctx, database, owner)
+
+	err := create(ctx)
 	if err != nil {
-		return false
+		log.Error().Err(err).Msg("failed to create snapshot")
+	} else {
+		log.Info().Msg("snapshot created successfully")
+	}
+}
+
+func acquireSnapshotLock(ctx context.Context, database *sqlx.DB) (string, bool) {
+	var random [32]byte
+
+	_, err := rand.Read(random[:])
+	if err != nil {
+		return "", false
+	}
+
+	owner := hex.EncodeToString(random[:])
+
+	tx, err := database.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", false
 	}
 	defer tx.Rollback() //nolint:errcheck // Best effort
 
-	// Try to insert a lock row; if it succeeds, we got the lock.
-	res, err := tx.Exec(`
-		INSERT OR IGNORE INTO snapshot_lock (id, acquired_at)
-		VALUES (1, CURRENT_TIMESTAMP)
-	`)
+	res, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO snapshot_lock (id, acquired_at, owner)
+		VALUES (1, ?, ?)
+	`, time.Now().UTC(), owner)
 	if err != nil {
-		return false
+		return "", false
 	}
 
 	rowsAffected, err := res.RowsAffected()
-	if err != nil || rowsAffected == 0 {
-		// Lock already held by another instance — check whether it is stale.
+	if err != nil {
+		return "", false
+	}
+
+	if rowsAffected == 0 {
 		var acquiredAt time.Time
 
-		err = tx.GetContext(context.Background(), &acquiredAt,
+		queryErr := tx.GetContext(ctx, &acquiredAt,
 			"SELECT acquired_at FROM snapshot_lock WHERE id = 1")
-		if err != nil {
-			return false
+		if queryErr != nil {
+			return "", false
 		}
-
-		// A healthy snapshot completes within snapshotTimeout; a lock older
-		// than snapshotLockTimeout was left by a crashed process.
+		// Legacy owner-less rows remain held until the same stale deadline.
 		if time.Since(acquiredAt) < snapshotLockTimeout {
-			return false
+			return "", false
 		}
 
-		// Stale lock: remove it and re-acquire.
-		_, err = tx.Exec("DELETE FROM snapshot_lock WHERE id = 1")
+		_, err = tx.ExecContext(ctx,
+			"UPDATE snapshot_lock SET acquired_at = ?, owner = ? WHERE id = 1",
+			time.Now().UTC(), owner)
 		if err != nil {
-			return false
-		}
-
-		_, err = tx.Exec(`
-			INSERT INTO snapshot_lock (id, acquired_at)
-			VALUES (1, CURRENT_TIMESTAMP)
-		`)
-		if err != nil {
-			return false
+			return "", false
 		}
 	}
 
-	// Commit the transaction to hold the lock.
 	err = tx.Commit()
+	if err != nil {
+		return "", false
+	}
 
-	return err == nil
+	return owner, true
 }
 
-func releaseSnapshotLock(database *sqlx.DB) {
-	// Release the lock by deleting the row.
-	//nolint:errcheck // Best effort cleanup
-	_, _ = database.Exec("DELETE FROM snapshot_lock WHERE id = 1")
+func releaseSnapshotLock(parent context.Context, database *sqlx.DB, owner string) {
+	// Cleanup must survive job cancellation but cannot wait indefinitely.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), shutdownTimeout)
+	defer cancel()
+
+	_, err := database.ExecContext(ctx,
+		"DELETE FROM snapshot_lock WHERE id = 1 AND owner = ?", owner)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to release snapshot lock")
+	}
 }
