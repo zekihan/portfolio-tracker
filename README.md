@@ -1,4 +1,4 @@
-# Portfolio Tracker
+# portfolio-tracker
 
 Self-hosted personal portfolio tracker — HTMX + Go (server-rendered) • SQLite • Chart.js
 
@@ -13,17 +13,15 @@ Self-hosted personal portfolio tracker — HTMX + Go (server-rendered) • SQLit
 - **HTMX-powered**: Server-rendered, minimal JavaScript, works on low-power devices
 - **Privacy-first**: Self-hosted, no telemetry, single-user
 
-## Quick Start
+## Run
 
 ```bash
-# Build
-go build -o portfolio-tracker ./cmd/server
-
-# Run
-DB_PATH=/data/portfolio.db PORT=8080 ./portfolio-tracker
+make build
+DB_PATH=./portfolio.db PORT=8080 ./dist/portfolio-tracker
 ```
 
-Then visit http://localhost:8080
+Then visit http://localhost:8080. Requires the Go version in `go.mod` and a C
+compiler for the SQLite driver. Run from the repository root so `./web` is available.
 
 ### Environment Variables
 
@@ -39,7 +37,7 @@ Then visit http://localhost:8080
 
 ## Architecture
 
-- **Stack**: Go 1.27+ • Gin • HTMX • Chart.js • SQLite
+- **Stack**: Go (see `go.mod`) • Gin • HTMX • Chart.js • SQLite
 - **Single binary**; templates and static assets are read from `./web` at runtime
 - **In-app cron** (robfig/cron) for hourly snapshots
 - **Leader election** via SQLite advisory lock
@@ -61,31 +59,50 @@ proxy in front of it.
 
 ```bash
 docker build -t portfolio-tracker .
-docker run -p 8080:8080 -v portfolio-data:/data portfolio-tracker
+docker run --rm -p 127.0.0.1:8080:8080 -v portfolio-data:/data portfolio-tracker
 ```
 
 The image is built with cgo (required by the SQLite driver) and includes the `web/` assets.
 
 ## Development
 
-```bash
-# Install tools
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-go install github.com/goreleaser/goreleaser@latest
+Install [golangci-lint](https://golangci-lint.run/) v2.14.0 and
+[GoReleaser](https://goreleaser.com/) v2.18.3 to match CI.
 
-# Lint
-make lint
-
-# Test
-make test
-
-# Build
-make build
-
-# Release
-make release
+```sh
+make fmt tidy         # format source and tidy modules
+make lint             # check formatting and run golangci-lint
+make test             # run tests with the race detector
+make build            # build dist/portfolio-tracker
+make audit            # lint, test, and verify module checksums
+make release-check    # validate GoReleaser configuration
+make container-test   # build and smoke-test the container with networking disabled
 ```
+
+Lint uses the focused errcheck, govet, ineffassign, staticcheck, and unused checks
+shared by the other Go services. `make lint` checks without rewriting files.
+`make test/cover` writes `coverage.out`; use `go tool cover -html=coverage.out` to view it.
+
+## Releases
+
+PR checks are also reusable by both release workflows. A `v*` tag runs lint,
+tests, build, release validation, and the container smoke test before publishing.
+GoReleaser produces Linux amd64 archives and `checksums.txt`. Archives include
+`web/`; extract the entire archive and run from that directory. The binary uses
+cgo and requires a compatible Linux glibc runtime.
+
+The separate container workflow publishes Linux amd64 and arm64 images to
+`ghcr.io/zekihan/portfolio-tracker` and `docker.io/zekihan/portfolio-tracker`, with
+version, major-version, and commit tags. Container builds compile natively for
+each target platform through QEMU, retaining SQLite cgo support. The image runs
+as UID 25110 and stores its database in `/data`; bind mounts must be writable by
+that UID.
+
+Repository secrets `DOCKER_USERNAME` and `DOCKER_PASSWORD` are required for
+Docker Hub publication and README updates. GHCR and GitHub releases use the
+workflow's `GITHUB_TOKEN`. README changes on `main` update the Docker Hub description.
+`make release` publishes a release and requires an appropriate token.
 
 ## License
 
-GNU Affero General Public License v3.0 - see [LICENSE](LICENSE)
+[GNU Affero General Public License v3.0](LICENSE).

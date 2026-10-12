@@ -5,12 +5,14 @@ This file provides guidance to AI Agents when working with code in this reposito
 ## Commands
 
 ```bash
-make tidy          # fmt + go mod tidy
-make lint          # tidy + golangci-lint run --fix
+make fmt tidy      # format source + go mod tidy
+make lint          # check formatting + golangci-lint
 make test          # run all tests with -race
-make test/cover    # run tests and open coverage report in browser
-make audit         # vet + staticcheck + govulncheck + tests
-make build         # build binary
+make test/cover    # write coverage.out
+make audit         # lint + tests + go mod verify
+make build         # build dist/portfolio-tracker
+make release-check # validate release configuration
+make container-test # build and smoke-test Docker image
 make release       # goreleaser release
 ```
 
@@ -46,22 +48,14 @@ This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered 
 
 ## Linting Rules
 
-The linter (`golangci-lint`, config in `.golangci.yaml`) enforces several non-obvious rules:
-
-- **No `testify`** — use `cmp` or standard library assertions in tests.
-- **No `math/rand`** — use `math/rand/v2`.
-- **No `io/ioutil`** — use `os.ReadFile`, `io.NopCloser`, etc.
-- **No `log.Print*`/`log.Fatal*`/`os.Exit`/`time.Sleep`/`context.TODO`** — use `slog`, context with timeout, etc.
-- **`slog` style**: `attr-only` (no kv mixed args), camelCase key names, capitalized messages.
-- **Max line length**: 100 characters (golines).
-- **Import order**: standard → default → project prefix → blank → dot → alias → localmodule.
-- **Struct tag order**: `description`, `json`, `toml`, `yaml`/`yml`, `label`, `file`, `kv`, `export`.
-- **`exhaustive`**: all switch/map enumerations must have a default case.
+The linter (`golangci-lint`, config in `.golangci.yaml`) uses the focused checks
+shared by sibling Go services: errcheck, govet, ineffassign, staticcheck, and unused.
+Formatting uses gofmt. `make lint` does not modify files; use `make fmt tidy` first.
 
 ## Development Workflow
 
 1. Make changes
-2. Run `make lint` to fix formatting and linting issues
+2. Run `make fmt tidy` and `make lint` to format and check the source
 3. Run `make test` to ensure tests pass
 4. Run `make build` to verify build succeeds
-5. Test manually: `DB_PATH=/tmp/portfolio.db PORT=8080 ./portfolio-tracker`
+5. Test manually: `DB_PATH=/tmp/portfolio.db PORT=8080 ./dist/portfolio-tracker`
