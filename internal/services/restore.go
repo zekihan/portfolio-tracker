@@ -85,7 +85,10 @@ func validateRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		return fmt.Errorf("read schema version: %w", err)
 	}
 
-	if sourceVersion != liveVersion {
+	// Version 10 adds operational snapshot coordination only; user tables are unchanged.
+	const legacyVersion, coordinatedVersion = 9, 10
+	if sourceVersion != liveVersion &&
+		(sourceVersion != legacyVersion || liveVersion != coordinatedVersion) {
 		return fmt.Errorf("%w: schema version %d, expected %d",
 			ErrIncompatibleBackup, sourceVersion, liveVersion)
 	}
@@ -127,6 +130,19 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		_ = tx.Rollback()
 	}()
 
+	err = validateRestoreData(ctx, tx)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(
+		ctx,
+		"UPDATE main.snapshot_state SET generation = generation + 1 WHERE id = 1",
+	)
+	if err != nil {
+		return fmt.Errorf("invalidate snapshots before restore: %w", err)
+	}
+
 	for _, table := range restoreTables {
 		_, err = tx.ExecContext(ctx, "DELETE FROM main."+table)
 		if err != nil {
@@ -151,7 +167,7 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 
 		_, err = tx.ExecContext(ctx, statement)
 		if err != nil {
-			return fmt.Errorf("restore %s: %w", table, err)
+			return fmt.Errorf("%w: restore %s: %w", ErrIncompatibleBackup, table, err)
 		}
 	}
 

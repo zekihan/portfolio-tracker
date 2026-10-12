@@ -343,6 +343,16 @@ func NewSnapshotService(
 }
 
 func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
+	// Capture the epoch before reading holdings. No transaction is held while
+	// providers perform network I/O; persistence checks this epoch atomically.
+	var generation int64
+
+	err := service.db.GetContext(ctx, &generation,
+		"SELECT generation FROM snapshot_state WHERE id = 1")
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+
 	holdings, fxQuote, err := service.holdingSvc.getValuations(ctx, valuationBudget)
 	if err != nil {
 		return err
@@ -404,20 +414,10 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return wrapOperationError("CreateSnapshot", err)
 	}
 
-	_, err = service.db.ExecContext(ctx, `
-                INSERT INTO snapshots (timestamp, total_value_try, total_value_usd,
-usd_try_rate, stale_count, failed_count, holdings_json)
-		VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
-	`,
-		totalTRY,
-		totalUSD,
-		fxQuote.Value,
-		staleCount,
-		failedCount,
-		string(holdingsJSON),
-	)
-
-	return wrapOperationError("CreateSnapshot", err)
+	return service.persistSnapshot(ctx, generation, &models.Snapshot{
+		TotalValueTRY: totalTRY, TotalValueUSD: totalUSD, USDTRYRate: fxQuote.Value,
+		StaleCount: staleCount, FailedCount: failedCount, HoldingsJSON: string(holdingsJSON),
+	})
 }
 
 func (service *SnapshotService) GetSnapshots(
@@ -539,6 +539,62 @@ type HoldingHistoryPoint struct {
 	IsFailed           bool      `json:"is_failed"`
 	ValueTRY           float64   `json:"value_try"`
 	ValueUSD           float64   `json:"value_usd"`
+}
+
+func (service *SnapshotService) persistSnapshot(
+	ctx context.Context,
+	generation int64,
+	snapshot *models.Snapshot,
+) error {
+	tx, err := service.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+	defer func() {
+		//nolint:errcheck // Rollback after commit is harmless.
+		_ = tx.Rollback()
+	}()
+
+	slot, owner := db.SnapshotClaim(ctx)
+
+	result, err := tx.ExecContext(ctx, `
+                INSERT INTO snapshots (timestamp, total_value_try, total_value_usd,
+usd_try_rate, stale_count, failed_count, holdings_json)
+		SELECT CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?
+		FROM snapshot_state WHERE id = 1 AND generation = ?
+		AND (? = '' OR EXISTS (SELECT 1 FROM snapshot_runs
+			WHERE slot = ? AND owner = ? AND completed = 0))
+	`,
+		snapshot.TotalValueTRY,
+		snapshot.TotalValueUSD,
+		snapshot.USDTRYRate,
+		snapshot.StaleCount,
+		snapshot.FailedCount,
+		snapshot.HoldingsJSON,
+		generation, owner, slot, owner,
+	)
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+
+	if count != 1 {
+		return db.ErrSnapshotSuperseded
+	}
+
+	if owner != "" {
+		_, err = tx.ExecContext(ctx,
+			"UPDATE snapshot_runs SET completed = 1 WHERE slot = ? AND owner = ?", slot, owner)
+		if err != nil {
+			return wrapOperationError("CreateSnapshot", err)
+		}
+	}
+
+	return wrapOperationError("CreateSnapshot", tx.Commit())
 }
 
 type SettingsService struct {

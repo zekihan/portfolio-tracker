@@ -674,6 +674,7 @@ const PortfolioApp = (function() {
     let offset = 0;
     let holdingRequest = 0;
     let snapshotRequest = 0;
+    let snapshotPage = null;
     const updateCharts = () => { loadPortfolioChart(); loadHolding(); loadSnapshots(0); };
     range.addEventListener('change', updateCharts);
     currency.addEventListener('change', updateCharts);
@@ -742,6 +743,19 @@ const PortfolioApp = (function() {
     next.addEventListener('click', () => loadSnapshots(offset + 50));
     async function loadSnapshots(nextOffset) {
       const request = ++snapshotRequest;
+      const filter = `${range.value}:${currency.value}`;
+      const body = document.getElementById('snapshots-tbody');
+      const info = document.getElementById('page-info');
+      const status = document.getElementById('snapshots-status');
+      // Navigation belongs only to a successfully loaded page of these filters.
+      if (snapshotPage?.filter !== filter) {
+        snapshotPage = null;
+        offset = 0;
+        body.replaceChildren();
+        info.textContent = '';
+      }
+      status.replaceChildren(document.createTextNode('Loading snapshots…'));
+      body.setAttribute('aria-busy', 'true');
       [first, previous, next].forEach(button => { button.disabled = true; });
       try {
         const response = await fetch(`/api/history/snapshots?limit=51&offset=${nextOffset}&days=${range.value}`);
@@ -749,7 +763,6 @@ const PortfolioApp = (function() {
         const snapshots = (await response.json()) || [];
         if (request !== snapshotRequest) return;
         document.getElementById('snapshot-value-heading').textContent = `Value (${currency.value})`;
-        const body = document.getElementById('snapshots-tbody');
         body.replaceChildren();
         snapshots.slice(0, 50).forEach(snapshot => {
           const row = body.insertRow();
@@ -765,14 +778,24 @@ const PortfolioApp = (function() {
           cell.textContent = 'No snapshots in this date range. History appears after the next scheduled snapshot.';
         }
         offset = nextOffset;
-        document.getElementById('page-info').textContent = `Page ${offset / 50 + 1}`;
-        next.disabled = snapshots.length <= 50;
-      } catch (error) {
+        snapshotPage = { filter, hasNext: snapshots.length > 50 };
+        info.textContent = `Page ${offset / 50 + 1}`;
+        status.replaceChildren();
+      } catch {
         if (request !== snapshotRequest) return;
-        showToast(error.message, 'error');
-        next.disabled = false;
+        status.replaceChildren(document.createTextNode('Unable to load snapshots. '));
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-sm btn-secondary';
+        retry.textContent = 'Retry';
+        retry.addEventListener('click', () => loadSnapshots(nextOffset));
+        status.appendChild(retry);
       } finally {
-        if (request === snapshotRequest) first.disabled = previous.disabled = offset === 0;
+        if (request === snapshotRequest) {
+          body.setAttribute('aria-busy', 'false');
+          first.disabled = previous.disabled = !snapshotPage || offset === 0;
+          next.disabled = !snapshotPage?.hasNext;
+        }
       }
     }
     loadSnapshots(0);
@@ -826,10 +849,18 @@ const PortfolioApp = (function() {
   }
 
   function updateChartColors() {
-    if (state.charts.portfolio) {
-      state.charts.portfolio.options = getChartOptions(state.displayCurrency);
-      state.charts.portfolio.update();
-    }
+    // Preserve data-dependent callbacks (especially the history currency).
+    const colors = getChartOptions(state.displayCurrency);
+    [state.charts.portfolio, state.charts.holding].forEach(chart => {
+      if (!chart) return;
+      ['backgroundColor', 'titleColor', 'bodyColor', 'borderColor'].forEach(key => {
+        chart.options.plugins.tooltip[key] = colors.plugins.tooltip[key];
+      });
+      chart.options.scales.x.ticks.color = colors.scales.x.ticks.color;
+      chart.options.scales.y.ticks.color = colors.scales.y.ticks.color;
+      chart.options.scales.y.grid.color = colors.scales.y.grid.color;
+      chart.update();
+    });
     if (state.charts.allocation) {
       state.charts.allocation.update();
     }
@@ -1166,53 +1197,67 @@ const PortfolioApp = (function() {
     let startY = 0;
     let currentY = 0;
     let pulling = false;
-
-    document.addEventListener('touchstart', (e) => {
-      if (window.scrollY === 0) {
-        startY = e.touches[0].clientY;
-        currentY = startY;
-        pulling = true;
+    let refreshing = false;
+    const dirtyForms = new WeakSet();
+    const trackEdit = event => {
+      if (event.target.form) dirtyForms.add(event.target.form);
+    };
+    document.addEventListener('input', trackEdit);
+    document.addEventListener('change', trackEdit);
+    const editing = () => document.body.classList.contains('modal-open') ||
+      document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input') ||
+      [...document.querySelectorAll('form')].some(form => dirtyForms.has(form) ||
+        [...form.elements].some(control => {
+          if (control.type === 'checkbox' || control.type === 'radio') return control.checked !== control.defaultChecked;
+          if (control.type === 'file') return control.files.length > 0;
+          if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA') return control.value !== control.defaultValue;
+          return false;
+        }));
+    const blockedTarget = target => {
+      if (target.closest('input, select, textarea, button, a, [contenteditable], [role="button"]')) return true;
+      for (let node = target; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+        if (node.scrollHeight > node.clientHeight && /(auto|scroll|overlay)/.test(getComputedStyle(node).overflowY)) return true;
       }
+      return false;
+    };
+    const reset = () => {
+      pulling = false;
+      document.body.style.transform = '';
+      document.body.style.transition = '';
+    };
+    document.addEventListener('touchstart', e => {
+      reset();
+      if (refreshing || e.touches.length !== 1 || window.scrollY !== 0 || editing() || blockedTarget(e.target)) return;
+      startY = currentY = e.touches[0].clientY;
+      pulling = true;
     }, { passive: true });
-
-    document.addEventListener('touchmove', (e) => {
+    document.addEventListener('touchmove', e => {
       if (!pulling) return;
+      if (e.touches.length !== 1 || window.scrollY !== 0 || editing() || blockedTarget(e.target)) {
+        reset();
+        return;
+      }
       currentY = e.touches[0].clientY;
       const delta = currentY - startY;
-      
-      if (delta > 0 && delta < 100) {
+      if (delta > 0) {
         e.preventDefault();
-        document.body.style.transform = `translateY(${delta * 0.5}px)`;
+        document.body.style.transform = `translateY(${Math.min(delta, 100) * 0.5}px)`;
       }
     }, { passive: false });
-
-    document.addEventListener('touchcancel', () => {
-      if (!pulling) return;
-      pulling = false;
-      document.body.style.transform = 'translateY(0)';
-      document.body.style.transition = '';
-    });
-
+    document.addEventListener('touchcancel', reset);
     document.addEventListener('touchend', () => {
       if (!pulling) return;
-      pulling = false;
       const delta = currentY - startY;
-      
-      document.body.style.transition = 'transform 0.3s ease';
-      document.body.style.transform = 'translateY(0)';
-      
-      setTimeout(() => {
-        document.body.style.transition = '';
-      }, 300);
-
-      if (delta > 60) {
-        // Trigger refresh
-        showToast('Refreshing prices...', 'info');
-        fetch('/api/sources/refresh', { method: 'POST' }).then(response => {
-          if (!response.ok) throw new Error('Price refresh failed');
-          window.location.reload();
-        }).catch(error => showToast(error.message, 'error'));
-      }
+      reset();
+      if (delta <= 60 || refreshing || editing()) return;
+      refreshing = true;
+      showToast('Refreshing prices...', 'info');
+      fetch('/api/sources/refresh', { method: 'POST' }).then(response => {
+        if (!response.ok) throw new Error('Price refresh failed');
+        // The user may have opened an editor while the refresh was in flight.
+        if (!editing()) window.location.reload();
+      }).catch(error => showToast(error.message, 'error'))
+        .finally(() => { refreshing = false; });
     });
   }
 

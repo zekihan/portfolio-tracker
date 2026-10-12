@@ -20,6 +20,7 @@ func (service *SettingsService) ClearAllData(ctx context.Context) error {
 	}()
 
 	statements := []string{
+		"UPDATE snapshot_state SET generation = generation + 1 WHERE id = 1",
 		"DELETE FROM holdings",
 		"DELETE FROM snapshots",
 		"DELETE FROM price_cache",

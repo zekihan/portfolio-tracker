@@ -94,6 +94,12 @@ func (service *Service) WithCacheReset(ctx context.Context, reset func() error) 
 	}
 
 	if err == nil {
+		for _, getter := range service.registry.All() {
+			if resetter, ok := getter.(interface{ resetMetadata() }); ok {
+				resetter.resetMetadata()
+			}
+		}
+
 		service.mu.Lock()
 		clear(service.failures)
 		clear(service.lastFail)
@@ -121,6 +127,8 @@ func (service *Service) coalescedPrice(
 	provider, instrument string,
 	force bool,
 ) (models.Price, error) {
+	ctx = refreshMetadataContext(ctx, force)
+
 	requestErr := ctx.Err()
 	if requestErr != nil {
 		return models.Price{}, wrapOperationError("getPrice", requestErr)
@@ -228,7 +236,7 @@ func (service *Service) tryJoinFlight(
 	key := refreshKey{provider: getter.Name(), instrument: instrument}
 
 	flight := state.flights[key]
-	if flight != nil && flight.ctx.Err() != nil {
+	if flight != nil && (flight.ctx.Err() != nil || needsForcedFlight(ctx, flight.ctx)) {
 		return flight, 0, errAbandonedFlight
 	}
 
@@ -238,6 +246,12 @@ func (service *Service) tryJoinFlight(
 		}
 
 		flightCtx, cancel := context.WithTimeout(state.ctx, refreshTimeout)
+
+		flightCtx = context.WithValue(flightCtx, quoteGenerationKey{}, quoteGeneration(ctx))
+		if minimum, ok := ctx.Value(metadataRefreshKey{}).(time.Time); ok {
+			flightCtx = context.WithValue(flightCtx, metadataRefreshKey{}, minimum)
+		}
+
 		flight = &priceFlight{
 			ctx:     flightCtx,
 			cancel:  cancel,
@@ -387,6 +401,7 @@ func (service *Service) runFlight(
 }
 
 func (service *Service) refreshHoldings(ctx context.Context, holdings []models.Holding) error {
+	ctx = context.WithValue(ctx, metadataRefreshKey{}, time.Now().UTC())
 	keys := make([]refreshKey, 0, len(holdings))
 	seen := make(map[refreshKey]bool)
 
@@ -394,7 +409,8 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 		holding := &holdings[index]
 
 		key := refreshKey{provider: holding.PriceProvider, instrument: holding.InstrumentID}
-		if key.provider == "" || key.provider == "Manual" || key.instrument == "" || seen[key] {
+		if key.provider == "" || key.provider == manualProviderName || key.instrument == "" ||
+			seen[key] {
 			continue
 		}
 
@@ -439,7 +455,11 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 
 	workers.Wait()
 
-	return errors.Join(errors.Join(failures...), ctx.Err())
+	return errors.Join(
+		errors.Join(failures...),
+		service.refreshHoldingsFX(ctx, holdings),
+		ctx.Err(),
+	)
 }
 
 // Polling TryLock keeps admission cancellation-aware without spawning waiter goroutines.
@@ -585,4 +605,29 @@ func (service *Service) testProviderBounded(
 	}
 
 	return quote, err
+}
+
+func (service *Service) refreshHoldingsFX(ctx context.Context, holdings []models.Holding) error {
+	for index := range holdings {
+		if holdings[index].BaseCurrency != "" {
+			_, err := service.getUSDTTRYQuote(ctx, true)
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func refreshMetadataContext(ctx context.Context, force bool) context.Context {
+	if force && ctx.Value(metadataRefreshKey{}) == nil {
+		return context.WithValue(ctx, metadataRefreshKey{}, time.Now().UTC())
+	}
+
+	return ctx
+}
+
+func needsForcedFlight(requestCtx, flightCtx context.Context) bool {
+	return (quoteGeneration(requestCtx) >= 0 && quoteGeneration(requestCtx) != quoteGeneration(flightCtx)) ||
+		(requestCtx.Value(metadataRefreshKey{}) != nil && flightCtx.Value(metadataRefreshKey{}) == nil)
 }

@@ -319,7 +319,9 @@ func TestStaleFXQualityAndSnapshotRateStayConsistent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	registry := price.DefaultRegistry()
+	// Keep both primary and fallback behavior isolated from real upstreams.
+	registry := price.NewRegistry()
+	registry.Register(price.NewManual())
 	registry.Register(
 		&boundedValuationGetter{
 			active:  new(atomic.Int32),

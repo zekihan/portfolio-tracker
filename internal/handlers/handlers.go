@@ -379,68 +379,12 @@ func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.
 	writeJSON(writer, http.StatusOK, holding)
 }
 
-func (handler *Handler) updateEstPrice(writer http.ResponseWriter, request *http.Request,
-) {
-	requestCtx := request.Context()
-
-	id, err := strconv.Atoi(request.PathValue("id"))
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
-
-		return
-	}
-
-	var req struct {
-		EstPrice float64 `json:"estPrice" validate:"gte=0"`
-	}
-
-	err = decodeJSON(request, &req)
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
-
-		return
-	}
-
-	err = handler.holdingSvc.UpdateEstPrice(requestCtx, id, req.EstPrice)
-	if err != nil {
-		respondHoldingMutationError(writer, request, err)
-
-		return
-	}
-
-	writer.WriteHeader(http.StatusOK)
+func (handler *Handler) updateEstPrice(writer http.ResponseWriter, request *http.Request) {
+	updateHoldingPrice(writer, request, "estPrice", handler.holdingSvc.UpdateEstPrice)
 }
 
-func (handler *Handler) updateManualPrice(writer http.ResponseWriter, request *http.Request,
-) {
-	requestCtx := request.Context()
-
-	id, err := strconv.Atoi(request.PathValue("id"))
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
-
-		return
-	}
-
-	var req struct {
-		Price float64 `json:"price" validate:"gte=0"`
-	}
-
-	err = decodeJSON(request, &req)
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
-
-		return
-	}
-
-	err = handler.holdingSvc.UpdateManualPrice(requestCtx, id, req.Price)
-	if err != nil {
-		respondHoldingMutationError(writer, request, err)
-
-		return
-	}
-
-	writer.WriteHeader(http.StatusOK)
+func (handler *Handler) updateManualPrice(writer http.ResponseWriter, request *http.Request) {
+	updateHoldingPrice(writer, request, "price", handler.holdingSvc.UpdateManualPrice)
 }
 
 func (handler *Handler) clearManualPrice(writer http.ResponseWriter, request *http.Request,

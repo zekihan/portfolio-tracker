@@ -14,12 +14,15 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
 
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
+
+const manualProviderName = "Manual"
 
 type Getter interface {
 	GetPrice(ctx context.Context, instrumentID string) (models.Price, error)
@@ -242,16 +245,19 @@ func (getter *YahooFinance) GetPrice(
 	}, nil
 }
 
-type AlphaVantage struct{ baseGetter }
+//nolint:embeddedstructfieldcheck // Keep the bounded metadata map with its lock.
+type AlphaVantage struct {
+	currencies map[string]*sharedMetadata[string]
+	baseGetter
+	currencyMu sync.Mutex
+}
 
 func NewAlphaVantage() *AlphaVantage {
 	return &AlphaVantage{
-		baseGetter{
-			name:         "Alpha Vantage",
-			providerType: stockETFType,
-			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
-		},
+		name:         "Alpha Vantage",
+		providerType: stockETFType,
+		ttl:          providerTTL,
+		client:       &http.Client{Timeout: providerTimeout},
 	}
 }
 
@@ -318,9 +324,12 @@ func (getter *AlphaVantage) GetPrice(
 		return models.Price{}, err
 	}
 
-	currency := result.GlobalQuote.Currency
+	currency := strings.TrimSpace(result.GlobalQuote.Currency)
 	if currency == "" {
-		currency = currencyUSD
+		currency, err = getter.quoteCurrency(ctx, instrumentID, key)
+		if err != nil {
+			return models.Price{}, err
+		}
 	}
 
 	return models.Price{
@@ -351,7 +360,7 @@ func (getter *TwelveData) GetPrice(ctx context.Context, instrumentID string) (mo
 	}
 
 	requestURL := fmt.Sprintf(
-		"https://api.twelvedata.com/price?symbol=%s&apikey=%s",
+		"https://api.twelvedata.com/quote?symbol=%s&apikey=%s",
 		url.QueryEscape(instrumentID),
 		url.QueryEscape(key),
 	)
@@ -372,7 +381,7 @@ func (getter *TwelveData) GetPrice(ctx context.Context, instrumentID string) (mo
 	}
 
 	var result struct {
-		Price    *string `json:"price"`
+		Price    *string `json:"close"`
 		Currency string  `json:"currency"`
 		Message  string  `json:"message"`
 		Code     int     `json:"code"`
@@ -403,9 +412,9 @@ func (getter *TwelveData) GetPrice(ctx context.Context, instrumentID string) (mo
 		return models.Price{}, fmt.Errorf("%w %s", errInvalidTwelveDataPriceFor, instrumentID)
 	}
 
-	currency := result.Currency
+	currency := strings.TrimSpace(result.Currency)
 	if currency == "" {
-		currency = currencyUSD
+		return models.Price{}, instrumentFailure(errUnknownQuoteCurrency)
 	}
 
 	return models.Price{
@@ -484,9 +493,14 @@ func (getter *Finnhub) GetPrice(ctx context.Context, instrumentID string) (model
 
 //nolint:embeddedstructfieldcheck // Keep pointer-bearing cache fields first for compact layout.
 type PusulaPortfoy struct {
-	funds sharedMetadata[[]pusulaFund]
+	funds sharedMetadata[pusulaFunds]
 
 	baseGetter
+}
+
+type pusulaFunds struct {
+	fetchedAt time.Time
+	items     []pusulaFund
 }
 
 type pusulaFund struct {
@@ -514,25 +528,30 @@ func (getter *PusulaPortfoy) GetPrice(
 		return models.Price{}, err
 	}
 
-	for _, fund := range funds {
-		if strings.EqualFold(fund.Code, strings.TrimSpace(instrumentID)) {
-			value, err := strconv.ParseFloat(fund.Price, 64)
-			if err != nil {
-				return models.Price{}, fmt.Errorf("invalid fund price: %w", err)
-			}
-
-			return checkedQuote(value, "TRY", getter.name)
+	for _, fund := range funds.items {
+		if !strings.EqualFold(fund.Code, strings.TrimSpace(instrumentID)) {
+			continue
 		}
+
+		value, err := strconv.ParseFloat(fund.Price, 64)
+		if err != nil {
+			return models.Price{}, fmt.Errorf("invalid fund price: %w", err)
+		}
+
+		quote, err := checkedQuote(value, "TRY", getter.name)
+		quote.FetchedAt = funds.fetchedAt
+
+		return quote, err
 	}
 
 	return models.Price{}, fmt.Errorf("%w %s not found", errFund, instrumentID)
 }
 
-func (getter *PusulaPortfoy) fetchFunds(ctx context.Context) ([]pusulaFund, error) {
+func (getter *PusulaPortfoy) fetchFunds(ctx context.Context) (pusulaFunds, error) {
 	body, err := providerRequest(ctx, getter.client,
 		"https://www.pusulaportfoy.com.tr/api/funds?pageSize=200&active=true", nil)
 	if err != nil {
-		return nil, err
+		return pusulaFunds{}, err
 	}
 
 	var result struct {
@@ -541,14 +560,14 @@ func (getter *PusulaPortfoy) fetchFunds(ctx context.Context) ([]pusulaFund, erro
 
 	err = json.Unmarshal(body, &result)
 	if err != nil {
-		return nil, wrapOperationError("GetPrice", err)
+		return pusulaFunds{}, wrapOperationError("GetPrice", err)
 	}
 
 	if result.Items == nil {
-		return nil, errMalformedProviderResponse
+		return pusulaFunds{}, errMalformedProviderResponse
 	}
 
-	return result.Items, nil
+	return pusulaFunds{items: result.Items, fetchedAt: time.Now().UTC()}, nil
 }
 
 //nolint:embeddedstructfieldcheck // Keep pointer-bearing cache fields first for compact layout.
@@ -1115,8 +1134,8 @@ type Manual struct{ baseGetter }
 func NewManual() *Manual {
 	return &Manual{
 		baseGetter{
-			name:         "Manual",
-			providerType: "Manual",
+			name:         manualProviderName,
+			providerType: manualProviderName,
 			ttl:          0,
 			client:       nil,
 		},

@@ -143,6 +143,18 @@ var Migrations = []string{
 	 WHERE name IN ('Yahoo Finance', 'Alpha Vantage', 'Twelve Data', 'Finnhub',
 	 'Pusula Portföy', 'Garanti BBVA', 'İZKO Gold', 'TradingView BIST',
 	 'TradingView Crypto', 'CoinGecko', 'Frankfurter');`,
+	// Schema v10 - Operational state is local to this database, never restored.
+	`CREATE TABLE snapshot_state (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		generation INTEGER NOT NULL DEFAULT 0
+	);
+	INSERT INTO snapshot_state (id) VALUES (1);
+	CREATE TABLE snapshot_runs (
+		slot INTEGER PRIMARY KEY,
+		owner TEXT NOT NULL,
+		acquired_at INTEGER NOT NULL,
+		completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1))
+	);`,
 }
 
 func sqliteDSN(dbPath string) (string, error) {

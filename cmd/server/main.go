@@ -247,6 +247,15 @@ func createScheduledSnapshot(
 	database *sqlx.DB,
 	create func(context.Context) error,
 ) {
+	createScheduledSnapshotAt(parent, database, create, time.Now())
+}
+
+func createScheduledSnapshotAt(
+	parent context.Context,
+	database *sqlx.DB,
+	create func(context.Context) error,
+	now time.Time,
+) {
 	ctx, cancel := context.WithTimeout(parent, snapshotTimeout)
 	defer cancel()
 
@@ -259,10 +268,26 @@ func createScheduledSnapshot(
 	// Deferred release also runs during panic unwinding, before cron recovers.
 	defer releaseSnapshotLock(ctx, database, owner)
 
-	err := create(ctx)
+	slot := now.UTC().Truncate(time.Hour).Unix()
+	if !claimSnapshotSlot(ctx, database, slot, owner, now) {
+		return
+	}
+	defer releaseSnapshotSlot(ctx, database, slot, owner)
+
+	err := create(db.WithSnapshotClaim(ctx, slot, owner))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create snapshot")
 	} else {
+		// Production persistence completes this in the insertion transaction.
+		// This is idempotent and also supports alternate snapshot callbacks.
+		_, err = database.ExecContext(ctx,
+			"UPDATE snapshot_runs SET completed = 1 WHERE slot = ? AND owner = ?", slot, owner)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to complete snapshot slot")
+
+			return
+		}
+
 		log.Info().Msg("snapshot created successfully")
 	}
 }
@@ -334,5 +359,41 @@ func releaseSnapshotLock(parent context.Context, database *sqlx.DB, owner string
 		"DELETE FROM snapshot_lock WHERE id = 1 AND owner = ?", owner)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to release snapshot lock")
+	}
+}
+
+// Completed UTC slots remain durable after release, so a later replica cannot
+// repeat an already successful hour. Failed work releases its claim for retry.
+func claimSnapshotSlot(
+	ctx context.Context,
+	database *sqlx.DB,
+	slot int64,
+	owner string,
+	now time.Time,
+) bool {
+	result, err := database.ExecContext(ctx, `
+		INSERT INTO snapshot_runs (slot, owner, acquired_at) VALUES (?, ?, ?)
+		ON CONFLICT(slot) DO UPDATE SET owner = excluded.owner, acquired_at = excluded.acquired_at
+		WHERE snapshot_runs.completed = 0 AND snapshot_runs.acquired_at <= ?`,
+		slot, owner, now.Unix(), now.Add(-snapshotLockTimeout).Unix())
+	if err != nil {
+		log.Error().Err(err).Msg("failed to claim snapshot slot")
+
+		return false
+	}
+
+	count, err := result.RowsAffected()
+
+	return err == nil && count == 1
+}
+
+func releaseSnapshotSlot(parent context.Context, database *sqlx.DB, slot int64, owner string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), shutdownTimeout)
+	defer cancel()
+
+	_, err := database.ExecContext(ctx,
+		"DELETE FROM snapshot_runs WHERE slot = ? AND owner = ? AND completed = 0", slot, owner)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to release snapshot slot")
 	}
 }

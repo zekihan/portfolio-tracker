@@ -19,13 +19,14 @@ import (
 const breakerCooldown = 5 * time.Minute
 
 type Service struct {
-	db       *sqlx.DB
-	registry *Registry
-	failures map[string]int
-	lastFail map[string]time.Time
-	breakers map[string]bool
-	refresh  refreshState
-	mu       sync.RWMutex
+	db         *sqlx.DB
+	registry   *Registry
+	failures   map[string]int
+	lastFail   map[string]time.Time
+	breakers   map[string]bool
+	refresh    refreshState
+	mu         sync.RWMutex
+	generation int64
 }
 
 func NewService(database *sqlx.DB, registry *Registry) *Service {
@@ -60,24 +61,19 @@ func (service *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
 
 // GetUSDTTRYQuote preserves freshness and failure metadata for valuation callers.
 func (service *Service) GetUSDTTRYQuote(ctx context.Context) (models.Price, error) {
-	quote, err := service.GetPrice(ctx, "Frankfurter", "USD")
-	if err == nil && quote.Value > 0 && !math.IsInf(quote.Value, 0) {
-		return quote, nil
-	}
-
-	quote, err = service.GetPrice(ctx, "Yahoo Finance", "USDTRY=X")
-	if err != nil {
-		return models.Price{}, fmt.Errorf("no FX rate available: %w", err)
-	}
-
-	if quote.Value <= 0 || math.IsInf(quote.Value, 0) || math.IsNaN(quote.Value) {
-		return models.Price{}, fmt.Errorf("%w: %v", errInvalidFXRateFromYahooFinance, quote.Value)
-	}
-
-	return quote, nil
+	return service.getUSDTTRYQuote(ctx, false)
 }
 
 func (service *Service) RefreshAll(ctx context.Context, holdings []models.Holding) error {
+	if !holdingsNeedRefresh(holdings) {
+		return wrapOperationError("RefreshAll", ctx.Err())
+	}
+
+	ctx, err := service.withQuoteGeneration(ctx)
+	if err != nil {
+		return err
+	}
+
 	return service.refreshHoldings(ctx, holdings)
 }
 
@@ -288,10 +284,9 @@ func (registry *Registry) GetProvidersJSON() ([]map[string]any, error) {
 }
 
 var (
-	errRefresh                       = errors.New("refresh")
-	errProvider                      = errors.New("provider")
-	errCircuitBreakerOpenFor         = errors.New("circuit breaker open for")
-	errInvalidFXRateFromYahooFinance = errors.New("invalid FX rate from Yahoo Finance")
+	errRefresh               = errors.New("refresh")
+	errProvider              = errors.New("provider")
+	errCircuitBreakerOpenFor = errors.New("circuit breaker open for")
 )
 
 const (
@@ -312,6 +307,11 @@ func (service *Service) getPrice(
 	providerName, instrumentID string,
 	forceRefresh bool,
 ) (models.Price, error) {
+	ctx, err := service.withQuoteGeneration(ctx)
+	if err != nil {
+		return models.Price{}, err
+	}
+
 	return service.coalescedPrice(ctx, providerName, instrumentID, forceRefresh)
 }
 
@@ -381,10 +381,11 @@ func (service *Service) cachePriceContext(
 		expiresAt = time.Now().Add(defaultCacheLifetime)
 	}
 
-	_, err := service.db.ExecContext(ctx, `
+	result, err := service.db.ExecContext(ctx, `
                 INSERT INTO price_cache (provider, instrument_id, price, currency, source,
 fetched_at, expires_at, error_count, last_error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, '')
+		SELECT ?, ?, ?, ?, ?, ?, ?, 0, ''
+ FROM snapshot_state WHERE id = 1 AND (? < 0 OR generation = ?)
 		ON CONFLICT(provider, instrument_id) DO UPDATE SET
 			price = excluded.price,
 			currency = excluded.currency,
@@ -401,9 +402,22 @@ fetched_at, expires_at, error_count, last_error)
 		quote.Source,
 		quote.FetchedAt.UTC().Format(time.RFC3339),
 		expiresAt.UTC().Format(time.RFC3339),
+		quoteGeneration(ctx), quoteGeneration(ctx),
 	)
+	if err != nil {
+		return wrapOperationError("cachePriceContext", err)
+	}
 
-	return wrapOperationError("cachePriceContext", err)
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return wrapOperationError("cachePriceContext", err)
+	}
+
+	if rows == 0 {
+		return errQuoteSuperseded
+	}
+
+	return nil
 }
 
 func (service *Service) recordFailure(provider, instrumentID string, err error) {
@@ -415,8 +429,18 @@ func (service *Service) recordFailureContext(
 	provider, instrumentID string,
 	err error,
 ) {
+	if !service.failureGenerationCurrent(ctx) {
+		return
+	}
+
 	if !isInstrumentFailure(err) {
 		service.mu.Lock()
+		if generation := quoteGeneration(ctx); generation >= 0 && generation != service.generation {
+			service.mu.Unlock()
+
+			return
+		}
+
 		service.failures[provider]++
 		service.lastFail[provider] = time.Now()
 
@@ -438,10 +462,12 @@ func (service *Service) recordFailureContext(
 	_, persistErr := service.db.ExecContext(ctx, `
 		UPDATE price_cache SET error_count = error_count + 1, last_error = ?
 		WHERE provider = ? AND instrument_id = ?
+ AND EXISTS (SELECT 1 FROM snapshot_state WHERE id = 1 AND (? < 0 OR generation = ?))
 	`,
 		err.Error(),
 		provider,
 		instrumentID,
+		quoteGeneration(ctx), quoteGeneration(ctx),
 	)
 	if persistErr != nil {
 		slog.WarnContext(ctx, "Failed to persist provider failure", slog.Any("error", persistErr))
@@ -465,4 +491,50 @@ func (service *Service) recordSuccess(provider string) {
 
 	service.failures[provider] = 0
 	service.breakers[provider] = false
+}
+
+func (service *Service) getUSDTTRYQuote(ctx context.Context, force bool) (models.Price, error) {
+	primary, primaryErr := service.getPrice(ctx, "Frankfurter", "USD", force)
+	if usableFXQuote(&primary, primaryErr) && !primary.IsFailed && !primary.IsStale {
+		return primary, nil
+	}
+
+	if !force && usableFXQuote(&primary, primaryErr) {
+		if quote, ok := service.freshCachedFX(ctx); ok {
+			return quote, nil
+		}
+
+		return primary, nil
+	}
+
+	fallback, fallbackErr := service.getPrice(ctx, "Yahoo Finance", "USDTRY=X", force)
+	if usableFXQuote(&fallback, fallbackErr) && !fallback.IsFailed && !fallback.IsStale {
+		return fallback, nil
+	}
+
+	if !force {
+		if usableFXQuote(&fallback, fallbackErr) {
+			return fallback, nil
+		}
+	}
+
+	return models.Price{}, fmt.Errorf("no fresh FX rate available: %w",
+		errors.Join(errRefresh, primaryErr, primary.Error, fallbackErr, fallback.Error))
+}
+
+func usableFXQuote(quote *models.Price, err error) bool {
+	return err == nil && quote.Value > 0 && !math.IsInf(quote.Value, 0) && !math.IsNaN(quote.Value)
+}
+
+func (service *Service) freshCachedFX(ctx context.Context) (models.Price, bool) {
+	cached, err := service.getCachedPriceContext(ctx, "Yahoo Finance", "USDTRY=X")
+	if err != nil || !canUseCachedQuote(cached, false) || cached.ErrorCount != 0 {
+		return models.Price{}, false
+	}
+
+	quote := cachedQuote(cached, false)
+
+	valid := usableFXQuote(&quote, nil)
+
+	return quote, valid
 }

@@ -11,18 +11,21 @@ import (
 // sharedMetadata keeps one immutable, bounded provider response, never errors.
 // Each provider owns its caches; unrelated instances never share data.
 type sharedMetadata[T any] struct {
-	expires time.Time
-	value   T
-	pending *metadataFlight[T]
-	mu      sync.Mutex
+	expires    time.Time
+	fetchedAt  time.Time
+	value      T
+	pending    *metadataFlight[T]
+	mu         sync.Mutex
+	generation int64
 }
 
 type metadataFlight[T any] struct {
-	done    chan struct{}
-	cancel  context.CancelFunc
-	err     error
-	value   T
-	waiters int
+	done       chan struct{}
+	cancel     context.CancelFunc
+	err        error
+	value      T
+	waiters    int
+	generation int64
 }
 
 func (cache *sharedMetadata[T]) get(
@@ -38,7 +41,15 @@ func (cache *sharedMetadata[T]) get(
 	}
 
 	cache.mu.Lock()
-	if time.Now().Before(cache.expires) {
+
+	minimum, ok := ctx.Value(metadataRefreshKey{}).(time.Time)
+	if !ok {
+		minimum = time.Time{}
+	}
+
+	generation := quoteGeneration(ctx)
+	if time.Now().Before(cache.expires) && !cache.fetchedAt.Before(minimum) &&
+		cache.generation == generation {
 		value := cache.value
 		cache.mu.Unlock()
 
@@ -46,10 +57,14 @@ func (cache *sharedMetadata[T]) get(
 	}
 
 	flight := cache.pending
-	if flight == nil {
+	if flight == nil || flight.generation != generation {
 		// A caller leaving must not cancel requests still needed by other callers.
 		workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), providerTimeout)
-		flight = &metadataFlight[T]{done: make(chan struct{}), cancel: cancel}
+		flight = &metadataFlight[T]{
+			done:       make(chan struct{}),
+			cancel:     cancel,
+			generation: generation,
+		}
 
 		cache.pending = flight
 
@@ -96,7 +111,9 @@ func (cache *sharedMetadata[T]) fetch(
 		cache.pending = nil
 		if err == nil && ctx.Err() == nil {
 			cache.value = value
-			cache.expires = time.Now().Add(ttl)
+			cache.generation = flight.generation
+			cache.fetchedAt = time.Now().UTC()
+			cache.expires = cache.fetchedAt.Add(ttl)
 		}
 	}
 
@@ -131,4 +148,31 @@ func fetchMetadataSafely[T any](
 	}()
 
 	return fetch(ctx)
+}
+
+// metadataRefreshKey carries one cutoff for the whole refresh batch, so all
+// instruments reuse the same newly fetched provider response.
+type metadataRefreshKey struct{}
+
+func (cache *sharedMetadata[T]) reset() {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	var zero T
+
+	cache.value = zero
+	cache.expires = time.Time{}
+
+	cache.fetchedAt = time.Time{}
+	if cache.pending != nil {
+		cache.pending.cancel()
+		cache.pending = nil
+	}
+}
+
+func (getter *PusulaPortfoy) resetMetadata() { getter.funds.reset() }
+
+func (getter *GarantiBBVA) resetMetadata() {
+	getter.date.reset()
+	getter.currencies.reset()
 }

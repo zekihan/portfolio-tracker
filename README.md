@@ -55,14 +55,19 @@ Expired cached prices return immediately with stale status while a background
 refresh runs. Cold lookups and explicit refreshes share in-flight work, with at
 most four upstream requests globally and one per provider. Valuation uses four
 workers and a shared 20-second budget. Pusula fund lists and Garanti shared
-metadata use coalesced 15-minute caches. Explicit refresh waits for results.
+metadata use coalesced 15-minute caches. Explicit refresh bypasses quote-bearing
+metadata caches, refreshes the USD/TRY dependency, and waits for results.
+Twelve Data quotes carry their actual currency. Alpha Vantage resolves exact-symbol
+currency metadata and caches it for 24 hours to avoid repeated metadata API
+credits; unknown or ambiguous currencies are rejected instead of assumed USD.
 FX freshness is shown alongside quote freshness, and each valuation uses one
 consistent FX sample. Failure to persist a newly fetched price makes that lookup
 unavailable rather than presenting it as successfully refreshed.
 
 Shutdown cancels and joins background work before closing SQLite. Clear/restore
 blocks new refreshes and drains the previous generation so old responses cannot
-repopulate replaced data.
+repopulate replaced data. Database generations also fence late quote writes from
+other upgraded instances sharing the database.
 
 ## Authentication
 
@@ -81,6 +86,20 @@ The database migration adds ownership tokens to snapshot locks while preserving
 existing locks until their normal expiry. Stop all older application instances
 before starting this version against a shared database. Mixed old/new instances
 are not safe: older code can unconditionally delete a newer instance's lock.
+
+### Upgrading snapshot consistency (schema v10)
+
+Stop all older replicas before upgrading instances that share a database. Schema
+v10 adds a local portfolio generation and durable UTC hourly snapshot claims;
+older binaries do not participate in these safeguards. A snapshot started before
+clear/restore is rejected rather than being inserted into the replacement data.
+Successful scheduled hours remain recorded so delayed replicas cannot duplicate
+them; failed attempts release their claim for a retry.
+
+Backups from schema v9 remain restorable because their user-data tables have the
+same layout. Restore validates row types and values before replacing live data.
+Operational generation/claim state belongs to the destination database and is
+not copied from a backup. Invalid backups leave existing data unchanged.
 
 ### Docker
 
