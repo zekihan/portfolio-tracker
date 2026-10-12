@@ -171,6 +171,11 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		}
 	}
 
+	err = preserveRestoreSequences(ctx, tx)
+	if err != nil {
+		return err
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		return fmt.Errorf("commit restore: %w", err)
@@ -230,4 +235,36 @@ func quoteIdentifier(name string) string {
 
 func containsString(values []string, target string) bool {
 	return slices.Contains(values, target)
+}
+
+// Preserve deleted IDs too: snapshots may still refer to holdings no longer present.
+func preserveRestoreSequences(ctx context.Context, tx *sqlx.Tx) error {
+	var invalid int
+
+	err := tx.GetContext(ctx, &invalid, `SELECT COUNT(*) FROM restore_src.sqlite_sequence
+WHERE name IN ('holdings', 'snapshots', 'price_cache') AND (typeof(seq) != 'integer' OR seq < 0)`)
+	if err != nil {
+		return fmt.Errorf("%w: read restored sequences: %w", ErrIncompatibleBackup, err)
+	}
+
+	if invalid != 0 {
+		return fmt.Errorf("%w: invalid restored sequence", ErrIncompatibleBackup)
+	}
+
+	for _, table := range []string{"holdings", "snapshots", "price_cache"} {
+		_, err := tx.ExecContext(ctx, `INSERT INTO main.sqlite_sequence (name, seq)
+SELECT ?, 0 WHERE NOT EXISTS (SELECT 1 FROM main.sqlite_sequence WHERE name = ?)`, table, table)
+		if err != nil {
+			return fmt.Errorf("initialize restored sequence: %w", err)
+		}
+
+		_, err = tx.ExecContext(ctx, `UPDATE main.sqlite_sequence
+SET seq = MAX(seq, COALESCE((SELECT MAX(seq) FROM restore_src.sqlite_sequence WHERE name = ?), 0))
+WHERE name = ?`, table, table)
+		if err != nil {
+			return fmt.Errorf("preserve restored sequence: %w", err)
+		}
+	}
+
+	return nil
 }

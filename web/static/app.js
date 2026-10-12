@@ -1,3 +1,25 @@
+// Storage can be unavailable in private or restricted browser contexts.
+// Keep preferences usable for this page even when persistence is denied.
+function safeStorage(name) {
+  const fallback = new Map();
+  return {
+    getItem(key) {
+      if (fallback.has(key)) return fallback.get(key);
+      try { return window[name].getItem(key); } catch { return null; }
+    },
+    setItem(key, value) {
+      fallback.set(key, String(value));
+      try { window[name].setItem(key, value); } catch { /* Page-local preference remains usable. */ }
+    },
+    removeItem(key) {
+      fallback.set(key, null);
+      try { window[name].removeItem(key); } catch { /* Persistence is optional. */ }
+    }
+  };
+}
+const localPreferences = safeStorage('localStorage');
+const sessionPreferences = safeStorage('sessionStorage');
+
 // Send HTMX request bodies as JSON: the API handlers only accept application/json.
 if (window.htmx) {
   htmx.defineExtension('json-body', {
@@ -35,6 +57,7 @@ const PortfolioApp = (function() {
   let portfolioRequest = 0;
   let allocationRequest = 0;
   let historyMutationActive = false;
+  let currencyUpdateActive = false;
 
   // Chart color palette
   const CHART_COLORS = [
@@ -45,7 +68,7 @@ const PortfolioApp = (function() {
   // Initialize app
   function init(options = {}) {
     state.displayCurrency = options.displayCurrency || document.documentElement.dataset.currency || 'TRY';
-    state.theme = localStorage.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
+    state.theme = localPreferences.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
     
     applyTheme(state.theme);
     initThemeToggle();
@@ -55,6 +78,7 @@ const PortfolioApp = (function() {
     initProviderHealth();
     initMobileMenu();
     initDropdowns();
+    initDisclosureKeyboard();
     initToasts();
     initCharts();
     initHistory();
@@ -106,7 +130,7 @@ const PortfolioApp = (function() {
     toggle.addEventListener('click', () => {
       const current = document.documentElement.getAttribute('data-theme');
       const next = current === 'dark' ? 'light' : 'dark';
-      localStorage.setItem('theme', next);
+      localPreferences.setItem('theme', next);
       applyTheme(next);
       const themeSelect = document.getElementById('dark-mode');
       if (themeSelect) themeSelect.value = next;
@@ -117,7 +141,7 @@ const PortfolioApp = (function() {
 
     // Listen for system theme changes
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      if (localStorage.getItem('theme') === 'system' || !localStorage.getItem('theme')) {
+      if (localPreferences.getItem('theme') === 'system' || !localPreferences.getItem('theme')) {
         applyTheme('system');
         updateToggle();
       }
@@ -140,8 +164,8 @@ const PortfolioApp = (function() {
   function initDisplaySettings() {
     const backupStatus = document.getElementById('backup-status');
     if (backupStatus) {
-      backupStatus.textContent = sessionStorage.getItem('portfolio-restore-success') || '';
-      sessionStorage.removeItem('portfolio-restore-success');
+      backupStatus.textContent = sessionPreferences.getItem('portfolio-restore-success') || '';
+      sessionPreferences.removeItem('portfolio-restore-success');
     }
     const clear = document.getElementById('clear-all-data');
     clear?.addEventListener('click', async () => {
@@ -150,8 +174,8 @@ const PortfolioApp = (function() {
       try {
         const response = await fetch('/api/settings/clear-all', { method: 'DELETE' });
         if (!response.ok) throw new Error('Unable to clear data');
-        localStorage.removeItem('theme');
-        sessionStorage.removeItem('portfolio-holding-filters');
+        localPreferences.removeItem('theme');
+        sessionPreferences.removeItem('portfolio-holding-filters');
         window.location.assign('/settings');
       } catch (error) {
         clear.disabled = false;
@@ -159,25 +183,9 @@ const PortfolioApp = (function() {
       }
     });
     const currency = document.getElementById('display-currency');
-    currency?.addEventListener('change', async () => {
-      currency.disabled = true;
-      try {
-        const response = await fetch('/api/settings/currency', {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currency: currency.value })
-        });
-        if (!response.ok) throw new Error('Unable to save currency');
-        const url = new URL(window.location.href);
-        url.searchParams.set('currency', currency.value);
-        window.location.assign(url.href);
-      } catch (error) {
-        currency.value = state.displayCurrency;
-        currency.disabled = false;
-        showToast(error.message, 'error');
-      }
-    });
+    currency?.addEventListener('change', () => saveDisplayCurrency(currency.value));
     const theme = document.getElementById('dark-mode');
-    if (theme) theme.value = localStorage.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
+    if (theme) theme.value = localPreferences.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
     theme?.addEventListener('change', async () => {
       theme.disabled = true;
       try {
@@ -186,12 +194,12 @@ const PortfolioApp = (function() {
           body: JSON.stringify({ mode: theme.value })
         });
         if (!response.ok) throw new Error('Unable to save theme');
-        localStorage.setItem('theme', theme.value);
+        localPreferences.setItem('theme', theme.value);
         applyTheme(theme.value);
         document.getElementById('themeToggle')?.setAttribute('aria-pressed', document.documentElement.dataset.theme === 'dark');
         showToast('Theme saved', 'success');
       } catch (error) {
-        theme.value = localStorage.getItem('theme') || 'system';
+        theme.value = localPreferences.getItem('theme') || 'system';
         showToast(error.message, 'error');
       } finally { theme.disabled = false; }
     });
@@ -210,8 +218,14 @@ const PortfolioApp = (function() {
     }
     document.querySelector('.sources-page').addEventListener('click', async (event) => {
       const button = event.target.closest('[data-test-provider], [data-test-mapping], [data-save-mapping], #refresh-prices');
-      if (!button) return;
-      button.disabled = true;
+      if (!button || button.disabled) return;
+      const scope = button.closest('tr') || button;
+      if (scope.dataset.pending) return;
+      scope.dataset.pending = 'true';
+      const controls = [button, ...scope.querySelectorAll('button, input, select')];
+      const disabledBefore = controls.map(control => control.disabled);
+      controls.forEach(control => { control.disabled = true; });
+      scope.setAttribute('aria-busy', 'true');
       const output = button.closest('tr')?.querySelector('.source-test-result');
       if (output) {
         output.textContent = 'Checking…';
@@ -244,7 +258,11 @@ const PortfolioApp = (function() {
           output.classList.add('text-error');
         }
         showToast(error.message, 'error');
-      } finally { button.disabled = false; }
+      } finally {
+        controls.forEach((control, index) => { control.disabled = disabledBefore[index]; });
+        delete scope.dataset.pending;
+        scope.setAttribute('aria-busy', 'false');
+      }
     });
 
   }
@@ -334,25 +352,32 @@ const PortfolioApp = (function() {
     });
 
     menu.querySelectorAll('button').forEach(button => {
-      button.addEventListener('click', () => {
-        const currency = button.dataset.currency;
-        button.disabled = true;
-        fetch('/api/settings/currency', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currency })
-        }).then(response => {
-          if (!response.ok) throw new Error(`Currency update failed: HTTP ${response.status}`);
-          closeDropdown();
-          const url = new URL(window.location.href);
-          url.searchParams.set('currency', currency);
-          window.location.assign(url.href);
-        }).catch(() => {
-          button.disabled = false;
-          showToast('Failed to update display currency', 'error');
-        });
-      });
+      button.addEventListener('click', () => saveDisplayCurrency(button.dataset.currency));
     });
+  }
+
+  async function saveDisplayCurrency(currency) {
+    if (currencyUpdateActive) return;
+    currencyUpdateActive = true;
+    const controls = [...document.querySelectorAll('#currency-menu button, #display-currency')];
+    controls.forEach(control => { control.disabled = true; });
+    try {
+      const response = await fetch('/api/settings/currency', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currency })
+      });
+      if (!response.ok) throw new Error('Unable to save display currency. Please try again.');
+      closeDropdown();
+      const url = new URL(window.location.href);
+      url.searchParams.set('currency', currency);
+      window.location.assign(url.href);
+    } catch {
+      const select = document.getElementById('display-currency');
+      if (select) select.value = state.displayCurrency;
+      currencyUpdateActive = false;
+      controls.forEach(control => { control.disabled = false; });
+      showToast('Unable to save display currency. Please try again.', 'error');
+    }
   }
 
   function closeDropdown() {
@@ -406,8 +431,27 @@ const PortfolioApp = (function() {
       if (open) positionMenu(menu, toggle);
     });
     window.addEventListener('resize', () => closeMenus());
+  }
+
+  function initDisclosureKeyboard() {
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape') closeMenus();
+      if (event.key !== 'Escape') return;
+      const toggles = [...document.querySelectorAll('.currency-btn, #column-toggle, .dropdown-toggle')];
+      const active = toggles.find(toggle => {
+        const menu = toggle.classList.contains('dropdown-toggle') ?
+          toggle.closest('.dropdown')?.querySelector('.dropdown-menu') :
+          document.getElementById(toggle.getAttribute('aria-controls') || 'column-menu');
+        return menu && (menu.contains(event.target) || toggle === event.target) &&
+          toggle.getAttribute('aria-expanded') === 'true';
+      });
+      toggles.forEach(toggle => {
+        const menu = toggle.classList.contains('dropdown-toggle') ?
+          toggle.closest('.dropdown')?.querySelector('.dropdown-menu') :
+          document.getElementById(toggle.getAttribute('aria-controls') || 'column-menu');
+        toggle.setAttribute('aria-expanded', 'false');
+        menu?.setAttribute('aria-hidden', 'true');
+      });
+      if (active) { event.preventDefault(); active.focus(); }
     });
   }
 
@@ -635,6 +679,7 @@ const PortfolioApp = (function() {
             labels: {
               usePointStyle: true,
               padding: 16,
+              color: getChartOptions(state.displayCurrency).scales.x.ticks.color,
               font: { size: 12 },
               generateLabels: function(chart) {
                 const original = Chart.overrides.doughnut.plugins.legend.labels.generateLabels(chart);
@@ -646,6 +691,7 @@ const PortfolioApp = (function() {
             }
           },
           tooltip: {
+            ...getChartOptions(state.displayCurrency).plugins.tooltip,
             callbacks: {
               label: function(context) {
                 const value = context.raw;
@@ -947,7 +993,15 @@ const PortfolioApp = (function() {
       chart.update();
     });
     if (state.charts.allocation) {
-      state.charts.allocation.update();
+      const chart = state.charts.allocation;
+      chart.data.datasets.forEach(dataset => {
+        dataset.borderColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-card').trim();
+      });
+      chart.options.plugins.legend.labels.color = colors.scales.x.ticks.color;
+      ['backgroundColor', 'titleColor', 'bodyColor', 'borderColor'].forEach(key => {
+        chart.options.plugins.tooltip[key] = colors.plugins.tooltip[key];
+      });
+      chart.update();
     }
   }
 
@@ -1045,9 +1099,9 @@ const PortfolioApp = (function() {
     const reset = document.getElementById('reset-holding-filters');
     const mobileSearch = document.getElementById('mobile-holding-search');
     try {
-      const saved = JSON.parse(sessionStorage.getItem('portfolio-holding-filters') || '{}');
+      const saved = JSON.parse(sessionPreferences.getItem('portfolio-holding-filters') || '{}');
       filters.forEach(input => { input.value = saved?.[input.dataset.filter] || ''; });
-    } catch { sessionStorage.removeItem('portfolio-holding-filters'); }
+    } catch { sessionPreferences.removeItem('portfolio-holding-filters'); }
     const apply = () => {
       let visible = 0;
       table.querySelectorAll('tbody .holding-row').forEach(row => {
@@ -1065,7 +1119,7 @@ const PortfolioApp = (function() {
       document.getElementById('holdings-filter-status').textContent = active ? `${visible} matching holdings` : '';
       reset.hidden = !active;
       mobileSearch.value = filters.find(input => input.dataset.filter === 'name').value;
-      sessionStorage.setItem('portfolio-holding-filters', JSON.stringify(Object.fromEntries(
+      sessionPreferences.setItem('portfolio-holding-filters', JSON.stringify(Object.fromEntries(
         filters.map(input => [input.dataset.filter, input.value]))));
     };
     filters.forEach(input => input.addEventListener('input', apply));
@@ -1137,6 +1191,7 @@ const PortfolioApp = (function() {
 
     const numericField = field === 'quantity' || field === 'est_price';
     const editValue = numericField ? (td.dataset.sortValue ?? currentValue.replace(/[₺$,\s]/g, '')) : (td.dataset.editValue ?? currentValue);
+    input.setAttribute('aria-label', `Edit ${field.replace(/_/g, ' ')}`);
     input.value = editValue;
     input.className = 'inline-edit-input';
     input.style.cssText = 'width: 100%; padding: 4px 8px; border: 1px solid var(--border-focus); border-radius: 4px; background: var(--bg-primary); font-family: inherit; font-size: inherit;';
@@ -1147,13 +1202,21 @@ const PortfolioApp = (function() {
     input.select();
 
     let finished = false;
+    const restore = () => {
+      const returnFocus = document.activeElement === input;
+      td.textContent = currentValue;
+      td.removeAttribute('aria-busy');
+      if (returnFocus) td.focus();
+    };
     const save = () => {
       if (finished) return;
       if (!input.reportValidity()) return;
       finished = true;
       const newValue = input.value.trim();
       if (newValue !== String(editValue) && (newValue !== '' || !numericField)) {
-        // Send update via HTMX
+        input.readOnly = true;
+        input.setAttribute('aria-label', `Saving ${field.replace(/_/g, ' ')}…`);
+        td.setAttribute('aria-busy', 'true');
         const url = `/api/holdings/${holdingId}`;
         const data = { [field]: field === 'quantity' || field === 'est_price' ? parseFloat(newValue) : newValue };
         
@@ -1169,20 +1232,21 @@ const PortfolioApp = (function() {
           td.textContent = formatDisplayValue(newValue, field);
           window.location.reload();
         }).catch(() => {
-          td.textContent = currentValue;
+          restore();
           showToast('Unable to save this value. Please try again.', 'error');
         });
       } else {
-        td.textContent = currentValue;
+        restore();
       }
     };
 
     input.addEventListener('blur', save);
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') save();
-      if (e.key === 'Escape') {
+      if (e.key === 'Enter') { e.preventDefault(); save(); }
+      if (e.key === 'Escape' && !finished) {
+        e.preventDefault();
         finished = true;
-        td.textContent = currentValue;
+        restore();
       }
     });
   }
@@ -1445,9 +1509,9 @@ window.PortfolioApp = PortfolioApp;
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
-      localStorage.removeItem('theme');
-        sessionStorage.removeItem('portfolio-holding-filters');
-      sessionStorage.setItem('portfolio-restore-success', 'Backup restored successfully.');
+      localPreferences.removeItem('theme');
+        sessionPreferences.removeItem('portfolio-holding-filters');
+      sessionPreferences.setItem('portfolio-restore-success', 'Backup restored successfully.');
       window.location.assign('/settings');
     } catch (err) {
       error.textContent = err.message;

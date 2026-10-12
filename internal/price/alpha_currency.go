@@ -20,12 +20,21 @@ func (getter *AlphaVantage) quoteCurrency(ctx context.Context, symbol, key strin
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
 
 	getter.currencyMu.Lock()
-	if getter.currencies == nil || len(getter.currencies) >= maxPendingFetches {
+	if getter.currencies == nil {
 		getter.currencies = make(map[string]*sharedMetadata[string])
 	}
 
 	cache := getter.currencies[symbol]
 	if cache == nil {
+		// Evict only on insertion, preserving the rest of the scarce API metadata.
+		if len(getter.currencies) >= maxPendingFetches {
+			for cachedSymbol := range getter.currencies {
+				delete(getter.currencies, cachedSymbol)
+
+				break
+			}
+		}
+
 		cache = &sharedMetadata[string]{}
 		getter.currencies[symbol] = cache
 	}

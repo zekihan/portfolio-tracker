@@ -15,6 +15,7 @@ import (
 
 type cancelingQuoteGetter struct {
 	cancel context.CancelFunc
+	name   string
 }
 
 func (g *cancelingQuoteGetter) GetPrice(context.Context, string) (models.Price, error) {
@@ -22,7 +23,7 @@ func (g *cancelingQuoteGetter) GetPrice(context.Context, string) (models.Price, 
 
 	return models.Price{}, io.ErrUnexpectedEOF
 }
-func (g *cancelingQuoteGetter) Name() string       { return "Canceling" }
+func (g *cancelingQuoteGetter) Name() string       { return g.name }
 func (g *cancelingQuoteGetter) Type() string       { return "Stock/ETF" }
 func (g *cancelingQuoteGetter) TTL() time.Duration { return time.Minute }
 
@@ -55,14 +56,21 @@ func TestValuationPropagatesMidFetchCancellation(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			getter := &cancelingQuoteGetter{cancel: func() {}}
+			getter := &cancelingQuoteGetter{cancel: func() {}, name: "Canceling"}
 			if canceled {
 				getter.cancel = cancel
 			}
 
-			registry := price.DefaultRegistry()
+			registry := price.NewRegistry()
+			registry.Register(&cancelingQuoteGetter{name: "Frankfurter", cancel: func() {
+				t.Error("fresh legacy FX cache unexpectedly bypassed")
+			}})
 			registry.Register(getter)
-			service := NewHoldingService(database, price.NewService(database, registry))
+			priceService := price.NewService(database, registry)
+
+			t.Cleanup(func() { _ = priceService.Close() })
+
+			service := NewHoldingService(database, priceService)
 
 			var holding models.Holding
 

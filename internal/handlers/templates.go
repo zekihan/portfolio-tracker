@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"html/template"
@@ -60,16 +61,26 @@ func (renderer *pageRenderer) render(
 	name string,
 	data any,
 ) {
-	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writer.WriteHeader(status)
+	var body bytes.Buffer
 
-	err := renderer.pages[name].ExecuteTemplate(writer, name, data)
+	err := renderer.pages[name].ExecuteTemplate(&body, name, data)
 	if err != nil {
 		slog.Error(
 			"Template rendering failed",
 			slog.String("template", name),
 			slog.Any("error", err),
 		)
+		writer.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
+
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.WriteHeader(status)
+
+	_, err = writer.Write(body.Bytes())
+	if err != nil {
+		slog.Error("Template response failed", slog.Any("error", err))
 	}
 }
 

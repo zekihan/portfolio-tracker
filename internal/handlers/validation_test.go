@@ -33,7 +33,7 @@ func TestJSONValidationPreservesErrorResponses(t *testing.T) {
 		{name: "null patch fields remain unchanged", patch: true, body: `{"name":null,"quantity":null}`},
 		{name: "zero patch values", patch: true, body: `{"quantity":0,"est_price":0}`},
 		{name: "TR fund and unknown field", body: strings.TrimSuffix(fund, "}") + `,"unknown":true}`},
-		{name: "trailing JSON is ignored", body: fund + ` {}`},
+		{name: "trailing JSON is rejected", body: fund + ` {}`, want: "request body must contain exactly one JSON value"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

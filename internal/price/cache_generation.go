@@ -54,6 +54,7 @@ func (service *Service) observeGeneration(generation int64) {
 	if generation > service.generation {
 		clear(service.failures)
 		clear(service.lastFail)
+		clear(service.lastErrors)
 		clear(service.breakers)
 		service.generation = generation
 	}

@@ -18,7 +18,9 @@
     <!-- Theme detection -->
     <script>
         (function() {
-            var theme = localStorage.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
+            var storedTheme;
+            try { storedTheme = localStorage.getItem('theme'); } catch (error) { /* Storage is optional. */ }
+            var theme = storedTheme || document.documentElement.dataset.themePreference || 'system';
             var root = document.documentElement;
             if (theme === 'system') {
                 theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

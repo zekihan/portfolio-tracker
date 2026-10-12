@@ -6,7 +6,7 @@ const vm = require('node:vm');
 function loadApp(elements = {}) {
   const source = fs.readFileSync('web/static/app.js', 'utf8').replace(
     '    init,\n    showToast,',
-    '    init,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
+    '    init,\n    safeStorage,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initDisclosureKeyboard,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
   const pending = [];
   const listeners = {};
   const document = {
@@ -19,10 +19,10 @@ function loadApp(elements = {}) {
     querySelectorAll: selector => selector === '.snapshot-delete' ? (elements['snapshots-tbody']?.children || []).flatMap(row => row.cells?.[5]?.children || []) : [],
     documentElement: { getAttribute: () => 'light' }
   };
-  const context = { document, setTimeout: callback => callback(), window: { scrollY: 0, location: { reload() {} } }, URLSearchParams,
-    getComputedStyle: node => ({ overflowY: node.overflowY || 'visible' }),
+  const context = { document, setTimeout: callback => callback(), window: { scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
+    getComputedStyle: node => ({ overflowY: node.overflowY || 'visible', getPropertyValue: () => '#123456' }),
     Option: class { constructor(text, value) { this.text = text; this.value = value; } },
-    Chart: class { constructor(canvas, config) { this.config = config; this.options = config.options; } destroy() {} update() {} },
+    Chart: class { constructor(canvas, config) { this.config = config; this.options = config.options; this.data = config.data; } destroy() {} update() {} },
     fetch: (url, options) => new Promise((resolve, reject) => pending.push({ url, options, resolve, reject })) };
   vm.runInNewContext(source, context);
   return { app: context.window.PortfolioApp, pending, document, window: context.window,
@@ -425,4 +425,180 @@ test('delete removes matching row even when a pending read replaced it during co
   assert.equal(h.elements['snapshots-tbody'].children.length, 1);
   assert.equal(h.elements['snapshots-tbody'].children[0].dataset.snapshotId, '2');
   assert.match(h.elements['snapshots-status'].children[0].textContent, /Unable to load/);
+});
+
+test('restricted storage falls back locally and the early theme script still applies server preference', () => {
+  const h = loadApp();
+  Object.defineProperty(h.window, 'localStorage', { get() { throw new Error('SecurityError'); } });
+  const storage = h.app.safeStorage('localStorage');
+  assert.equal(storage.getItem('theme'), null);
+  storage.setItem('theme', 'dark');
+  assert.equal(storage.getItem('theme'), 'dark');
+  storage.removeItem('theme');
+  assert.equal(storage.getItem('theme'), null);
+  const root = { dataset: { themePreference: 'dark' }, setAttribute(key, value) { this[key] = value; } };
+  const early = fs.readFileSync('web/templates/base.html', 'utf8').match(/<!-- Theme detection -->\s*<script>([\s\S]*?)<\/script>/)[1];
+  const context = { document: { documentElement: root } };
+  Object.defineProperty(context, 'localStorage', { get() { throw new Error('SecurityError'); } });
+  vm.runInNewContext(early, context);
+  assert.equal(root['data-theme'], 'dark');
+});
+
+test('currency updates share one lock across controls and failures recover without navigation', async () => {
+  const select = element('USD'), first = element(), second = element();
+  const h = loadApp({ 'display-currency': select });
+  h.document.querySelectorAll = () => [select, first, second];
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  h.app.saveDisplayCurrency('USD');
+  h.app.saveDisplayCurrency('TRY');
+  assert.equal(h.pending.length, 1);
+  assert.ok([select, first, second].every(control => control.disabled));
+  h.pending[0].reject(new Error('offline')); await flush();
+  assert.equal(destination, undefined);
+  assert.equal(select.value, 'TRY');
+  assert.ok([select, first, second].every(control => !control.disabled));
+  h.app.saveDisplayCurrency('USD');
+  h.pending[1].resolve({ ok: true }); await flush();
+  assert.equal(destination, 'https://portfolio.test/holdings?basket=one&currency=USD');
+  h.app.saveDisplayCurrency('TRY');
+  assert.equal(h.pending.length, 2);
+});
+
+test('source operations lock the entire row and restore previous disabled state after failure', async () => {
+  const page = element(), row = element(), button = element(), input = element(), select = element(), blocked = element();
+  blocked.disabled = true;
+  row.querySelectorAll = () => [button, input, select, blocked];
+  row.querySelector = selector => selector === '.provider-select' ? { value: 'Yahoo Finance' } :
+    selector === '.source-test-result' ? null : { value: 'AAPL' };
+  button.closest = () => row;
+  button.hasAttribute = () => true;
+  row.dataset.holdingId = '1';
+  const h = loadApp();
+  h.document.querySelector = () => page;
+  h.app.initSources();
+  const event = { target: { closest: () => button } };
+  page.click(event); page.click(event);
+  assert.equal(h.pending.length, 1);
+  assert.ok([button, input, select, blocked].every(control => control.disabled));
+  assert.equal(row.attrs['aria-busy'], 'true');
+  h.pending[0].reject(new Error('offline')); await flush();
+  assert.ok([button, input, select].every(control => !control.disabled));
+  assert.equal(blocked.disabled, true);
+  assert.equal(row.attrs['aria-busy'], 'false');
+  page.click(event);
+  assert.equal(h.pending.length, 2);
+});
+
+function inlineHarness() {
+  const h = loadApp();
+  const td = element();
+  td.dataset = { field: 'quantity', sortValue: '10' };
+  td.textContent = '10';
+  td.closest = () => ({ dataset: { id: '1' } });
+  td.removeAttribute = key => { delete td.attrs[key]; };
+  let input;
+  h.document.createElement = () => {
+    input = element(); input.style = {}; input.select = () => {};
+    input.reportValidity = () => true;
+    input.focus = () => { h.document.activeElement = input; };
+    return input;
+  };
+  h.app.makeEditable(td);
+  return { ...h, td, input };
+}
+
+test('inline save is read-only and cannot appear cancelled while its request is pending', async () => {
+  const h = inlineHarness();
+  assert.equal(h.input.attrs['aria-label'], 'Edit quantity');
+  h.input.value = '20';
+  h.input.keydown({ key: 'Enter', preventDefault() {} });
+  assert.equal(h.input.readOnly, true);
+  assert.equal(h.td.attrs['aria-busy'], 'true');
+  assert.equal(h.input.attrs['aria-label'], 'Saving quantity…');
+  h.input.keydown({ key: 'Escape', preventDefault() {} });
+  h.input.blur();
+  assert.equal(h.pending.length, 1);
+  assert.equal(h.td.attrs['aria-busy'], 'true');
+  h.pending[0].reject(new Error('offline')); await flush();
+  assert.equal(h.td.textContent, '10');
+  assert.equal(h.td.focused, true);
+  assert.equal(h.td.attrs['aria-busy'], undefined);
+});
+
+test('inline cancellation and unchanged keyboard save return focus to the cell', () => {
+  for (const key of ['Escape', 'Enter']) {
+    const h = inlineHarness();
+    h.input.keydown({ key, preventDefault() {} });
+    assert.equal(h.pending.length, 0);
+    assert.equal(h.td.focused, true);
+  }
+});
+
+test('Escape closes every disclosure menu and returns focus only to the active trigger', () => {
+  for (const kind of ['currency', 'column', 'action']) {
+    const menu = element(), toggle = element(), child = {};
+    toggle.getAttribute = key => key === 'aria-controls' ? `${kind}-menu` : toggle.attrs[key];
+    toggle.classList = { contains: () => kind === 'action' };
+    toggle.closest = () => ({ querySelector: () => menu });
+    toggle.attrs['aria-expanded'] = 'true';
+    menu.contains = target => target === child;
+    const h = loadApp({ [`${kind}-menu`]: menu });
+    h.document.querySelectorAll = () => [toggle];
+    h.app.initDisclosureKeyboard();
+    let prevented = false;
+    h.dispatch('keydown', { key: 'Escape', target: child, preventDefault() { prevented = true; } });
+    assert.equal(toggle.attrs['aria-expanded'], 'false');
+    assert.equal(menu.attrs['aria-hidden'], 'true');
+    assert.equal(toggle.focused, true);
+    assert.equal(prevented, true);
+  }
+});
+
+test('allocation charts update all theme colors without losing percentage callbacks', async () => {
+  const h = loadApp({ 'allocation-chart': {}, 'allocation-chart-status': element() });
+  h.app.loadAllocationChart('type');
+  h.pending[0].resolve({ ok: true, json: async () => ({ by_type: { Stock: 5 } }) });
+  await flush();
+  const chart = h.app.state().charts.allocation;
+  const callback = chart.options.plugins.tooltip.callbacks.label;
+  h.document.documentElement.getAttribute = () => 'dark';
+  h.app.updateChartColors();
+  assert.equal(chart.data.datasets[0].borderColor, '#123456');
+  assert.equal(chart.options.plugins.legend.labels.color, '#94a3b8');
+  assert.equal(chart.options.plugins.tooltip.backgroundColor, '#1e293b');
+  assert.equal(chart.options.plugins.tooltip.callbacks.label, callback);
+  assert.match(callback({ raw: 5, label: 'Stock' }), /100.0%/);
+});
+
+test('the full application initializes even when both browser storage getters throw', () => {
+  const h = loadApp();
+  for (const name of ['localStorage', 'sessionStorage']) {
+    Object.defineProperty(h.window, name, { get() { throw new Error('SecurityError'); } });
+  }
+  h.document.documentElement.dataset = { currency: 'USD', themePreference: 'light' };
+  h.document.documentElement.setAttribute = () => {};
+  const bodyEvents = [];
+  h.document.body.addEventListener = name => bodyEvents.push(name);
+  h.window.addEventListener = () => {};
+  assert.doesNotThrow(() => h.app.init());
+  assert.equal(h.app.state().displayCurrency, 'USD');
+  assert.ok(bodyEvents.includes('htmx:beforeRequest'));
+});
+
+test('storage adapter does not retry or duplicate persistence writes', () => {
+  const h = loadApp();
+  let writes = 0;
+  h.window.localStorage = {
+    getItem: () => 'light',
+    setItem() { writes++; throw new Error('QuotaExceededError'); },
+    removeItem() { writes++; throw new Error('SecurityError'); }
+  };
+  const storage = h.app.safeStorage('localStorage');
+  assert.equal(storage.getItem('theme'), 'light');
+  storage.setItem('theme', 'dark');
+  assert.equal(storage.getItem('theme'), 'dark');
+  storage.removeItem('theme');
+  assert.equal(storage.getItem('theme'), null);
+  assert.equal(writes, 2);
 });

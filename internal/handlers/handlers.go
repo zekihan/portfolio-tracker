@@ -704,8 +704,8 @@ func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, reques
 	}
 
 	var req struct {
-		Provider     string `json:"provider"`
-		InstrumentID string `json:"instrumentId"`
+		Provider     *string `json:"provider"`
+		InstrumentID *string `json:"instrumentId"`
 	}
 
 	err = decodeJSON(request, &req)
@@ -715,11 +715,23 @@ func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, reques
 		return
 	}
 
+	if req.Provider == nil || req.InstrumentID == nil {
+		writeJSON(
+			writer,
+			http.StatusBadRequest,
+			map[string]any{
+				errorKey: "provider and instrumentId must be explicitly supplied strings",
+			},
+		)
+
+		return
+	}
+
 	err = handler.priceSvc.UpdateHoldingProviderContext(
 		request.Context(),
 		id,
-		req.Provider,
-		req.InstrumentID,
+		*req.Provider,
+		*req.InstrumentID,
 	)
 	if err != nil {
 		respondHoldingMutationError(writer, request, err)

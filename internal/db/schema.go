@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -211,7 +210,9 @@ func Open(dbPath string) (*sqlx.DB, error) {
 
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(time.Hour)
+	// SQLite connections own in-memory databases. Keep the sole connection alive
+	// until Close; recycling it can silently discard the entire database.
+	db.SetConnMaxLifetime(0)
 
 	migrateErr := migrate(db)
 	if migrateErr != nil {

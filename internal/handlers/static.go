@@ -5,15 +5,33 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 )
 
 type filesOnly struct {
-	directory http.Dir
+	directory string
 }
 
 func (filesystem filesOnly) Open(name string) (http.File, error) {
-	file, err := filesystem.directory.Open(name)
+	// URL paths use forward slashes. Reject OS-specific separators before
+	// normalization so Windows cannot reinterpret an unchecked component.
+	if strings.ContainsRune(name, '\\') {
+		return nil, os.ErrNotExist
+	}
+
+	cleaned := strings.TrimPrefix(path.Clean("/"+name), "/")
+	for component := range strings.SplitSeq(cleaned, "/") {
+		if strings.HasPrefix(component, ".") {
+			return nil, os.ErrNotExist
+		}
+	}
+
+	if cleaned == "" {
+		cleaned = "."
+	}
+
+	file, err := os.OpenInRoot(filesystem.directory, cleaned)
 	if err != nil {
 		return nil, fmt.Errorf("open static file: %w", err)
 	}
@@ -56,7 +74,7 @@ func (response *staticResponse) Write(body []byte) (int, error) {
 }
 
 func staticFiles(root string) http.Handler {
-	filesystem := filesOnly{directory: http.Dir(root)}
+	filesystem := filesOnly{directory: root}
 	server := http.StripPrefix("/static", http.FileServer(filesystem))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

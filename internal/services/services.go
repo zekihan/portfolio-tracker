@@ -35,9 +35,11 @@ func (service *HoldingService) GetAll(ctx context.Context) ([]models.Holding, er
 	err := service.db.SelectContext(
 		ctx,
 		&holdings,
-		`SELECT updated_at, created_at, manual_price_at, price_provider, instrument_id, base_currency,
-basket, location, notes, name, asset_type, ticker, manual_price, id, quantity, est_price FROM
-holdings ORDER BY created_at DESC`,
+		`SELECT updated_at, created_at, manual_price_at,
+COALESCE(price_provider, '') AS price_provider, COALESCE(instrument_id, '') AS instrument_id,
+base_currency, COALESCE(basket, '') AS basket, COALESCE(location, '') AS location,
+COALESCE(notes, '') AS notes, name, asset_type, COALESCE(ticker, '') AS ticker,
+manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings ORDER BY created_at DESC`,
 	)
 
 	return holdings, wrapOperationError("GetAll", err)
@@ -49,9 +51,11 @@ func (service *HoldingService) GetByID(ctx context.Context, id int) (*models.Hol
 	err := service.db.GetContext(
 		ctx,
 		&holding,
-		`SELECT updated_at, created_at, manual_price_at, price_provider, instrument_id, base_currency,
-basket, location, notes, name, asset_type, ticker, manual_price, id, quantity, est_price FROM
-holdings WHERE id = ?`,
+		`SELECT updated_at, created_at, manual_price_at,
+COALESCE(price_provider, '') AS price_provider, COALESCE(instrument_id, '') AS instrument_id,
+base_currency, COALESCE(basket, '') AS basket, COALESCE(location, '') AS location,
+COALESCE(notes, '') AS notes, name, asset_type, COALESCE(ticker, '') AS ticker,
+manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings WHERE id = ?`,
 		id,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -420,6 +424,19 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 	})
 }
 
+// SQLite parses ISO timestamps directly; older drivers wrote Go time.String values.
+// The fallback extracts their numeric offset and ignores the redundant zone label.
+const snapshotTimeCTE = `WITH snapshot_times AS (
+ SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
+ usd_try_rate, stale_count, failed_count,
+ instr(substr(timestamp, 12), ' ') + 11 AS zone_at FROM snapshots
+), ordered_snapshots AS (
+ SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
+ usd_try_rate, stale_count, failed_count, COALESCE(julianday(timestamp), julianday(
+  substr(timestamp, 1, zone_at - 1) || substr(timestamp, zone_at + 1, 3) || ':' ||
+  substr(timestamp, zone_at + 4, 2))) AS instant FROM snapshot_times
+) `
+
 func (service *SnapshotService) GetSnapshots(
 	ctx context.Context,
 	limit, offset, days int,
@@ -429,9 +446,9 @@ func (service *SnapshotService) GetSnapshots(
 	err := service.db.SelectContext(
 		ctx,
 		&snapshots,
-		`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM snapshots WHERE (? = 0 OR timestamp >= ?)
-         ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+		snapshotTimeCTE+`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
+stale_count, failed_count FROM ordered_snapshots WHERE (? = 0 OR instant >= julianday(?))
+         ORDER BY instant DESC, id DESC LIMIT ? OFFSET ?`,
 		days,
 		time.Now().UTC().AddDate(0, 0, -days),
 		limit,
@@ -452,8 +469,8 @@ func (service *SnapshotService) GetSnapshotsForChart(
 	err := service.db.SelectContext(
 		ctx,
 		&snapshots,
-		`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC`,
+		snapshotTimeCTE+`SELECT timestamp, total_value_try, total_value_usd, usd_try_rate, stale_count, failed_count
+FROM ordered_snapshots WHERE instant >= julianday(?) ORDER BY instant, id`,
 		cutoff,
 	)
 	if err != nil {
@@ -481,43 +498,40 @@ func (service *SnapshotService) GetHoldingHistory(
 ) ([]HoldingHistoryPoint, error) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -days)
 
-	var snapshots []models.Snapshot
-
-	err := service.db.SelectContext(
-		ctx,
-		&snapshots,
-		`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC`,
-		cutoff,
-	)
+	rows, err := service.db.QueryxContext(ctx,
+		snapshotTimeCTE+`SELECT timestamp, holdings_json FROM ordered_snapshots
+WHERE instant >= julianday(?) ORDER BY instant, id`, cutoff)
 	if err != nil {
 		return nil, wrapOperationError("GetHoldingHistory", err)
 	}
+	defer func() { _ = rows.Close() }()
 
 	points := make([]HoldingHistoryPoint, 0)
 
-	for _, snap := range snapshots {
-		var holdings []map[string]json.RawMessage
+	for rows.Next() {
+		var (
+			timestamp    time.Time
+			holdingsJSON string
+		)
 
-		err := json.Unmarshal([]byte(snap.HoldingsJSON), &holdings)
+		err = rows.Scan(&timestamp, &holdingsJSON)
 		if err != nil {
-			continue
+			return nil, wrapOperationError("GetHoldingHistory", err)
 		}
 
-		for _, holding := range holdings {
-			var id int
-
-			idErr := json.Unmarshal(holding["id"], &id)
-			if idErr != nil {
-				continue
-			}
-
-			if id == holdingID {
-				points = append(points, decodeHoldingHistoryPoint(snap.Timestamp, holding))
-
-				break
-			}
+		point, found, decodeErr := findHoldingHistoryPoint(ctx, timestamp, holdingsJSON, holdingID)
+		if decodeErr != nil {
+			return nil, wrapOperationError("GetHoldingHistory", decodeErr)
 		}
+
+		if found {
+			points = append(points, point)
+		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, wrapOperationError("GetHoldingHistory", err)
 	}
 
 	return points, nil

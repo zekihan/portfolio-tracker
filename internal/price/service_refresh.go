@@ -44,6 +44,7 @@ type refreshState struct {
 	mu         sync.Mutex
 	workers    sync.WaitGroup
 	nextWaiter uint64
+	probes     int
 	closed     bool
 }
 
@@ -103,6 +104,7 @@ func (service *Service) WithCacheReset(ctx context.Context, reset func() error) 
 		service.mu.Lock()
 		clear(service.failures)
 		clear(service.lastFail)
+		clear(service.lastErrors)
 		clear(service.breakers)
 		service.mu.Unlock()
 	}
@@ -192,7 +194,13 @@ func (service *Service) coalescedPrice(
 	state.gate.RUnlock()
 
 	if background {
-		return cachedQuote(cached, true), nil
+		quote := cachedQuote(cached, true)
+		if err != nil {
+			quote.IsFailed = true
+			quote.Error = err
+		}
+
+		return quote, nil
 	}
 
 	if err != nil {
@@ -241,7 +249,7 @@ func (service *Service) tryJoinFlight(
 	}
 
 	if flight == nil {
-		if len(state.flights) >= maxPendingFetches {
+		if len(state.flights)+state.probes >= maxPendingFetches {
 			return nil, 0, errRefreshQueueFull
 		}
 
@@ -434,7 +442,7 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 				key := keys[index]
 
 				quote, err := service.getPrice(ctx, key.provider, key.instrument, true)
-				if err == nil && quote.IsFailed {
+				if err == nil && (quote.IsFailed || quote.IsStale) {
 					err = quote.Error
 					if err == nil {
 						err = errRefresh
@@ -570,6 +578,14 @@ func (service *Service) testProviderBounded(
 	defer cancel()
 
 	state.mu.Lock()
+	if len(state.flights)+state.probes >= maxPendingFetches {
+		state.mu.Unlock()
+		state.gate.RUnlock()
+
+		return models.Price{}, errRefreshQueueFull
+	}
+
+	state.probes++
 
 	slot := state.providers[provider]
 	if slot == nil {
@@ -580,7 +596,12 @@ func (service *Service) testProviderBounded(
 	state.workers.Add(1)
 
 	state.gate.RUnlock()
-	defer state.workers.Done()
+	defer func() {
+		state.mu.Lock()
+		state.probes--
+		state.mu.Unlock()
+		state.workers.Done()
+	}()
 
 	if !acquireSlot(fetchCtx, slot) {
 		return models.Price{}, wrapOperationError("TestProvider", fetchCtx.Err())

@@ -23,6 +23,7 @@ type Service struct {
 	registry   *Registry
 	failures   map[string]int
 	lastFail   map[string]time.Time
+	lastErrors map[string]string
 	breakers   map[string]bool
 	refresh    refreshState
 	mu         sync.RWMutex
@@ -31,11 +32,12 @@ type Service struct {
 
 func NewService(database *sqlx.DB, registry *Registry) *Service {
 	service := &Service{
-		db:       database,
-		registry: registry,
-		failures: make(map[string]int),
-		lastFail: make(map[string]time.Time),
-		breakers: make(map[string]bool),
+		db:         database,
+		registry:   registry,
+		failures:   make(map[string]int),
+		lastFail:   make(map[string]time.Time),
+		lastErrors: make(map[string]string),
+		breakers:   make(map[string]bool),
 	}
 	service.initRefresh()
 
@@ -110,6 +112,7 @@ key_required FROM provider_registry WHERE enabled = 1 ORDER BY name`,
 		service.mu.RLock()
 		failures := service.failures[provider.Name]
 		breaker := service.breakers[provider.Name]
+		lastFailure := service.lastErrors[provider.Name]
 		service.mu.RUnlock()
 
 		// Get last successful fetch from cache.
@@ -140,14 +143,17 @@ key_required FROM provider_registry WHERE enabled = 1 ORDER BY name`,
 			err = service.db.GetContext(
 				ctx,
 				&lastErr,
-				"SELECT last_error FROM price_cache WHERE provider = ? ORDER BY fetched_at DESC LIMIT 1",
+				"SELECT COALESCE(last_error, '') FROM price_cache WHERE provider = ? ORDER BY fetched_at DESC LIMIT 1",
 				provider.Name,
 			)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return nil, wrapOperationError("GetProviderHealthContext", err)
 			}
 
-			errorMsg = lastErr
+			errorMsg = lastFailure
+			if errorMsg == "" {
+				errorMsg = "Provider request failed"
+			}
 		}
 
 		health = append(health, models.ProviderHealth{
@@ -175,7 +181,8 @@ func (service *Service) GetHoldingProviderMappingContext(
 	err := service.db.SelectContext(
 		ctx,
 		&holdings,
-		"SELECT id, name, price_provider, instrument_id FROM holdings ORDER BY name",
+		`SELECT id, name, COALESCE(price_provider, '') AS price_provider,
+COALESCE(instrument_id, '') AS instrument_id FROM holdings ORDER BY name`,
 	)
 	if err != nil {
 		return nil, wrapOperationError("GetHoldingProviderMappingContext", err)
@@ -331,6 +338,8 @@ func (service *Service) storeFetchedQuote(
 		return fmt.Errorf("persist refreshed quote: %w", err)
 	}
 
+	now := time.Now()
+	quote.IsStale = quote.IsStale || !now.Before(quoteCacheExpiry(quote, getter.TTL(), now))
 	service.recordSuccess(getter.Name())
 
 	return nil
@@ -349,7 +358,8 @@ func (service *Service) getCachedPriceContext(
 
 	err := service.db.GetContext(ctx, &entry, `
                 SELECT fetched_at, expires_at, provider, instrument_id, currency, source,
-last_error, id, price, error_count FROM price_cache WHERE provider = ? AND instrument_id = ?`,
+COALESCE(last_error, '') AS last_error, id, price, error_count
+FROM price_cache WHERE provider = ? AND instrument_id = ?`,
 		provider,
 		instrumentID,
 	)
@@ -376,10 +386,12 @@ func (service *Service) cachePriceContext(
 	ctx context.Context, provider, instrumentID string,
 	quote *models.Price, ttl time.Duration,
 ) error {
-	expiresAt := time.Now().Add(ttl)
-	if ttl == 0 {
-		expiresAt = time.Now().Add(defaultCacheLifetime)
+	now := time.Now()
+	if quote.FetchedAt.IsZero() {
+		quote.FetchedAt = now.UTC()
 	}
+
+	expiresAt := quoteCacheExpiry(quote, ttl, now)
 
 	result, err := service.db.ExecContext(ctx, `
                 INSERT INTO price_cache (provider, instrument_id, price, currency, source,
@@ -443,6 +455,7 @@ func (service *Service) recordFailureContext(
 
 		service.failures[provider]++
 		service.lastFail[provider] = time.Now()
+		service.lastErrors[provider] = safeHealthError(err)
 
 		// Open circuit breaker after 3 failures.
 		if service.failures[provider] >= breakerFailureThreshold {
@@ -489,6 +502,7 @@ func (service *Service) recordSuccess(provider string) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
+	delete(service.lastErrors, provider)
 	service.failures[provider] = 0
 	service.breakers[provider] = false
 }
@@ -537,4 +551,34 @@ func (service *Service) freshCachedFX(ctx context.Context) (models.Price, bool) 
 	valid := usableFXQuote(&quote, nil)
 
 	return quote, valid
+}
+
+// Quotes derived from cached metadata must not receive a new freshness window.
+func quoteCacheExpiry(quote *models.Price, ttl time.Duration, now time.Time) time.Time {
+	if ttl == 0 {
+		ttl = defaultCacheLifetime
+	}
+
+	fetched := quote.FetchedAt
+	if fetched.IsZero() || fetched.After(now) {
+		fetched = now
+	}
+
+	return fetched.Add(ttl)
+}
+
+// Never expose arbitrary provider messages, which can echo credentials or URLs.
+func safeHealthError(err error) string {
+	switch {
+	case errors.Is(err, errAlphaVantageKeyNotSet):
+		return "ALPHA_VANTAGE_KEY is not configured"
+	case errors.Is(err, errTwelveDataKeyNotSet):
+		return "TWELVE_DATA_KEY is not configured"
+	case errors.Is(err, errFinnhubKeyNotSet):
+		return "FINNHUB_KEY is not configured"
+	case errors.Is(err, errRateLimited):
+		return "Provider rate limit reached"
+	default:
+		return "Provider request failed"
+	}
 }
