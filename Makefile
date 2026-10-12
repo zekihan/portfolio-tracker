@@ -1,47 +1,44 @@
-# Portfolio Tracker - Makefile
-# Usage: make <target>
+GO ?= go
+BINARY := dist/portfolio-tracker
 
-.PHONY: help tidy lint test test/cover audit build release
-
-# Default target
+.PHONY: help build run fmt tidy lint test test/cover audit release-check build/release/all release container-test
 help:
-	@echo "Portfolio Tracker - Available targets:"
-	@echo "  make tidy          # go fmt + go mod tidy"
-	@echo "  make lint          # tidy + golangci-lint run --fix"
-	@echo "  make test          # run all tests with -race"
-	@echo "  make test/cover    # run tests and open coverage report in browser"
-	@echo "  make audit         # vet + staticcheck + govulncheck + tests"
-	@echo "  make build         # build binary"
-	@echo "  make release       # goreleaser release"
+	@echo "Targets: build run fmt tidy lint test test/cover audit release-check build/release/all release container-test"
 
-# Format and tidy
+build:
+	mkdir -p dist
+	CGO_ENABLED=1 $(GO) build -trimpath -ldflags '-s -w' -o $(BINARY) ./cmd/server
+
+run: build
+	./$(BINARY)
+
+fmt:
+	gofmt -w cmd internal
+
 tidy:
-	go fmt ./...
-	go mod tidy
+	$(GO) mod tidy
 
-# Lint
-lint: tidy
-	golangci-lint run --fix ./...
+lint:
+	@test -z "$$(gofmt -l cmd internal)" || (gofmt -l cmd internal; exit 1)
+	golangci-lint run
 
-# Test
 test:
-	go test -race -v ./...
+	$(GO) test -race -count=1 ./...
 
 test/cover:
-	go test -race -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out
+	$(GO) test -race -coverprofile=coverage.out ./...
 
-# Audit
-audit:
-	go vet ./...
-	staticcheck ./...
-	govulncheck ./...
-	go test -race ./...
+audit: lint test
+	$(GO) mod verify
 
-# Build
-build:
-	go build -o portfolio-tracker ./cmd/server
+release-check:
+	goreleaser check
 
-# Release
+build/release/all:
+	goreleaser build --clean --snapshot --id all
+
 release:
 	goreleaser release --clean
+
+container-test:
+	./scripts/container_smoke.sh

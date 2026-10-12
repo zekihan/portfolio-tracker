@@ -51,7 +51,11 @@ func main() {
 
 		return
 	}
-	defer database.Close()
+	defer func() {
+		if closeErr := database.Close(); closeErr != nil {
+			log.Error().Err(closeErr).Msg("failed to close database")
+		}
+	}()
 
 	// Initialize price registry and service.
 	priceRegistry := price.DefaultRegistry()

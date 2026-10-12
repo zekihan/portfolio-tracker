@@ -1,31 +1,30 @@
 version: 2
-
 project_name: portfolio-tracker
-
 builds:
-  - id: portfolio-tracker
+  - id: all
     main: ./cmd/server
     binary: portfolio-tracker
-    env:
-      # The sqlite driver (mattn/go-sqlite3) requires cgo.
-      - CGO_ENABLED=1
-    goos:
-      - linux
-    goarch:
-      - amd64
-
+    # SQLite needs cgo; Linux releases are built with the runner's native gcc.
+    env: [CGO_ENABLED=1]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [linux]
+    goarch: [amd64]
 archives:
-  - id: default
+  - id: all
+    ids: [all]
     formats: [tar.gz]
-    # Templates and static assets are read from ./web at runtime.
     files:
       - LICENSE
       - README.md
       - src: web
         dst: web
-
 checksum:
   name_template: checksums.txt
-
 changelog:
   sort: asc
+release:
+  github:
+    owner: zekihan
+    name: portfolio-tracker
+  ids: [all]

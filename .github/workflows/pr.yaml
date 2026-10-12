@@ -1,69 +1,39 @@
-name: PR Checks
-
+name: Checks
 on:
+  workflow_dispatch:
+  workflow_call:
   pull_request:
     branches: [main]
-
 permissions:
   contents: read
-  pull-requests: write
-
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  lint-and-test:
-    name: Lint & Test
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: go.sum
-
-      - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.14.0
-
-      - name: Run golangci-lint
-        run: golangci-lint run ./...
-
-      - name: Run tests
-        run: go test -race ./...
-
-      - name: Build
-        run: go build -o portfolio-tracker ./cmd/server
-
-  check-fmt:
-    name: Check Format
+          args: --timeout=5m
+      - name: Check formatting and modules
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - run: make test build
+      - uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          install-only: true
+          version: v2.18.3
+      - run: make release-check
+  container:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: go.sum
-
-      - name: Check gofmt
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "Files not formatted:"
-            gofmt -l .
-            exit 1
-          fi
-
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
-            echo "go.mod or go.sum not tidy"
-            git diff go.mod go.sum
-            exit 1
-          fi
+      - uses: actions/checkout@v7.0.1
+      - run: make container-test

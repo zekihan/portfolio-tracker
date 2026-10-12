@@ -1,0 +1,12 @@
+*
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!web/
+!web/**
+!LICENSE
+!Dockerfile
+**/*_test.go

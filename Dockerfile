@@ -1,49 +1,26 @@
-# Build stage
-FROM golang:1.27-alpine AS builder
-
-WORKDIR /app
-
-# Install build dependencies
-RUN apk add --no-cache git make gcc musl-dev
-
-# Copy go mod files
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+WORKDIR /src
+RUN apk add --no-cache gcc musl-dev
 COPY go.mod go.sum ./
 RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o /portfolio-tracker ./cmd/server
 
-# Copy source
-COPY . .
-
-# Build
-# The sqlite driver (mattn/go-sqlite3) requires cgo.
-RUN CGO_ENABLED=1 go build -o portfolio-tracker ./cmd/server
-
-# Final stage
-FROM alpine:3.24
-
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata sqlite-libs
-
-# Create non-root user
-RUN adduser -D -H -s /sbin/nologin appuser
-
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+RUN apk add --no-cache ca-certificates tzdata \
+    && adduser -D -H -u 25110 -s /sbin/nologin appuser \
+    && mkdir -p /data && chown appuser:appuser /data
 WORKDIR /app
-
-# Copy binary
-COPY --from=builder /app/portfolio-tracker /usr/local/bin/portfolio-tracker
-# Templates and static assets are read from ./web at runtime.
-COPY --from=builder /app/web /app/web
-
-# Create data directory
-RUN mkdir -p /data && chown appuser:appuser /data
-
+COPY --from=build /portfolio-tracker /usr/local/bin/portfolio-tracker
+COPY web ./web
+COPY LICENSE /usr/share/licenses/portfolio-tracker/LICENSE
 USER appuser
-
 EXPOSE 8080
-
 VOLUME ["/data"]
-
-ENV DB_PATH=/data/portfolio.db
-ENV PORT=8080
-ENV GIN_MODE=release
-
-CMD ["portfolio-tracker"]
+ENV DB_PATH=/data/portfolio.db PORT=8080 GIN_MODE=release
+ENTRYPOINT ["portfolio-tracker"]
+LABEL org.opencontainers.image.source="https://github.com/zekihan/portfolio-tracker" \
+      org.opencontainers.image.licenses="AGPL-3.0" \
+      org.opencontainers.image.title="portfolio-tracker" \
+      org.opencontainers.image.description="Self-hosted personal portfolio tracker"
