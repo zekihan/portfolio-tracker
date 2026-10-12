@@ -13,8 +13,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	// Sqlite3 driver for database/sql.
-	_ "github.com/mattn/go-sqlite3"
+	// SQLite driver for database/sql.
+	_ "modernc.org/sqlite"
 )
 
 var errUnsupportedSchemaVersion = errors.New("unsupported schema version")
@@ -144,7 +144,7 @@ func sqliteDSN(dbPath string) (string, error) {
 	}
 
 	if dbPath == ":memory:" {
-		return dbPath + "?_foreign_keys=on&_busy_timeout=5000", nil
+		return dbPath + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_time_format=sqlite", nil
 	}
 
 	var (
@@ -167,8 +167,13 @@ func sqliteDSN(dbPath string) (string, error) {
 	}
 
 	options := uri.Query()
-	options.Set("_foreign_keys", "on")
-	options.Set("_busy_timeout", "5000")
+	options.Del("_foreign_keys")
+	options.Del("_fk")
+	options.Del("_busy_timeout")
+	options.Del("_timeout")
+	options.Add("_pragma", "foreign_keys(1)")
+	options.Add("_pragma", "busy_timeout(5000)")
+	options.Set("_time_format", "sqlite")
 	uri.RawQuery = options.Encode()
 
 	return uri.String(), nil
@@ -180,7 +185,7 @@ func Open(dbPath string) (*sqlx.DB, error) {
 		return nil, err
 	}
 
-	db, err := sqlx.Open("sqlite3", dsn)
+	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}

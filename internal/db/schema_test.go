@@ -15,7 +15,7 @@ func TestMigrateRejectsUnsupportedVersions(t *testing.T) {
 		t.Run(strconv.Itoa(version), func(t *testing.T) {
 			t.Parallel()
 
-			database, err := sqlx.Open("sqlite3", filepath.Join(t.TempDir(), "portfolio.db"))
+			database, err := sqlx.Open("sqlite", filepath.Join(t.TempDir(), "portfolio.db"))
 			if err != nil {
 				t.Fatal(err)
 			}

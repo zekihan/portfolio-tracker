@@ -32,7 +32,7 @@ func TestOpenClosesDatabaseOnMigrationFailure(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "unsupported.db")
 
-	database, err := sqlx.Connect("sqlite3", path)
+	database, err := sqlx.Connect("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
