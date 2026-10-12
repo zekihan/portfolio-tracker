@@ -8,6 +8,7 @@ Self-hosted personal portfolio tracker — HTMX + Go (server-rendered) • SQLit
 - **12 price providers**: Yahoo Finance, Alpha Vantage, Twelve Data, Finnhub, Pusula Portföy, Garanti BBVA, İZKO Gold, TradingView BIST/Crypto, CoinGecko, Frankfurter, Manual
 - **Real-time prices** with caching, TTL, and circuit breaker (3 failures = open; retry after a 5-minute cooldown)
 - **Hourly snapshots** with DB advisory lock leader election
+- **History management**: delete individual snapshots or clear all history without deleting holdings
 - **Responsive UI**: Desktop table + mobile cards, dark/light mode
 - **Charts**: Portfolio value over time, allocation pies (by type/basket/location/currency)
 - **HTMX-powered**: Server-rendered, minimal JavaScript, works on low-power devices
@@ -68,6 +69,19 @@ Shutdown cancels and joins background work before closing SQLite. Clear/restore
 blocks new refreshes and drains the previous generation so old responses cannot
 repopulate replaced data. Database generations also fence late quote writes from
 other upgraded instances sharing the database.
+
+## Deleting snapshot history
+
+On **History**, use a snapshot row's **Delete** action to remove that snapshot,
+or **Clear history** to remove every snapshot, including dates outside the current
+filter. Both actions require confirmation. Download a backup first if you may
+need to restore deleted history.
+
+Deleting history leaves holdings, settings, and cached prices intact. Correct or
+remove a mistaken holding separately: hourly snapshots continue automatically.
+Clear history rejects snapshots already in progress when the clear operation
+commits. Completed hourly schedule markers stay intact, so the next automatic
+snapshot is normally at the next scheduled hour.
 
 ## Authentication
 

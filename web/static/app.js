@@ -34,6 +34,7 @@ const PortfolioApp = (function() {
 
   let portfolioRequest = 0;
   let allocationRequest = 0;
+  let historyMutationActive = false;
 
   // Chart color palette
   const CHART_COLORS = [
@@ -494,6 +495,7 @@ const PortfolioApp = (function() {
   }
 
   function loadPortfolioChart(range) {
+    if (historyMutationActive) return;
     if (!document.getElementById('portfolio-chart')) return;
     const daysMap = { '1y': 365, '6m': 180, '3m': 90, '1m': 30 };
     const days = document.getElementById('date-range')?.value || daysMap[range] || 365;
@@ -675,6 +677,11 @@ const PortfolioApp = (function() {
     let holdingRequest = 0;
     let snapshotRequest = 0;
     let snapshotPage = null;
+    let deletePending = false;
+    let snapshotLoading = false;
+    const clearHistory = document.getElementById('clear-history');
+    const deleteStatus = document.getElementById('history-delete-status');
+    const historyControls = [range, currency, select, basket, location, document.getElementById('reset-filters')];
     const updateCharts = () => { loadPortfolioChart(); loadHolding(); loadSnapshots(0); };
     range.addEventListener('change', updateCharts);
     currency.addEventListener('change', updateCharts);
@@ -703,6 +710,7 @@ const PortfolioApp = (function() {
       .catch(error => showToast(error.message, 'error'));
 
     async function loadHolding() {
+      if (historyMutationActive) return;
       const request = ++holdingRequest;
       state.charts.holding?.destroy();
       state.charts.holding = null;
@@ -741,7 +749,70 @@ const PortfolioApp = (function() {
     first.addEventListener('click', () => loadSnapshots(0));
     previous.addEventListener('click', () => loadSnapshots(Math.max(0, offset - 50)));
     next.addEventListener('click', () => loadSnapshots(offset + 50));
+    function updateHistoryControls() {
+      historyControls.forEach(control => { control.disabled = deletePending; });
+      if (clearHistory) clearHistory.disabled = deletePending;
+      document.querySelectorAll('.snapshot-delete').forEach(button => { button.disabled = deletePending; });
+      first.disabled = previous.disabled = deletePending || snapshotLoading || !snapshotPage || offset === 0;
+      next.disabled = deletePending || snapshotLoading || !snapshotPage?.hasNext;
+    }
+
+    clearHistory?.addEventListener('click', () => deleteSnapshots());
+    async function deleteSnapshots(snapshot, trigger = clearHistory) {
+      if (deletePending) return;
+      deletePending = true;
+      updateHistoryControls();
+      const all = !snapshot;
+      const action = all ? 'Clear history' : 'Delete snapshot';
+      const message = all ?
+        'Permanently delete ALL snapshots across every date range, including history outside the selected range? Holdings and settings will stay unchanged. Download a backup first if needed. Hourly snapshots will resume automatically; correct or remove the wrong holding separately to keep it out of future snapshots.' :
+        `Permanently delete the snapshot from ${new Date(snapshot.timestamp).toISOString().replace('T', ' ').slice(0, 19)} UTC and its holding history? Holdings and settings will stay unchanged. This cannot be undone. Download a backup first if needed.`;
+      try {
+        if (!await confirmAction(message, action)) return;
+        historyMutationActive = true;
+        // Reads started before the mutation must never resurrect deleted history.
+        ++snapshotRequest;
+        ++holdingRequest;
+        ++portfolioRequest;
+        snapshotLoading = false;
+        document.getElementById('snapshots-tbody').setAttribute('aria-busy', 'false');
+        deleteStatus.textContent = all ? 'Clearing history…' : 'Deleting snapshot…';
+        const response = await fetch(all ? '/api/history/snapshots' : `/api/history/snapshots/${snapshot.id}`, {
+          method: 'DELETE', ...(all ? { headers: { 'X-Clear-History-Confirm': 'clear-history' } } : {})
+        });
+        if (!response.ok) throw new Error('History was not deleted. Please try again.');
+        historyMutationActive = false;
+        if (all) document.getElementById('snapshots-tbody').replaceChildren();
+        else Array.from(document.getElementById('snapshots-tbody').children).forEach(row => {
+          if (row.dataset.snapshotId === String(snapshot.id)) row.remove();
+        });
+        deleteStatus.textContent = all ? 'History cleared. Holdings and settings are unchanged. Hourly snapshots will resume automatically.' : 'Snapshot deleted. Holdings and settings are unchanged.';
+        loadPortfolioChart();
+        loadHolding();
+        await loadSnapshots(all ? 0 : offset);
+      } catch {
+        historyMutationActive = false;
+        deleteStatus.textContent = 'Unable to confirm deletion. Check the refreshed history before trying again.';
+        // A lost response may hide a successful DELETE. Reconcile with the server,
+        // and replace any interrupted loading states, keeping rows until reads succeed.
+        loadPortfolioChart();
+        loadHolding();
+        await loadSnapshots(offset);
+      } finally {
+        historyMutationActive = false;
+        deletePending = false;
+        updateHistoryControls();
+        // The dialog's original trigger was disabled while it closed. Restore
+        // keyboard focus only if the user has not moved elsewhere meanwhile.
+        if (!document.activeElement || document.activeElement === document.body ||
+            document.activeElement === document.getElementById('confirm-action')) {
+          (trigger?.isConnected !== false ? trigger : clearHistory)?.focus();
+        }
+      }
+    }
+
     async function loadSnapshots(nextOffset) {
+      if (historyMutationActive) return;
       const request = ++snapshotRequest;
       const filter = `${range.value}:${currency.value}`;
       const body = document.getElementById('snapshots-tbody');
@@ -754,6 +825,7 @@ const PortfolioApp = (function() {
         body.replaceChildren();
         info.textContent = '';
       }
+      snapshotLoading = true;
       status.replaceChildren(document.createTextNode('Loading snapshots…'));
       body.setAttribute('aria-busy', 'true');
       [first, previous, next].forEach(button => { button.disabled = true; });
@@ -762,15 +834,28 @@ const PortfolioApp = (function() {
         if (!response.ok) throw new Error('Unable to load snapshots');
         const snapshots = (await response.json()) || [];
         if (request !== snapshotRequest) return;
+        if (!snapshots.length && nextOffset > 0) {
+          await loadSnapshots(Math.max(0, nextOffset - 50));
+          return;
+        }
         document.getElementById('snapshot-value-heading').textContent = `Value (${currency.value})`;
         body.replaceChildren();
         snapshots.slice(0, 50).forEach(snapshot => {
           const row = body.insertRow();
+          row.dataset.snapshotId = String(snapshot.id);
           [new Date(snapshot.timestamp).toISOString().replace('T', ' ').slice(0, 19),
             (snapshot.failed_count > 0 ? 'Possibly incomplete: ' : '') + formatCurrency(currency.value === 'USD' ? snapshot.total_value_usd : snapshot.total_value_try, currency.value), snapshot.usd_try_rate,
-            snapshot.stale_count, snapshot.failed_count, ''].forEach(value => {
+            snapshot.stale_count, snapshot.failed_count].forEach(value => {
             row.insertCell().textContent = value;
           });
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn btn-sm btn-danger snapshot-delete';
+          button.textContent = 'Delete';
+          button.disabled = deletePending;
+          button.setAttribute('aria-label', `Delete snapshot from ${new Date(snapshot.timestamp).toISOString()} UTC`);
+          button.addEventListener('click', () => deleteSnapshots(snapshot, button));
+          row.insertCell().appendChild(button);
         });
         if (!snapshots.length) {
           const cell = body.insertRow().insertCell();
@@ -793,8 +878,8 @@ const PortfolioApp = (function() {
       } finally {
         if (request === snapshotRequest) {
           body.setAttribute('aria-busy', 'false');
-          first.disabled = previous.disabled = !snapshotPage || offset === 0;
-          next.disabled = !snapshotPage?.hasNext;
+          snapshotLoading = false;
+          updateHistoryControls();
         }
       }
     }

@@ -37,7 +37,7 @@ func (g *snapshotBlockedFX) GetPrice(ctx context.Context, _ string) (models.Pric
 func TestSnapshotCannotOutliveDataReplacement(t *testing.T) {
 	t.Parallel()
 
-	for _, operation := range []string{"clear", "restore", "stolen lease"} {
+	for _, operation := range []string{"clear", "history", "restore", "stolen lease"} {
 		t.Run(operation, func(t *testing.T) {
 			runSnapshotReplacement(t, operation)
 		})
@@ -106,6 +106,8 @@ func runSnapshotReplacement(t *testing.T, operation string) {
 	switch operation {
 	case "clear":
 		err = settings.ClearAllData(t.Context())
+	case "history":
+		err = NewSnapshotService(second, nil, nil).ClearHistory(t.Context())
 	case "restore":
 		err = settings.RestoreFrom(t.Context(), backupPath)
 	case "stolen lease":

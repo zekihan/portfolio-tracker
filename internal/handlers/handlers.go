@@ -201,6 +201,14 @@ func (handler *Handler) SetupRoutes() http.Handler {
 		requireJSONBody()(http.HandlerFunc(handler.getSnapshots)),
 	)
 	router.Handle(
+		"DELETE /api/history/snapshots/{id}",
+		requireJSONBody()(http.HandlerFunc(handler.deleteSnapshot)),
+	)
+	router.Handle(
+		"DELETE /api/history/snapshots",
+		requireJSONBody()(http.HandlerFunc(handler.clearHistory)),
+	)
+	router.Handle(
 		"GET /api/history/chart",
 		requireJSONBody()(http.HandlerFunc(handler.getChartData)),
 	)

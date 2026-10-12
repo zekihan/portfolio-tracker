@@ -15,9 +15,8 @@ function loadApp(elements = {}) {
     querySelector: () => null,
     getElementById: id => elements[id] || null,
     createTextNode: text => ({ textContent: text }),
-    createElement: () => ({ setAttribute() {}, replaceChildren(...children) { this.children = children; },
-      appendChild(child) { this.children.push(child); }, addEventListener(type, callback) { this[type] = callback; } }),
-    querySelectorAll: () => [],
+    createElement: () => element(),
+    querySelectorAll: selector => selector === '.snapshot-delete' ? (elements['snapshots-tbody']?.children || []).flatMap(row => row.cells?.[5]?.children || []) : [],
     documentElement: { getAttribute: () => 'light' }
   };
   const context = { document, setTimeout: callback => callback(), window: { scrollY: 0, location: { reload() {} } }, URLSearchParams,
@@ -97,24 +96,27 @@ test('rendered portfolio chart does not connect failed snapshot gaps', async () 
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function element(value = '') {
-  return { value, children: [], attrs: {}, disabled: false,
+  return { value, children: [], attrs: {}, dataset: {}, disabled: false, isConnected: true,
     addEventListener(type, callback) { this[type] = callback; },
     replaceChildren(...children) { this.children = children; },
     appendChild(child) { this.children.push(child); },
     setAttribute(key, value) { this.attrs[key] = value; },
-    insertRow() { const row = { cells: [], insertCell() { const cell = {}; this.cells.push(cell); return cell; } }; this.children.push(row); return row; },
+    focus() { this.focused = true; },
+    showModal() { this.open = true; },
+    dismiss(value) { this.returnValue = value; this.open = false; this.close(); },
+    insertRow() { const row = { dataset: {}, cells: [], remove: () => { row.cells.forEach(cell => cell.children.forEach(child => { child.isConnected = false; })); this.children = this.children.filter(child => child !== row); }, insertCell() { const cell = element(); this.cells.push(cell); return cell; } }; this.children.push(row); return row; },
     add(option) { this.children.push(option); }
   };
 }
 function historyApp() {
-  const elements = Object.fromEntries(['date-range', 'filter-currency', 'holding-select', 'holding-basket', 'holding-location', 'reset-filters', 'first-page', 'prev-page', 'next-page', 'snapshot-value-heading', 'snapshots-tbody', 'snapshots-status', 'page-info'].map(id => [id, element()]));
+  const elements = Object.fromEntries(['date-range', 'filter-currency', 'holding-select', 'holding-basket', 'holding-location', 'reset-filters', 'first-page', 'prev-page', 'next-page', 'snapshot-value-heading', 'snapshots-tbody', 'snapshots-status', 'page-info', 'clear-history', 'history-delete-status', 'confirm-action', 'confirm-action-title', 'confirm-action-message', 'confirm-action-submit', 'portfolio-chart', 'portfolio-chart-status', 'holding-chart', 'holding-chart-status'].map(id => [id, element()]));
   elements['date-range'].value = '365';
   elements['filter-currency'].value = 'USD';
   const harness = loadApp(elements);
   harness.app.initHistory();
   return { ...harness, elements, requests: () => harness.pending.filter(p => p.url.includes('/snapshots?')) };
 }
-const snapshots = count => Array.from({ length: count }, () => ({ timestamp: '2026-10-01', total_value_usd: 10, total_value_try: 300 }));
+const snapshots = count => Array.from({ length: count }, (_, index) => ({ id: index + 1, timestamp: '2026-10-01', total_value_usd: 10, total_value_try: 300 }));
 const respond = (request, count) => request.resolve({ ok: true, json: async () => snapshots(count) });
 
 test('theme colors preserve USD portfolio and holding callbacks while default currency is TRY', () => {
@@ -266,4 +268,161 @@ test('obsolete snapshot failure cannot overwrite a newer successful page', async
   assert.equal(h.elements['snapshots-tbody'].attrs['aria-busy'], 'false');
   assert.equal(h.elements['next-page'].disabled, true);
   assert.equal(h.elements['prev-page'].disabled, true);
+});
+
+const deleteRequests = h => h.pending.filter(request => request.options?.method === 'DELETE');
+const rowDelete = (h, index = 0) => h.elements['snapshots-tbody'].children[index].cells[5].children[0];
+async function confirmDelete(h, all = false) {
+  if (all) h.elements['clear-history'].click();
+  else rowDelete(h).click();
+  h.elements['confirm-action'].dismiss('confirm');
+  await flush();
+}
+
+test('snapshot deletion and clear history cancel without requests, and confirmations cannot overlap', async () => {
+  for (const all of [false, true]) {
+    const h = historyApp(); respond(h.requests()[0], 2); await flush();
+    const first = rowDelete(h);
+    assert.equal(first.attrs['aria-label'], 'Delete snapshot from 2026-10-01T00:00:00.000Z UTC');
+    if (all) h.elements['clear-history'].click(); else first.click();
+    const title = h.elements['confirm-action-title'].textContent;
+    first.click(); h.elements['clear-history'].click();
+    assert.equal(h.elements['confirm-action-title'].textContent, title);
+    assert.equal(first.disabled, true);
+    const message = h.elements['confirm-action-message'].textContent;
+    assert.match(message, /Permanently delete/);
+    assert.match(message, /Holdings and settings will stay unchanged/);
+    if (all) {
+      assert.match(message, /ALL snapshots across every date range/);
+      assert.match(message, /outside the selected range/);
+      assert.match(message, /Hourly snapshots will resume/);
+    }
+    h.elements['confirm-action'].dismiss('cancel'); await flush();
+    assert.equal(deleteRequests(h).length, 0);
+    assert.equal(h.elements['snapshots-tbody'].children.length, 2);
+    assert.equal(first.disabled, false);
+    assert.equal((all ? h.elements['clear-history'] : first).focused, true);
+    assert.equal(h.elements['clear-history'].disabled, false);
+  }
+});
+
+test('delete failures retain rows and filters, report errors, and allow retry without duplicate submissions', async () => {
+  for (const all of [false, true]) {
+    const h = historyApp(); respond(h.requests()[0], 2); await flush();
+    await confirmDelete(h, all);
+    rowDelete(h).click(); h.elements['clear-history'].click();
+    assert.equal(deleteRequests(h).length, 1);
+    deleteRequests(h)[0].resolve({ ok: false, status: 500 }); await flush();
+    respond(h.requests()[1], 2); await flush();
+    assert.equal(h.elements['snapshots-tbody'].children.length, 2);
+    assert.match(h.elements['history-delete-status'].textContent, /Unable to confirm deletion/);
+    assert.equal(h.elements['date-range'].value, '365');
+    assert.equal(h.elements['filter-currency'].value, 'USD');
+    assert.equal(rowDelete(h).disabled, false);
+    await confirmDelete(h, all);
+    assert.equal(deleteRequests(h).length, 2);
+    deleteRequests(h)[1].reject(new Error('offline')); await flush();
+    respond(h.requests()[2], 2); await flush();
+    assert.equal(h.elements['clear-history'].disabled, false);
+    assert.equal(h.elements['snapshots-tbody'].children.length, 2);
+  }
+});
+
+test('individual delete and clear history reload both charts and snapshots while preserving filters', async () => {
+  for (const all of [false, true]) {
+    const h = historyApp(); respond(h.requests()[0], 2); await flush();
+    h.elements['holding-select'].value = '9';
+    h.elements['holding-basket'].value = 'Savings';
+    await confirmDelete(h, all);
+    const mutation = deleteRequests(h)[0];
+    assert.equal(mutation.url, all ? '/api/history/snapshots' : '/api/history/snapshots/1');
+    assert.equal(mutation.options.headers?.['X-Clear-History-Confirm'], all ? 'clear-history' : undefined);
+    mutation.resolve({ ok: true, status: 204 }); await flush();
+    assert.equal(h.elements['snapshots-tbody'].children.length, all ? 0 : 1);
+    assert.ok(h.pending.some(request => request.url === '/api/history/chart?days=365'));
+    assert.ok(h.pending.some(request => request.url === '/api/history/holding/9?days=365'));
+    assert.match(h.requests()[1].url, /offset=0&days=365/);
+    respond(h.requests()[1], all ? 0 : 1); await flush();
+    assert.equal(h.elements['holding-select'].value, '9');
+    assert.equal(h.elements['holding-basket'].value, 'Savings');
+    assert.equal(h.elements['filter-currency'].value, 'USD');
+    assert.equal(h.elements['clear-history'].disabled, false);
+    assert.equal(h.elements['clear-history'].focused, true);
+    assert.match(h.elements['history-delete-status'].textContent, /unchanged/);
+    if (all) assert.match(h.elements['snapshots-tbody'].children[0].cells[0].textContent, /No snapshots/);
+  }
+});
+
+test('deleting final snapshot on final page backtracks to a valid page', async () => {
+  const h = historyApp(); respond(h.requests()[0], 51); await flush();
+  h.elements['next-page'].click(); respond(h.requests()[1], 1); await flush();
+  await confirmDelete(h);
+  deleteRequests(h)[0].resolve({ ok: true }); await flush();
+  assert.match(h.requests()[2].url, /offset=50&/);
+  respond(h.requests()[2], 0); await flush();
+  assert.match(h.requests()[3].url, /offset=0&/);
+  respond(h.requests()[3], 50); await flush();
+  assert.equal(h.elements['page-info'].textContent, 'Page 1');
+  assert.equal(h.elements['prev-page'].disabled, true);
+  assert.equal(h.elements['next-page'].disabled, true);
+  assert.equal(h.elements['snapshots-tbody'].attrs['aria-busy'], 'false');
+  assert.equal(h.elements['clear-history'].disabled, false);
+});
+
+test('reads started before deletion cannot restore snapshot rows or either chart', async () => {
+  const h = historyApp(); respond(h.requests()[0], 51); await flush();
+  h.elements['holding-select'].value = '9';
+  h.elements['holding-select'].change();
+  h.app.loadPortfolioChart();
+  const oldHolding = h.pending.find(request => request.url.includes('/history/holding/'));
+  const oldPortfolio = h.pending.find(request => request.url.includes('/history/chart?'));
+  h.elements['next-page'].click();
+  const oldPage = h.requests()[1];
+  await confirmDelete(h, true);
+  deleteRequests(h)[0].resolve({ ok: true }); await flush();
+  respond(h.requests()[2], 0); await flush();
+  respond(oldPage, 51);
+  oldHolding.resolve({ ok: true, json: async () => [{ timestamp: '2026-10-01', value_usd: 999 }] });
+  oldPortfolio.resolve({ ok: true, json: async () => [{ timestamp: '2026-10-01', value_usd: 999 }] });
+  await flush();
+  assert.match(h.elements['snapshots-tbody'].children[0].cells[0].textContent, /No snapshots/);
+  assert.equal(h.app.state().charts.portfolio, null);
+  assert.equal(h.app.state().charts.holding, null);
+  assert.equal(h.elements['page-info'].textContent, 'Page 1');
+});
+
+
+test('failed deletion reconciles interrupted reads and blocks chart retries during mutation', async () => {
+  const h = historyApp(); respond(h.requests()[0], 51); await flush();
+  h.elements['holding-select'].value = '9';
+  h.elements['holding-select'].change(); h.app.loadPortfolioChart();
+  h.elements['next-page'].click();
+  await confirmDelete(h);
+  const before = h.pending.length;
+  h.app.loadPortfolioChart(); h.elements['holding-select'].change();
+  assert.equal(h.pending.length, before);
+  deleteRequests(h)[0].reject(new Error('lost response')); await flush();
+  assert.equal(h.pending.filter(request => request.url.includes('/history/chart?')).length, 2);
+  assert.equal(h.pending.filter(request => request.url.includes('/history/holding/')).length, 2);
+  assert.equal(h.elements['snapshots-tbody'].children.length, 50);
+  respond(h.requests()[2], 0); await flush();
+  respond(h.requests()[1], 51); await flush();
+  assert.match(h.elements['snapshots-tbody'].children[0].cells[0].textContent, /No snapshots/);
+  assert.equal(h.elements['snapshots-tbody'].attrs['aria-busy'], 'false');
+  assert.equal(h.elements['clear-history'].disabled, false);
+  assert.match(h.elements['history-delete-status'].textContent, /Unable to confirm deletion/);
+});
+
+
+test('delete removes matching row even when a pending read replaced it during confirmation', async () => {
+  const h = historyApp(); respond(h.requests()[0], 2); await flush();
+  h.elements['first-page'].click();
+  rowDelete(h).click();
+  respond(h.requests()[1], 2); await flush();
+  h.elements['confirm-action'].dismiss('confirm'); await flush();
+  deleteRequests(h)[0].resolve({ ok: true }); await flush();
+  h.requests()[2].reject(new Error('reload failed')); await flush();
+  assert.equal(h.elements['snapshots-tbody'].children.length, 1);
+  assert.equal(h.elements['snapshots-tbody'].children[0].dataset.snapshotId, '2');
+  assert.match(h.elements['snapshots-status'].children[0].textContent, /Unable to load/);
 });
