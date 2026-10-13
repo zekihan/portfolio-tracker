@@ -3,5 +3,16 @@
   "extends": [
     "config:recommended",
     "github>zekihan/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Docker digest updates must open PRs and pass CI before manual merge",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "automerge": false,
+      "automergeType": "pr",
+      "ignoreTests": false,
+      "prCreation": "immediate"
+    }
   ]
 }
