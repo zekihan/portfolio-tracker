@@ -163,6 +163,42 @@ var Migrations = []string{
 		response_json TEXT NOT NULL,
 		PRIMARY KEY (generation, idempotency_key)
 	);`,
+	// Schema v12 - EUR holdings and point-in-time EUR snapshot valuations.
+	// Rebuilding holdings must retain IDs issued to subsequently deleted rows.
+	`CREATE TEMP TABLE eur_migration_sequence (seq INTEGER NOT NULL);
+	INSERT INTO eur_migration_sequence SELECT MAX(
+		COALESCE((SELECT MAX(seq) FROM sqlite_sequence WHERE name = 'holdings'), 0),
+		COALESCE((SELECT MAX(id) FROM holdings), 0)
+	);
+	CREATE TABLE holdings_eur (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		ticker TEXT,
+		asset_type TEXT NOT NULL CHECK (asset_type IN ('Stock', 'ETF', 'TR Fund', 'Crypto', 'Gold', 'Cash')),
+		quantity REAL NOT NULL DEFAULT 0,
+		price_provider TEXT,
+		instrument_id TEXT,
+		base_currency TEXT NOT NULL DEFAULT 'TRY' CHECK (base_currency IN ('TRY', 'USD', 'EUR')),
+		basket TEXT,
+		location TEXT,
+		notes TEXT,
+		est_price REAL,
+		manual_price REAL DEFAULT 0,
+		manual_price_at DATETIME,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	INSERT INTO holdings_eur SELECT * FROM holdings;
+	DROP TABLE holdings;
+	ALTER TABLE holdings_eur RENAME TO holdings;
+	DELETE FROM sqlite_sequence WHERE name = 'holdings';
+	INSERT INTO sqlite_sequence (name, seq) SELECT 'holdings', seq FROM eur_migration_sequence;
+	DROP TABLE eur_migration_sequence;
+	CREATE INDEX idx_holdings_asset_type ON holdings(asset_type);
+	CREATE INDEX idx_holdings_basket ON holdings(basket);
+	CREATE INDEX idx_holdings_location ON holdings(location);
+	ALTER TABLE snapshots ADD COLUMN total_value_eur REAL;
+	ALTER TABLE snapshots ADD COLUMN eur_try_rate REAL;`,
 }
 
 func sqliteDSN(dbPath string) (string, error) {

@@ -17,12 +17,21 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
-const restoreCurrencyTRY, restoreCurrencyUSD = "TRY", "USD"
+const restoreCurrencyTRY, restoreCurrencyUSD, restoreCurrencyEUR = "TRY", "USD", "EUR"
 
 // Validate one row at a time so backup size does not determine memory use.
 // COALESCE preserves nullable fields supported by older schema writers.
-func validateRestoreData(ctx context.Context, conn sqlx.QueryerContext) (int64, error) {
+func validateRestoreData(
+	ctx context.Context,
+	conn sqlx.QueryerContext,
+	sourceVersion int,
+) (int64, error) {
 	var historicalID int64
+
+	eurColumns := "total_value_eur, eur_try_rate"
+	if sourceVersion < restoreEURVersion {
+		eurColumns = "NULL AS total_value_eur, NULL AS eur_try_rate"
+	}
 
 	validateSnapshot := func(rows *sqlx.Rows) error {
 		id, err := validateRestoreSnapshot(ctx, rows)
@@ -41,8 +50,12 @@ manual_price_at, created_at, updated_at, COALESCE(est_price, 0) AS est_price,
 COALESCE(ticker, '') AS ticker, COALESCE(price_provider, '') AS price_provider,
 COALESCE(instrument_id, '') AS instrument_id, COALESCE(basket, '') AS basket,
 COALESCE(location, '') AS location, COALESCE(notes, '') AS notes`, validate: validateRestoreHolding},
-		{table: "snapshots", columns: `id, timestamp, created_at, holdings_json, total_value_try,
-total_value_usd, usd_try_rate, stale_count, failed_count`, validate: validateSnapshot},
+		{
+			table: restoreSnapshotsTable,
+			columns: `id, timestamp, created_at, holdings_json, total_value_try,
+total_value_usd, usd_try_rate, stale_count, failed_count, ` + eurColumns,
+			validate: validateSnapshot,
+		},
 		{
 			table: "price_cache",
 			columns: `id, provider, instrument_id, price, currency, source, fetched_at,
@@ -117,7 +130,10 @@ func validateRestoreHolding(rows *sqlx.Rows) error {
 	}
 	if !restoreValidID(int64(holding.ID)) || holding.Name == "" ||
 		!slices.Contains(assetTypes, holding.AssetType) ||
-		!slices.Contains([]string{restoreCurrencyTRY, restoreCurrencyUSD}, holding.BaseCurrency) ||
+		!slices.Contains(
+			[]string{restoreCurrencyTRY, restoreCurrencyUSD, restoreCurrencyEUR},
+			holding.BaseCurrency,
+		) ||
 		!restoreNonnegative(holding.Quantity, holding.EstPrice) {
 		return fmt.Errorf("%w: holding values", ErrIncompatibleBackup)
 	}
@@ -158,6 +174,15 @@ func validateRestoreSnapshot(ctx context.Context, rows *sqlx.Rows) (int64, error
 		snapshot.USDTRYRate == 0 || snapshot.StaleCount < 0 ||
 		snapshot.FailedCount < 0 {
 		return 0, fmt.Errorf("%w: snapshot values", ErrIncompatibleBackup)
+	}
+
+	if (snapshot.TotalValueEUR == nil) != (snapshot.EURTRYRate == nil) {
+		return 0, fmt.Errorf("%w: incomplete EUR snapshot values", ErrIncompatibleBackup)
+	}
+
+	if snapshot.TotalValueEUR != nil &&
+		(!restoreNonnegative(*snapshot.TotalValueEUR, *snapshot.EURTRYRate) || *snapshot.EURTRYRate == 0) {
+		return 0, fmt.Errorf("%w: EUR snapshot values", ErrIncompatibleBackup)
 	}
 
 	return validateRestoreSnapshotJSON(ctx, snapshot.HoldingsJSON)
@@ -226,6 +251,8 @@ func decodeRestoreSnapshotHolding(decoder *json.Decoder) (int64, error) {
 
 	var quantity, price, valueTRY, valueUSD float64
 
+	var valueEUR *float64
+
 	var name, currency string
 
 	var stale, failed, available bool
@@ -238,6 +265,7 @@ func decodeRestoreSnapshotHolding(decoder *json.Decoder) (int64, error) {
 		{key: "price", value: &price},
 		{key: "value_try", value: &valueTRY},
 		{key: "value_usd", value: &valueUSD},
+		{key: "value_eur", value: &valueEUR},
 		{key: "name", value: &name},
 		{key: "currency", value: &currency},
 		{key: "is_stale", value: &stale},
@@ -256,7 +284,8 @@ func decodeRestoreSnapshotHolding(decoder *json.Decoder) (int64, error) {
 		}
 	}
 
-	if !restoreNonnegative(quantity, price, valueTRY, valueUSD) {
+	if !restoreNonnegative(quantity, price, valueTRY, valueUSD) ||
+		(valueEUR != nil && !restoreNonnegative(*valueEUR)) {
 		return 0, fmt.Errorf("%w: snapshot holding values", ErrIncompatibleBackup)
 	}
 
@@ -290,7 +319,10 @@ func validateRestoreSetting(rows *sqlx.Rows) error {
 
 	switch key {
 	case "display_currency":
-		valid = slices.Contains([]string{restoreCurrencyTRY, restoreCurrencyUSD}, value)
+		valid = slices.Contains(
+			[]string{restoreCurrencyTRY, restoreCurrencyUSD, restoreCurrencyEUR},
+			value,
+		)
 	case "dark_mode":
 		valid = slices.Contains([]string{"system", "light", "dark"}, value)
 	case "refresh_interval":

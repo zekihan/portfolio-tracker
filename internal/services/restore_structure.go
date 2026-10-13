@@ -21,7 +21,11 @@ type restoreColumn struct {
 
 // Only ordinary stored tables can guarantee identical validation and copy reads.
 // Views, virtual tables, generated columns, and triggers are not backup formats.
-func validateRestoreStructures(ctx context.Context, conn sqlx.QueryerContext) error {
+func validateRestoreStructures(
+	ctx context.Context,
+	conn sqlx.QueryerContext,
+	sourceVersion int,
+) error {
 	var unsupported int
 
 	err := sqlx.GetContext(ctx, conn, &unsupported, `SELECT
@@ -47,6 +51,12 @@ AND tbl_name IN ('holdings', 'snapshots', 'price_cache', 'settings', 'snapshot_s
 		source, columnsErr := restoreTableStructure(ctx, conn, restoreSchema, table)
 		if columnsErr != nil {
 			return columnsErr
+		}
+
+		if table == restoreSnapshotsTable && sourceVersion < restoreEURVersion {
+			live = slices.DeleteFunc(live, func(column restoreColumn) bool {
+				return column.Name == "total_value_eur" || column.Name == "eur_try_rate"
+			})
 		}
 
 		if !slices.Equal(live, source) {

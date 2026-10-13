@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/zekihan/portfolio-tracker/internal/db"
@@ -28,6 +29,14 @@ func (getter *poolFailingGetter) GetPrice(
 
 func TestFailurePersistenceRespectsDeadline(t *testing.T) {
 	t.Parallel()
+
+	// Wall-clock scheduling must not expire the deadline before the provider
+	// acquires the connection used to block failure persistence.
+	synctest.Test(t, testFailurePersistenceRespectsDeadline)
+}
+
+func testFailurePersistenceRespectsDeadline(t *testing.T) {
+	t.Helper()
 
 	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
 	if err != nil {
@@ -69,6 +78,13 @@ func TestFailurePersistenceRespectsDeadline(t *testing.T) {
 	}
 
 	defer connection.Close()
+
+	// Hold virtual time until the failure path is actually blocked on the pool.
+	synctest.Wait()
+
+	if database.Stats().WaitCount == 0 {
+		t.Fatal("failure persistence did not reach the database wait")
+	}
 
 	select {
 	case lookupErr := <-result:

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"time"
 
@@ -65,6 +64,17 @@ func (service *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
 // GetUSDTTRYQuote preserves freshness and failure metadata for valuation callers.
 func (service *Service) GetUSDTTRYQuote(ctx context.Context) (models.Price, error) {
 	return service.getUSDTTRYQuote(ctx, false)
+}
+
+// GetEURTRYQuote preserves freshness and failure metadata for euro valuations.
+func (service *Service) GetEURTRYQuote(ctx context.Context) (models.Price, error) {
+	return service.getFXTRYQuote(ctx, currencyEUR, false)
+}
+
+func (service *Service) GetEURTRYRate(ctx context.Context) (float64, error) {
+	quote, err := service.GetEURTRYQuote(ctx)
+
+	return quote.Value, err
 }
 
 func (service *Service) RefreshAll(ctx context.Context, holdings []models.Holding) error {
@@ -514,64 +524,6 @@ func (service *Service) recordSuccess(provider string) {
 	delete(service.lastErrors, provider)
 	service.failures[provider] = 0
 	service.breakers[provider] = false
-}
-
-func (service *Service) getUSDTTRYQuote(ctx context.Context, force bool) (models.Price, error) {
-	primary, primaryErr := service.getPrice(ctx, "Frankfurter", "USD", force)
-	if usableFXQuote(&primary, primaryErr) && !primary.IsFailed && !primary.IsStale {
-		return primary, nil
-	}
-
-	if !force && usableFXQuote(&primary, primaryErr) {
-		return service.recoverCachedFX(ctx, &primary)
-	}
-
-	fallback, fallbackErr := service.getPrice(ctx, "Yahoo Finance", "USDTRY=X", force)
-	if usableFXQuote(&fallback, fallbackErr) && !fallback.IsFailed && !fallback.IsStale {
-		return fallback, nil
-	}
-
-	if !force {
-		if usableFXQuote(&fallback, fallbackErr) {
-			return fallback, nil
-		}
-	}
-
-	return models.Price{}, fmt.Errorf("no fresh FX rate available: %w",
-		errors.Join(errRefresh, primaryErr, primary.Error, fallbackErr, fallback.Error))
-}
-
-func usableFXQuote(quote *models.Price, err error) bool {
-	return err == nil && quote.Value > 0 && !math.IsInf(quote.Value, 0) && !math.IsNaN(quote.Value)
-}
-
-func (service *Service) recoverCachedFX(
-	ctx context.Context,
-	primary *models.Price,
-) (models.Price, error) {
-	fallback, err := service.backgroundFXQuote(ctx)
-	if ctx.Err() != nil {
-		return models.Price{}, wrapOperationError("getUSDTTRYQuote", ctx.Err())
-	}
-
-	// Prefer a healthy fallback, or the newer cached sample while both refresh.
-	if usableFXQuote(&fallback, err) &&
-		((!fallback.IsFailed && !fallback.IsStale) || fallback.FetchedAt.After(primary.FetchedAt)) {
-		return fallback, nil
-	}
-
-	return *primary, nil
-}
-
-// Keep serving stale FX immediately, but recover through the same bounded,
-// coalesced fetch machinery even when the fallback cache has never been populated.
-func (service *Service) backgroundFXQuote(ctx context.Context) (models.Price, error) {
-	ctx, err := service.withQuoteGeneration(ctx)
-	if err != nil {
-		return models.Price{}, err
-	}
-
-	return service.coalescedPrice(ctx, "Yahoo Finance", "USDTRY=X", false, true)
 }
 
 // Quotes derived from cached metadata must not receive a new freshness window.

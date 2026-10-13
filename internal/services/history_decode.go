@@ -14,7 +14,15 @@ func decodeHoldingHistoryPoint(
 ) HoldingHistoryPoint {
 	point := HoldingHistoryPoint{Timestamp: timestamp}
 
-	var valueTRY, valueUSD *float64
+	var (
+		valueTRY, valueUSD *float64
+		valueEUR           *float64
+	)
+
+	eurErr := json.Unmarshal(holding["value_eur"], &valueEUR)
+	if eurErr == nil && valueEUR != nil && areFiniteValues(*valueEUR) && *valueEUR >= 0 {
+		point.ValueEUR = valueEUR
+	}
 
 	tryErr := json.Unmarshal(holding["value_try"], &valueTRY)
 	usdErr := json.Unmarshal(holding["value_usd"], &valueUSD)

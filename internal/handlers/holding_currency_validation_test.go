@@ -19,7 +19,7 @@ func TestHoldingWritesValidateBaseCurrency(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
 
-			for _, currency := range []string{"EUR", "", "TRY", "USD"} {
+			for _, currency := range []string{"JPY", "", "TRY", "USD", "EUR"} {
 				t.Run("currency="+currency, func(t *testing.T) {
 					t.Parallel()
 					checkHoldingCurrencyWrite(t, method, currency)
@@ -58,7 +58,7 @@ func checkHoldingCurrencyWrite(t *testing.T, method, currency string) {
 		wantStatus = http.StatusOK
 	}
 
-	valid := currency == "TRY" || currency == "USD"
+	valid := supportedCurrency(currency)
 	if !valid {
 		wantStatus = http.StatusBadRequest
 	}

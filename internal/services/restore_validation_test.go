@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -21,12 +22,25 @@ func TestRestoreRejectsInvalidDataAtomically(t *testing.T) {
 		"invalid cache count":        `UPDATE price_cache SET error_count = 1.5`,
 		"invalid cache date":         `UPDATE price_cache SET expires_at = 'never'`,
 		"invalid snapshot total":     `UPDATE snapshots SET total_value_try = 'oops'`,
+		"unpaired EUR total":         `UPDATE snapshots SET total_value_eur = 1`,
+		"unpaired EUR rate":          `UPDATE snapshots SET eur_try_rate = 40`,
+		"invalid EUR total":          `UPDATE snapshots SET total_value_eur = 'oops', eur_try_rate = 40`,
+		"negative EUR total":         `UPDATE snapshots SET total_value_eur = -1, eur_try_rate = 40`,
+		"infinite EUR total":         `UPDATE snapshots SET total_value_eur = 1e999, eur_try_rate = 40`,
+		"invalid EUR rate":           `UPDATE snapshots SET total_value_eur = 1, eur_try_rate = 'oops'`,
+		"zero EUR rate":              `UPDATE snapshots SET total_value_eur = 1, eur_try_rate = 0`,
+		"negative EUR rate":          `UPDATE snapshots SET total_value_eur = 1, eur_try_rate = -1`,
+		"infinite EUR rate":          `UPDATE snapshots SET total_value_eur = 1, eur_try_rate = 1e999`,
 		"infinite snapshot rate":     `UPDATE snapshots SET usd_try_rate = 1e999`,
 		"zero snapshot rate":         `UPDATE snapshots SET usd_try_rate = 0`,
 		"negative snapshot count":    `UPDATE snapshots SET failed_count = -1`,
 		"invalid snapshot json":      `UPDATE snapshots SET holdings_json = '{'`,
 		"invalid snapshot quantity":  `UPDATE snapshots SET holdings_json = '[{"id":1,"quantity":"oops"}]'`,
 		"negative snapshot quantity": `UPDATE snapshots SET holdings_json = '[{"id":1,"quantity":-1}]'`,
+		"invalid JSON EUR value":     `UPDATE snapshots SET holdings_json = '[{"id":1,"value_eur":"oops"}]'`,
+		"negative JSON EUR value":    `UPDATE snapshots SET holdings_json = '[{"id":1,"value_eur":-1}]'`,
+		"infinite JSON EUR value":    `UPDATE snapshots SET holdings_json = '[{"id":1,"value_eur":1e999}]'`,
+		"EUR case alias":             `UPDATE snapshots SET holdings_json = '[{"id":1,"value_eur":-1,"VALUE_EUR":1}]'`,
 		"trailing snapshot json":     `UPDATE snapshots SET holdings_json = '[] []'`,
 		"invalid settings interval":  `UPDATE settings SET value = 'fast' WHERE key = 'refresh_interval'`,
 		"invalid settings currency":  `UPDATE settings SET value = 'XYZ' WHERE key = 'display_currency'`,
@@ -122,9 +136,9 @@ func TestRestoreValidLegacyData(t *testing.T) {
 	source := openTestDB(t, "source.db")
 	target := openTestDB(t, "target.db")
 	seedRestoreValidationData(t, source, "Legacy")
+	useLegacyRestoreSchema(t, source, 9)
 
 	statements := []string{
-		`PRAGMA user_version = 9`,
 		`DROP TABLE snapshot_runs`,
 		`DROP TABLE snapshot_state`,
 		`UPDATE holdings SET manual_price = NULL, manual_price_at = NULL`,
@@ -167,4 +181,12 @@ func TestRestoreValidLegacyData(t *testing.T) {
 	); got != 1 {
 		t.Fatal("legacy setting was not preserved")
 	}
+}
+
+// Match legacy user-table columns rather than merely relabeling a v12 backup.
+func useLegacyRestoreSchema(t *testing.T, service *SettingsService, version int) {
+	t.Helper()
+	execRestoreFixture(t, service, `ALTER TABLE snapshots DROP COLUMN total_value_eur;
+ALTER TABLE snapshots DROP COLUMN eur_try_rate;
+PRAGMA user_version = `+strconv.Itoa(version))
 }

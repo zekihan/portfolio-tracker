@@ -23,6 +23,7 @@
                 <select id="filter-currency" name="currency" class="form-select">
                     <option value="TRY" {{if eq .DisplayCurrency "TRY"}}selected{{end}}>TRY</option>
                     <option value="USD" {{if eq .DisplayCurrency "USD"}}selected{{end}}>USD</option>
+                    <option value="EUR" {{if eq .DisplayCurrency "EUR"}}selected{{end}}>EUR</option>
                 </select>
             </div>
             <div class="filter-group filter-actions">
@@ -83,7 +84,7 @@
                     <tr>
                         <th scope="col">Time (UTC)</th>
                         <th scope="col" class="numeric" id="snapshot-value-heading">Value ({{.DisplayCurrency}})</th>
-                        <th scope="col" class="numeric">USD/TRY</th>
+                        <th scope="col" class="numeric" id="snapshot-rate-heading">{{if eq .DisplayCurrency "EUR"}}EUR/TRY{{else}}USD/TRY{{end}}</th>
                         <th scope="col" class="numeric">Stale</th>
                         <th scope="col" class="numeric">Failed</th>
                         <th scope="col">Actions</th>

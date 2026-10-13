@@ -113,8 +113,8 @@ func validateField(field reflect.Value, rules string) (bool, error) {
 		return field.Float() >= 0, nil
 	case "min=1":
 		return utf8.RuneCountInString(field.String()) >= 1, nil
-	case "oneof=TRY USD":
-		return field.String() == currencyTRY || field.String() == currencyUSD, nil
+	case "oneof=TRY USD EUR":
+		return supportedCurrency(field.String()), nil
 	case "oneof=Stock ETF 'TR Fund' Crypto Gold Cash":
 		return slices.Contains([]string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"},
 			field.String()), nil

@@ -16,30 +16,31 @@ const (
 
 func (service *HoldingService) getWithPrices(
 	ctx context.Context,
-	_ string,
+	displayCurrency string,
 	budget time.Duration,
 ) ([]models.HoldingWithPrice, error) {
-	holdings, _, err := service.getValuations(ctx, budget)
+	holdings, _, _, err := service.getValuations(ctx, budget, displayCurrency)
 
 	return holdings, err
 }
 
-//nolint:gocyclo // Explicit budget, cancellation and per-row error handling keep partial results safe.
+//nolint:gocyclo // Prioritized quote phases and optional FX preserve partial valuations safely.
 func (service *HoldingService) getValuations(
 	ctx context.Context,
 	budget time.Duration,
-) ([]models.HoldingWithPrice, models.Price, error) {
+	displayCurrency string,
+) ([]models.HoldingWithPrice, models.Price, models.Price, error) {
 	valuationCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	holdings, err := service.GetAll(valuationCtx)
 	if err != nil {
-		return nil, models.Price{}, err
+		return nil, models.Price{}, models.Price{}, err
 	}
 
 	fxQuote, err := service.priceSvc.GetUSDTTRYQuote(valuationCtx)
 	if err != nil {
-		return nil, models.Price{}, wrapOperationError("GetWithPrices", err)
+		return nil, models.Price{}, models.Price{}, wrapOperationError("GetWithPrices", err)
 	}
 
 	// Fixed workers bound provider requests and goroutines; indexed results preserve order.
@@ -60,34 +61,53 @@ func (service *HoldingService) getValuations(
 		}
 
 		if err != nil {
-			return nil, models.Price{}, err
+			return nil, models.Price{}, models.Price{}, err
 		}
 	}
 
-	errorsByIndex := service.runValuations(valuationCtx, holdings, result, fxQuote.Value)
+	err = service.runValuations(valuationCtx, holdings, result, fxQuote.Value, false)
 
 	if ctx.Err() != nil {
-		return nil, models.Price{}, wrapOperationError("GetWithPrices", ctx.Err())
+		return nil, models.Price{}, models.Price{}, wrapOperationError("GetWithPrices", ctx.Err())
 	}
 
-	for _, valuationErr := range errorsByIndex {
-		if valuationErr != nil {
-			return nil, models.Price{}, valuationErr
-		}
+	if err != nil {
+		return nil, models.Price{}, models.Price{}, err
 	}
 
-	for index := range result {
-		if result[index].ValuationAvailable {
-			result[index].IsStale = result[index].IsStale || fxQuote.IsStale
+	var (
+		eurQuote models.Price
+		eurErr   error
+	)
 
-			result[index].IsFailed = result[index].IsFailed || fxQuote.IsFailed
-			if fxQuote.IsFailed && result[index].PriceError == "" {
-				result[index].PriceError = "Exchange rate refresh unavailable"
-			}
-		}
+	requiredEUR := requiresEURValuation(result, displayCurrency)
+	if requiredEUR {
+		eurQuote, eurErr = service.eurValuationQuote(ctx, valuationCtx, result, displayCurrency)
 	}
 
-	return result, fxQuote, nil
+	err = service.runValuations(valuationCtx, holdings, result, fxQuote.Value, true)
+	if err != nil {
+		return nil, models.Price{}, models.Price{}, err
+	}
+
+	if !requiredEUR {
+		eurQuote, eurErr = service.eurValuationQuote(ctx, valuationCtx, result, displayCurrency)
+	}
+
+	if ctx.Err() != nil {
+		return nil, models.Price{}, models.Price{}, wrapOperationError("GetWithPrices", ctx.Err())
+	}
+
+	if eurErr != nil && displayCurrency == restoreCurrencyEUR {
+		return nil, models.Price{}, models.Price{}, eurErr
+	}
+
+	err = service.finishCurrencyValuations(result, &fxQuote, &eurQuote, eurErr, displayCurrency)
+	if err != nil {
+		return nil, models.Price{}, models.Price{}, err
+	}
+
+	return result, fxQuote, eurQuote, nil
 }
 
 var (
@@ -115,7 +135,7 @@ func (service *HoldingService) safeValueHolding(
 	return service.valueHolding(ctx, holding, rate)
 }
 
-//nolint:nestif // Manual overrides and remote quote failures have distinct valuation semantics.
+//nolint:gocyclo,nestif // Manual overrides and remote quote failures have distinct valuation semantics.
 func (service *HoldingService) valueHolding(
 	ctx context.Context,
 	holding *models.Holding,
@@ -155,7 +175,8 @@ func (service *HoldingService) valueHolding(
 		}
 	}
 
-	if hwp.ValuationAvailable && hwp.CurrentCurrency != "TRY" && hwp.CurrentCurrency != "USD" {
+	if hwp.ValuationAvailable && hwp.CurrentCurrency != "TRY" && hwp.CurrentCurrency != "USD" &&
+		hwp.CurrentCurrency != restoreCurrencyEUR {
 		hwp.ValuationAvailable = false
 		hwp.PriceError = errUnsupportedQuoteCurrency.Error()
 	}
@@ -182,7 +203,8 @@ func (service *HoldingService) runValuations(
 	holdings []models.Holding,
 	result []models.HoldingWithPrice,
 	rate float64,
-) []error {
+	zeroQuantity bool,
+) error {
 	errorsByIndex := make([]error, len(holdings))
 	jobs := make(chan int)
 
@@ -203,26 +225,79 @@ func (service *HoldingService) runValuations(
 		})
 	}
 
-	// Positions contributing value get the shared budget first. Keep the original
-	// indexes so quote scheduling never changes the displayed holding order.
+	// Each phase preserves row indexes and shares the same worker and time bounds.
 queue:
-	for _, zeroQuantity := range []bool{false, true} {
-		for index := range holdings {
-			if (holdings[index].Quantity == 0) != zeroQuantity ||
-				!needsAutomaticQuote(&holdings[index]) {
-				continue
-			}
+	for index := range holdings {
+		if (holdings[index].Quantity == 0) != zeroQuantity ||
+			!needsAutomaticQuote(&holdings[index]) {
+			continue
+		}
 
-			select {
-			case jobs <- index:
-			case <-ctx.Done():
-				break queue
-			}
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			break queue
 		}
 	}
 
 	close(jobs)
 	workers.Wait()
 
-	return errorsByIndex
+	for _, err := range errorsByIndex {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// finishCurrencyValuations applies only the exchange rates used by each row.
+//
+//nolint:gocyclo // Per-row quote and estimate dependencies carry independent quality flags.
+func (service *HoldingService) finishCurrencyValuations(
+	result []models.HoldingWithPrice,
+	fxQuote, eurQuote *models.Price,
+	eurErr error,
+	displayCurrency string,
+) error {
+	for index := range result {
+		row := &result[index]
+		if row.Quantity != 0 && row.BaseCurrency == restoreCurrencyEUR && row.EstPrice > 0 &&
+			eurQuote.Value <= 0 {
+			return eurErr
+		}
+
+		if row.CurrentCurrency == restoreCurrencyEUR && eurQuote.Value <= 0 {
+			row.ValuationAvailable = false
+			row.IsFailed = true
+			row.PriceError = "EUR exchange rate unavailable"
+		}
+
+		err := service.normalizeHolding(row, fxQuote.Value, eurQuote.Value)
+		if err != nil {
+			return err
+		}
+
+		if row.ValuationAvailable &&
+			(displayCurrency == restoreCurrencyEUR || holdingNeedsEUR(row)) {
+			row.IsStale = row.IsStale || eurQuote.IsStale
+
+			row.IsFailed = row.IsFailed || eurQuote.IsFailed
+			if eurQuote.IsFailed && row.PriceError == "" {
+				row.PriceError = "EUR exchange rate refresh unavailable"
+			}
+		}
+
+		if result[index].ValuationAvailable {
+			result[index].IsStale = result[index].IsStale || fxQuote.IsStale
+
+			result[index].IsFailed = result[index].IsFailed || fxQuote.IsFailed
+			if fxQuote.IsFailed && result[index].PriceError == "" {
+				result[index].PriceError = "Exchange rate refresh unavailable"
+			}
+		}
+	}
+
+	return nil
 }

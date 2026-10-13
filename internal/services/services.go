@@ -17,7 +17,7 @@ import (
 )
 
 var errUnsupportedQuoteCurrency = errors.New(
-	"unsupported quote currency: only TRY and USD can be valued",
+	"unsupported quote currency: only TRY, USD and EUR can be valued",
 )
 
 type HoldingService struct {
@@ -159,16 +159,19 @@ func areFiniteValues(values ...float64) bool {
 	return true
 }
 
+//nolint:gocyclo // Currency totals, allocations, completeness and FX quality are independent.
 func (service *HoldingService) GetDashboardData(
 	ctx context.Context,
 	displayCurrency string,
 ) (*models.DashboardData, error) {
-	holdings, fxQuote, err := service.getValuations(ctx, valuationBudget)
+	holdings, fxQuote, eurQuote, err := service.getValuations(ctx, valuationBudget, displayCurrency)
 	if err != nil {
 		return nil, err
 	}
 
-	var totalTRY, totalUSD, estTotalTRY, estTotalUSD float64
+	eurUsed := displayCurrency == restoreCurrencyEUR
+
+	var totalTRY, totalUSD, totalEUR, estTotalTRY, estTotalUSD, estTotalEUR float64
 
 	staleCount, failedCount, coverageCount, valuedCount := 0, 0, 0, 0
 	allocType := make(map[string]float64)
@@ -178,6 +181,7 @@ func (service *HoldingService) GetDashboardData(
 
 	for index := range holdings {
 		holding := holdings[index]
+		eurUsed = eurUsed || holdingNeedsEUR(&holding)
 		// A zero position has a known contribution even when its unit quote is unavailable.
 		if holding.ValuationAvailable || holding.Quantity == 0 {
 			valuedCount++
@@ -185,8 +189,10 @@ func (service *HoldingService) GetDashboardData(
 		// Currency-specific totals must not depend on the allocation display currency.
 		totalTRY += holding.NormTotalTRY
 		totalUSD += holding.NormTotalUSD
+		totalEUR += holding.NormTotalEUR
 		estTotalTRY += holding.NormEstTotalTRY
 		estTotalUSD += holding.NormEstTotalUSD
+		estTotalEUR += holding.NormEstTotalEUR
 
 		if holding.IsStale {
 			staleCount++
@@ -202,8 +208,12 @@ func (service *HoldingService) GetDashboardData(
 
 		// Allocations based on current value.
 		val := holding.NormTotalTRY
-		if displayCurrency == "USD" {
+
+		switch displayCurrency {
+		case "USD":
 			val = holding.NormTotalUSD
+		case restoreCurrencyEUR:
+			val = holding.NormTotalEUR
 		}
 
 		if val > 0 {
@@ -220,7 +230,7 @@ func (service *HoldingService) GetDashboardData(
 		}
 	}
 
-	if !areFiniteValues(totalTRY, totalUSD, estTotalTRY, estTotalUSD) {
+	if !areFiniteValues(totalTRY, totalUSD, totalEUR, estTotalTRY, estTotalUSD, estTotalEUR) {
 		return nil, errNonFiniteDashboardTotals
 	}
 
@@ -229,18 +239,27 @@ func (service *HoldingService) GetDashboardData(
 		return nil, wrapOperationError("GetDashboardData", err)
 	}
 
+	fxFetchedAt := fxQuote.FetchedAt
+	if eurUsed {
+		fxFetchedAt = oldestFXTime(fxFetchedAt, eurQuote.FetchedAt)
+	}
+
 	return &models.DashboardData{
 		ValuationComplete:  valuedCount == len(holdings),
 		ValuedCount:        valuedCount,
 		UnvaluedCount:      len(holdings) - valuedCount,
+		CurrentValueEUR:    totalEUR,
+		EstimatedValueEUR:  estTotalEUR,
+		EURTRYRate:         eurQuote.Value,
+		EURAvailable:       eurQuote.Value > 0,
 		CurrentValueTRY:    totalTRY,
 		CurrentValueUSD:    totalUSD,
 		EstimatedValueTRY:  estTotalTRY,
 		EstimatedValueUSD:  estTotalUSD,
 		USDTRYRate:         fxQuote.Value,
-		FXIsStale:          fxQuote.IsStale,
-		FXIsFailed:         fxQuote.IsFailed,
-		FXFetchedAt:        fxQuote.FetchedAt,
+		FXIsStale:          fxQuote.IsStale || (eurUsed && eurQuote.IsStale),
+		FXIsFailed:         fxQuote.IsFailed || (eurUsed && eurQuote.IsFailed),
+		FXFetchedAt:        fxFetchedAt,
 		StaleCount:         staleCount,
 		FailedCount:        failedCount,
 		CoverageCount:      coverageCount,
@@ -306,7 +325,7 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return wrapOperationError("CreateSnapshot", err)
 	}
 
-	holdings, fxQuote, err := service.holdingSvc.getValuations(ctx, valuationBudget)
+	holdings, fxQuote, eurQuote, err := service.holdingSvc.getValuations(ctx, valuationBudget, "")
 	if err != nil {
 		return err
 	}
@@ -323,7 +342,7 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return &IncompleteValuationError{UnvaluedCount: unvalued, TotalHoldings: len(holdings)}
 	}
 
-	var totalTRY, totalUSD float64
+	var totalTRY, totalUSD, totalEUR float64
 
 	staleCount, failedCount := 0, 0
 
@@ -334,6 +353,7 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		valUSD := holding.NormTotalUSD
 		totalTRY += valTRY
 		totalUSD += valUSD
+		totalEUR += holding.NormTotalEUR
 
 		// Quote quality only affects aggregate history when the position contributes value.
 		if holding.Quantity != 0 && holding.IsStale {
@@ -354,6 +374,9 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 			"is_failed":           holding.IsFailed,
 			"valuation_available": true,
 		}
+		if eurQuote.Value > 0 && !eurQuote.IsStale && !eurQuote.IsFailed {
+			snapshotHolding["value_eur"] = holding.NormTotalEUR
+		}
 		// Keep a known zero total without inventing an unavailable unit quote.
 		if holding.ValuationAvailable {
 			snapshotHolding["price"] = holding.CurrentPrice
@@ -364,7 +387,8 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 	}
 
 	if math.IsNaN(totalTRY) || math.IsInf(totalTRY, 0) ||
-		math.IsNaN(totalUSD) || math.IsInf(totalUSD, 0) {
+		math.IsNaN(totalUSD) || math.IsInf(totalUSD, 0) ||
+		math.IsNaN(totalEUR) || math.IsInf(totalEUR, 0) {
 		return errNonFiniteSnapshotTotals
 	}
 
@@ -373,7 +397,13 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return wrapOperationError("CreateSnapshot", err)
 	}
 
+	var snapshotEUR, snapshotEURRate *float64
+	if eurQuote.Value > 0 && !eurQuote.IsStale && !eurQuote.IsFailed {
+		snapshotEUR, snapshotEURRate = &totalEUR, &eurQuote.Value
+	}
+
 	return service.persistSnapshot(ctx, generation, &models.Snapshot{
+		TotalValueEUR: snapshotEUR, EURTRYRate: snapshotEURRate,
 		TotalValueTRY: totalTRY, TotalValueUSD: totalUSD, USDTRYRate: fxQuote.Value,
 		StaleCount: staleCount, FailedCount: failedCount, HoldingsJSON: string(holdingsJSON),
 	})
@@ -383,11 +413,11 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 // The fallback extracts their numeric offset and ignores the redundant zone label.
 const snapshotTimeCTE = `WITH snapshot_times AS (
  SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
- usd_try_rate, stale_count, failed_count,
+ usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count,
  instr(substr(timestamp, 12), ' ') + 11 AS zone_at FROM snapshots
 ), ordered_snapshots AS (
  SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
- usd_try_rate, stale_count, failed_count, COALESCE(julianday(timestamp), julianday(
+ usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count, COALESCE(julianday(timestamp), julianday(
   substr(timestamp, 1, zone_at - 1) || substr(timestamp, zone_at + 1, 3) || ':' ||
   substr(timestamp, zone_at + 4, 2))) AS instant FROM snapshot_times
 ) `
@@ -401,8 +431,9 @@ func (service *SnapshotService) GetSnapshots(
 	err := service.db.SelectContext(
 		ctx,
 		&snapshots,
-		snapshotTimeCTE+`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM ordered_snapshots WHERE (? = 0 OR instant >= julianday(?))
+		snapshotTimeCTE+`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd,
+usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count
+FROM ordered_snapshots WHERE (? = 0 OR instant >= julianday(?))
          ORDER BY instant DESC, id DESC LIMIT ? OFFSET ?`,
 		days,
 		time.Now().UTC().AddDate(0, 0, -days),
@@ -424,7 +455,8 @@ func (service *SnapshotService) GetSnapshotsForChart(
 	err := service.db.SelectContext(
 		ctx,
 		&snapshots,
-		snapshotTimeCTE+`SELECT timestamp, total_value_try, total_value_usd, usd_try_rate, stale_count, failed_count
+		snapshotTimeCTE+`SELECT timestamp, total_value_try, total_value_usd,
+usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count
 FROM ordered_snapshots WHERE instant >= julianday(?) ORDER BY instant, id`,
 		cutoff,
 	)
@@ -433,11 +465,14 @@ FROM ordered_snapshots WHERE instant >= julianday(?) ORDER BY instant, id`,
 	}
 
 	points := make([]ChartPoint, 0, len(snapshots))
-	for _, snap := range snapshots {
+	for index := range snapshots {
+		snap := &snapshots[index]
 		points = append(points, ChartPoint{
 			Timestamp:   snap.Timestamp,
 			ValueTRY:    snap.TotalValueTRY,
 			ValueUSD:    snap.TotalValueUSD,
+			ValueEUR:    snap.TotalValueEUR,
+			EURTRYRate:  snap.EURTRYRate,
 			USDTRYRate:  snap.USDTRYRate,
 			StaleCount:  snap.StaleCount,
 			FailedCount: snap.FailedCount,
@@ -493,6 +528,8 @@ WHERE instant >= julianday(?) ORDER BY instant, id`, cutoff)
 }
 
 type ChartPoint struct {
+	ValueEUR    *float64  `json:"value_eur"`
+	EURTRYRate  *float64  `json:"eur_try_rate"`
 	Timestamp   time.Time `json:"timestamp"`
 	ValueTRY    float64   `json:"value_try"`
 	ValueUSD    float64   `json:"value_usd"`
@@ -502,6 +539,7 @@ type ChartPoint struct {
 }
 
 type HoldingHistoryPoint struct {
+	ValueEUR           *float64  `json:"value_eur"`
 	Timestamp          time.Time `json:"timestamp"`
 	ValuationAvailable bool      `json:"valuation_available"`
 	IsStale            bool      `json:"is_stale"`
@@ -528,8 +566,8 @@ func (service *SnapshotService) persistSnapshot(
 
 	result, err := tx.ExecContext(ctx, `
                 INSERT INTO snapshots (timestamp, total_value_try, total_value_usd,
-usd_try_rate, stale_count, failed_count, holdings_json)
-		SELECT CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?
+usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count, holdings_json)
+		SELECT CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?
 		FROM snapshot_state WHERE id = 1 AND generation = ?
 		AND (? = '' OR EXISTS (SELECT 1 FROM snapshot_runs
 			WHERE slot = ? AND owner = ? AND completed = 0))
@@ -537,6 +575,8 @@ usd_try_rate, stale_count, failed_count, holdings_json)
 		snapshot.TotalValueTRY,
 		snapshot.TotalValueUSD,
 		snapshot.USDTRYRate,
+		snapshot.TotalValueEUR,
+		snapshot.EURTRYRate,
 		snapshot.StaleCount,
 		snapshot.FailedCount,
 		snapshot.HoldingsJSON,
@@ -640,24 +680,49 @@ var errManualPriceMustBeFiniteAndNonnegative = errors.New(
 func (service *HoldingService) normalizeHolding(
 	holding *models.HoldingWithPrice,
 	rate float64,
+	eurRates ...float64,
 ) error {
+	var eurRate float64
+	if len(eurRates) > 0 {
+		eurRate = eurRates[0]
+	}
+
+	holding.EURValuationAvailable = holding.ValuationAvailable && eurRate > 0
 	if holding.ValuationAvailable {
 		holding.NormPriceTRY, holding.NormPriceUSD = service.normalizePrice(
 			holding.CurrentPrice,
 			holding.CurrentCurrency,
 			rate,
+			eurRate,
 		)
 		holding.NormTotalTRY = holding.Quantity * holding.NormPriceTRY
+
 		holding.NormTotalUSD = holding.Quantity * holding.NormPriceUSD
+		if eurRate > 0 {
+			holding.NormPriceEUR = holding.NormPriceTRY / eurRate
+			holding.NormTotalEUR = holding.Quantity * holding.NormPriceEUR
+		}
 	}
 
 	if holding.EstPrice > 0 {
-		estTRY, estUSD := service.normalizePrice(holding.EstPrice, holding.BaseCurrency, rate)
+		estTRY, estUSD := service.normalizePrice(
+			holding.EstPrice,
+			holding.BaseCurrency,
+			rate,
+			eurRate,
+		)
 		holding.NormEstTotalTRY = holding.Quantity * estTRY
+
 		holding.NormEstTotalUSD = holding.Quantity * estUSD
+		if eurRate > 0 {
+			holding.NormEstTotalEUR = holding.Quantity * (estTRY / eurRate)
+		}
 	}
 
 	if !areFiniteValues(
+		holding.NormPriceEUR,
+		holding.NormTotalEUR,
+		holding.NormEstTotalEUR,
 		holding.NormPriceTRY,
 		holding.NormPriceUSD,
 		holding.NormTotalTRY,
@@ -675,6 +740,7 @@ func (service *HoldingService) normalizePrice(
 	quote float64,
 	currency string,
 	usdTryRate float64,
+	eurRates ...float64,
 ) (float64, float64) {
 	var try, usd float64
 
@@ -683,6 +749,13 @@ func (service *HoldingService) normalizePrice(
 		try = quote
 		if usdTryRate > 0 {
 			usd = quote / usdTryRate
+		}
+	case restoreCurrencyEUR:
+		if len(eurRates) > 0 && eurRates[0] > 0 {
+			try = quote * eurRates[0]
+			if usdTryRate > 0 {
+				usd = try / usdTryRate
+			}
 		}
 	case "USD":
 		usd = quote

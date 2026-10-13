@@ -374,7 +374,8 @@ const PortfolioApp = (function() {
     menu.replaceChildren();
     [
       { currency: 'TRY', label: 'Turkish Lira (TRY)' },
-      { currency: 'USD', label: 'US Dollar (USD)' }
+      { currency: 'USD', label: 'US Dollar (USD)' },
+      { currency: 'EUR', label: 'Euro (EUR)' }
     ].forEach(({ currency, label }) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -592,7 +593,7 @@ const PortfolioApp = (function() {
     // Older snapshots can contain partial totals after a failed provider lookup.
     // Keep an explicit gap rather than drawing a misleading portfolio loss.
     return point.failed_count > 0 || point.valuation_complete === false || point.valuation_available === false ? null :
-      (currency === 'USD' ? point.value_usd : point.value_try);
+      (point[{ TRY: 'value_try', USD: 'value_usd', EUR: 'value_eur' }[currency]] ?? null);
   }
 
   function loadPortfolioChart(range) {
@@ -626,16 +627,14 @@ const PortfolioApp = (function() {
     }
 
     const labels = data.map(d => new Date(d.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
-    const valuesTry = data.map(d => snapshotChartValue(d, 'TRY'));
-    const valuesUsd = data.map(d => snapshotChartValue(d, 'USD'));
+    const currency = document.getElementById('filter-currency')?.value || state.displayCurrency;
+    const values = data.map(d => snapshotChartValue(d, currency));
+    const missingEUR = currency === 'EUR' && data.some(d => d.value_eur == null);
     const hasFailures = data.some(d => d.failed_count > 0 || d.valuation_complete === false);
     chartStatus('portfolio-chart', hasFailures ?
       'Snapshots with failed prices are omitted from the line because their totals may be incomplete.' :
+      missingEUR ? 'Snapshots without a recorded EUR exchange rate are shown as gaps.' :
       data.length ? '' : 'No snapshots in this date range.');
-
-    const isUSD = (document.getElementById('filter-currency')?.value || state.displayCurrency) === 'USD';
-    const values = isUSD ? valuesUsd : valuesTry;
-    const currency = isUSD ? 'USD' : 'TRY';
 
     state.charts.portfolio = new Chart(ctx, {
       type: 'line',
@@ -827,7 +826,7 @@ const PortfolioApp = (function() {
         if (!response.ok) throw new Error('Unable to load holding history');
         const data = await response.json();
         if (request !== holdingRequest) return;
-        chartStatus('holding-chart', data.some(point => point.valuation_available === false) ?
+        chartStatus('holding-chart', data.some(point => snapshotChartValue(point, currency.value) === null) ?
           'Unavailable historical valuations are shown as gaps.' :
           data.length ? '' : 'No snapshots for this holding in this date range.');
         state.charts.holding = new Chart(document.getElementById('holding-chart'), {
@@ -950,12 +949,16 @@ const PortfolioApp = (function() {
           return;
         }
         document.getElementById('snapshot-value-heading').textContent = `Value (${currency.value})`;
+        const rateHeading = document.getElementById('snapshot-rate-heading');
+        if (rateHeading) rateHeading.textContent = currency.value === 'EUR' ? 'EUR/TRY' : 'USD/TRY';
         body.replaceChildren();
         snapshots.slice(0, 50).forEach(snapshot => {
           const row = body.insertRow();
           row.dataset.snapshotId = String(snapshot.id);
+          const value = snapshot[{ TRY: 'total_value_try', USD: 'total_value_usd', EUR: 'total_value_eur' }[currency.value]];
+          const rate = currency.value === 'EUR' ? snapshot.eur_try_rate : snapshot.usd_try_rate;
           [new Date(snapshot.timestamp).toISOString().replace('T', ' ').slice(0, 19),
-            (snapshot.failed_count > 0 ? 'Possibly incomplete: ' : '') + formatCurrency(currency.value === 'USD' ? snapshot.total_value_usd : snapshot.total_value_try, currency.value), snapshot.usd_try_rate,
+            value == null ? 'Unavailable' : (snapshot.failed_count > 0 ? 'Possibly incomplete: ' : '') + formatCurrency(value, currency.value), rate ?? 'Unavailable',
             snapshot.stale_count, snapshot.failed_count].forEach(value => {
             row.insertCell().textContent = value;
           });
@@ -1677,7 +1680,7 @@ const PortfolioApp = (function() {
 
   function formatCurrency(value, currency) {
     if (value === null || value === undefined || isNaN(value)) return '—';
-    const symbol = currency === 'USD' ? '$' : '₺';
+    const symbol = { TRY: '₺', USD: '$', EUR: '€' }[currency] || currency;
     return `${symbol} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 

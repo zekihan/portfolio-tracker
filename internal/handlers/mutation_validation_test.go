@@ -163,7 +163,7 @@ func TestAPIDisplayCurrencyValidation(t *testing.T) {
 
 	handler := New(nil, nil, nil, nil)
 	for _, handle := range []http.HandlerFunc{handler.getHoldings, handler.getDashboard, handler.getAllocation} {
-		for _, currency := range []string{"EUR", "", "usd", "JPY"} {
+		for _, currency := range []string{"GBP", "", "usd", "JPY"} {
 			request := httptest.NewRequestWithContext(
 				t.Context(),
 				http.MethodGet,
@@ -179,7 +179,7 @@ func TestAPIDisplayCurrencyValidation(t *testing.T) {
 		}
 	}
 
-	for _, query := range []string{"", "?currency=TRY", "?currency=USD"} {
+	for _, query := range []string{"", "?currency=TRY", "?currency=USD", "?currency=EUR"} {
 		request := httptest.NewRequestWithContext(
 			t.Context(),
 			http.MethodGet,
@@ -188,7 +188,7 @@ func TestAPIDisplayCurrencyValidation(t *testing.T) {
 		)
 
 		currency, valid := apiDisplayCurrency(httptest.NewRecorder(), request)
-		if !valid || (currency != "TRY" && currency != "USD") {
+		if !valid || !supportedCurrency(currency) {
 			t.Errorf("valid currency rejected: %s", query)
 		}
 	}

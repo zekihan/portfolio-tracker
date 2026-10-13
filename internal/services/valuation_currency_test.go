@@ -18,7 +18,7 @@ func TestValuationRejectsUnsupportedQuoteCurrencies(t *testing.T) {
 		wantUSD     float64
 		unavailable bool
 	}{
-		{currency: "EUR", wantTRY: 0, wantUSD: 0, unavailable: true},
+		{currency: "GBP", wantTRY: 0, wantUSD: 0, unavailable: true},
 		{currency: "TRY", wantTRY: 100, wantUSD: 2.5, unavailable: false},
 		{currency: "USD", wantTRY: 4000, wantUSD: 100, unavailable: false},
 	} {

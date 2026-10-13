@@ -47,11 +47,14 @@ func TestHoldingPartialUpdates(t *testing.T) {
 		{nil, "empty", `{}`, "1", 400, false},
 		{nil, "null", `{"notes":null}`, "1", 400, false},
 		{nil, "invalid asset type", `{"asset_type":"Wrong"}`, "1", 400, false},
-		{nil, "invalid currency", `{"base_currency":"EUR"}`, "1", 400, false},
+		{nil, "invalid currency", `{"base_currency":"JPY"}`, "1", 400, false},
 		{nil, "unsupported", `{"manual_price":1}`, "1", 400, false},
 		{func(holding *models.Holding) {
 			holding.AssetType = models.AssetTypeCrypto
 		}, "asset type", `{"asset_type":"Crypto"}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.BaseCurrency = "EUR"
+		}, "euro currency", `{"base_currency":"EUR"}`, "1", 204, false},
 		{func(holding *models.Holding) {
 			holding.BaseCurrency = "USD"
 		}, "currency", `{"base_currency":"USD"}`, "1", 204, false},

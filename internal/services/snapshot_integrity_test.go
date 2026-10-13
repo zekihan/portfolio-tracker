@@ -30,6 +30,7 @@ func TestSnapshotDoesNotPersistUnserializableHoldings(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	seedEURQuote(t, database)
 	priceService := price.NewService(database, price.DefaultRegistry())
 	holdingService := NewHoldingService(database, priceService)
 

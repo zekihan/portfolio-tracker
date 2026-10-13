@@ -83,13 +83,17 @@ func lt(a, b float64) bool {
 	return a < b
 }
 
-func formatCurrency(n float64, currency string) string {
+func formatCurrency(value float64, currency string) string {
 	symbol := "₺"
-	if currency == currencyUSD {
+
+	switch currency {
+	case currencyUSD:
 		symbol = "$"
+	case currencyEUR:
+		symbol = "€"
 	}
 
-	return fmt.Sprintf("%s %s", symbol, formatNumber(n))
+	return fmt.Sprintf("%s %s", symbol, formatNumber(value))
 }
 
 func formatPercent(n float64) string {
@@ -748,7 +752,7 @@ func (handler *Handler) updateCurrency(writer http.ResponseWriter, request *http
 		return
 	}
 
-	if req.Currency != currencyTRY && req.Currency != currencyUSD {
+	if !supportedCurrency(req.Currency) {
 		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: "invalid currency"})
 
 		return

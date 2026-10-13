@@ -25,11 +25,11 @@ func apiDisplayCurrency(writer http.ResponseWriter, request *http.Request) (stri
 		currency = request.URL.Query().Get("currency")
 	}
 
-	if currency != "TRY" && currency != "USD" {
+	if !supportedCurrency(currency) {
 		writeJSON(
 			writer,
 			http.StatusBadRequest,
-			map[string]any{errorKey: "unsupported display currency: use TRY or USD"},
+			map[string]any{errorKey: "unsupported display currency: use TRY, USD or EUR"},
 		)
 
 		return "", false

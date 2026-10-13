@@ -28,10 +28,10 @@
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="current-value-try">
-                        {{if or .Data.ValuationComplete .Data.ValuedCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{else}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{end}}{{else}}Unavailable{{end}}
+                        {{if or .Data.ValuationComplete .Data.ValuedCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{else if eq .DisplayCurrency "EUR"}}{{formatCurrency .Data.CurrentValueEUR "EUR"}}{{else}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{end}}{{else}}Unavailable{{end}}
                     </div>
                     <div class="value-secondary" id="current-value-usd">
-                        {{if or .Data.ValuationComplete .Data.ValuedCount}}≈ {{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{else}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{end}} (1 USD={{formatNumber .Data.USDTRYRate}}){{end}}
+                        {{if or .Data.ValuationComplete .Data.ValuedCount}}≈ {{if eq .DisplayCurrency "EUR"}}{{formatCurrency .Data.CurrentValueTRY "TRY"}} (1 EUR={{formatNumber .Data.EURTRYRate}} TRY){{else}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.CurrentValueTRY "TRY"}}{{else}}{{formatCurrency .Data.CurrentValueUSD "USD"}}{{end}} (1 USD={{formatNumber .Data.USDTRYRate}} TRY){{end}}{{end}}
                         {{if .Data.FXIsStale}}<span class="badge badge-warning">Stale exchange rate</span>{{if not .Data.FXFetchedAt.IsZero}} · FX as of {{formatTime .Data.FXFetchedAt}}{{end}}{{end}}
                     </div>
                 </div>
@@ -49,11 +49,11 @@
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="estimated-value-try">
-                        {{if .Data.CoverageCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}—{{end}}
+                        {{if .Data.CoverageCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else if eq .DisplayCurrency "EUR"}}{{formatCurrency .Data.EstimatedValueEUR "EUR"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}—{{end}}
                     </div>
                     <div class="value-secondary" id="estimated-value-usd">
                         {{if and .Data.ValuationComplete .Data.CoverageCount (eq .Data.CoverageCount .Data.TotalHoldings)}}
-                        Diff: {{if eq .DisplayCurrency "USD"}}{{formatCurrency (sub .Data.EstimatedValueUSD .Data.CurrentValueUSD) "USD"}}{{else}}{{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}{{end}}
+                        Diff: {{if eq .DisplayCurrency "USD"}}{{formatCurrency (sub .Data.EstimatedValueUSD .Data.CurrentValueUSD) "USD"}}{{else if eq .DisplayCurrency "EUR"}}{{formatCurrency (sub .Data.EstimatedValueEUR .Data.CurrentValueEUR) "EUR"}}{{else}}{{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}{{end}}
                         {{else if not .Data.ValuationComplete}}Comparison unavailable until all holdings are valued.{{else if .Data.CoverageCount}}Partial estimate — add prices for the remaining holdings to compare totals.
                         {{else}}Add estimated prices to your holdings to compare values.{{end}}
                     </div>

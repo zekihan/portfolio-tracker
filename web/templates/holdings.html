@@ -75,7 +75,7 @@
             <tbody id="holdings-tbody">
                 {{range .Holdings}}
                 {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}{{$unit := .NormPriceTRY}}
-                {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{$unit = .NormPriceUSD}}{{end}}
+                {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{$unit = .NormPriceUSD}}{{else if eq $.DisplayCurrency "EUR"}}{{$total = .NormTotalEUR}}{{$estimate = .NormEstTotalEUR}}{{$unit = .NormPriceEUR}}{{end}}
                 <tr class="holding-row {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
                     <td class="editable-cell" tabindex="0" data-field="name" data-edit-value="{{.Name}}">{{.Name}}</td>
                     <td class="editable-cell" tabindex="0" data-field="ticker" data-edit-value="{{.Ticker}}">{{.Ticker}}</td>
@@ -146,7 +146,7 @@
     <div class="mobile-cards mobile-only" role="list" aria-label="Holdings cards">
         {{range .Holdings}}
         {{$total := .NormTotalTRY}}{{$estimate := .NormEstTotalTRY}}{{$unit := .NormPriceTRY}}
-        {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{$unit = .NormPriceUSD}}{{end}}
+        {{if eq $.DisplayCurrency "USD"}}{{$total = .NormTotalUSD}}{{$estimate = .NormEstTotalUSD}}{{$unit = .NormPriceUSD}}{{else if eq $.DisplayCurrency "EUR"}}{{$total = .NormTotalEUR}}{{$estimate = .NormEstTotalEUR}}{{$unit = .NormPriceEUR}}{{end}}
         <article class="holding-card {{if .IsFailed}}failed{{else if .IsStale}}stale{{end}}" data-id="{{.ID}}">
             <header class="card-header">
                 <div>

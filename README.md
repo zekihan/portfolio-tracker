@@ -60,7 +60,7 @@ refresh runs. Cold lookups and explicit refreshes share in-flight work, with at
 most four upstream requests globally and one per provider. Valuation uses four
 workers and a shared 20-second budget. Pusula fund lists and Garanti shared
 metadata use coalesced 15-minute caches. Explicit refresh bypasses quote-bearing
-metadata caches, refreshes the USD/TRY dependency, and waits for results.
+metadata caches, refreshes the USD/TRY and EUR/TRY dependencies, and waits for results.
 Twelve Data quotes carry their actual currency. Alpha Vantage resolves exact-symbol
 currency metadata and caches it for 24 hours to avoid repeated metadata API
 credits; unknown or ambiguous currencies are rejected instead of assumed USD.
@@ -145,6 +145,20 @@ Existing-holding forms use `PATCH` with only changed fields, so untouched values
 from an older form cannot undo an inline edit. Explicitly changed fields use the
 usual last-write behavior; the generation token is not a per-holding revision.
 
+## Currencies
+
+TRY, USD, and EUR are supported for display and holding base currencies. Select
+Euro in the currency menu or Settings, or use `?currency=EUR` on pages and
+valuation APIs. Manual cash holdings use a unit price of 1 in their base currency.
+Frankfurter supplies USD/TRY and EUR/TRY rates; conversions between dollars and
+euros use those rates through TRY.
+
+New snapshots record EUR values when a fresh EUR exchange rate is available.
+Older snapshots without a recorded EUR rate appear as gaps in EUR charts and as
+unavailable in history, rather than being converted using today’s exchange rate.
+Missing EUR exchange rates do not prevent TRY/USD valuations unless the holding
+itself needs EUR conversion.
+
 ## Deployment
 
 ### Upgrading snapshot-lock ownership
@@ -176,6 +190,17 @@ restorable; operational receipts are local to the destination and are not restor
 Older binaries reject schema v11 databases. Keep a pre-upgrade backup if rollback
 is needed, and restore it using the corresponding older binary instead of lowering
 `user_version` on an upgraded database.
+
+### Upgrading EUR support (schema v12)
+
+Download a backup before upgrading, and stop older replicas before starting this
+version against a shared database. Schema v12 adds nullable EUR snapshot values
+and exchange rates. Existing snapshots retain their original TRY/USD history;
+missing historical EUR rates are not backfilled with current rates.
+
+Backups from schemas v9–v11 remain restorable. Older binaries reject schema v12
+databases. To roll back, restore a pre-upgrade backup using the corresponding
+older binary; do not lower `user_version` on an upgraded database.
 
 ### Docker
 

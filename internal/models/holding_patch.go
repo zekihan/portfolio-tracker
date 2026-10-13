@@ -6,7 +6,7 @@ type HoldingPatch struct {
 	AssetType     *AssetType `json:"asset_type"     validate:"omitempty,oneof=Stock ETF 'TR Fund' Crypto Gold Cash"`
 	PriceProvider *string    `json:"price_provider"`
 	InstrumentID  *string    `json:"instrument_id"`
-	BaseCurrency  *string    `json:"base_currency"  validate:"omitempty,oneof=TRY USD"`
+	BaseCurrency  *string    `json:"base_currency"  validate:"omitempty,oneof=TRY USD EUR"`
 	Name          *string    `json:"name"           validate:"omitempty,min=1"`
 	Ticker        *string    `json:"ticker"`
 	Basket        *string    `json:"basket"`

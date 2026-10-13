@@ -93,3 +93,64 @@ func TestZeroQuantityQuotesCannotStarveActiveCachedHolding(t *testing.T) {
 		}
 	}
 }
+
+func TestZeroQuantityQuotesCannotStarveEURConversion(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range []string{"manual", "automatic"} {
+		t.Run(source, func(t *testing.T) {
+			t.Parallel()
+			database := valuationDatabase(t)
+			registry := price.DefaultRegistry()
+			registry.Register(&boundedValuationGetter{
+				active: new(atomic.Int32), maximum: new(atomic.Int32),
+				entered: make(chan struct{}, 4), release: make(chan struct{}), name: "Blocked",
+			})
+
+			_, err := database.ExecContext(t.Context(), `INSERT INTO holdings
+(name,asset_type,quantity,price_provider,instrument_id,base_currency,manual_price) VALUES
+('Closed1','Stock',0,'Blocked','A','TRY',0),
+('Closed2','Stock',0,'Blocked','B','TRY',0),
+('Closed3','Stock',0,'Blocked','C','TRY',0),
+('Closed4','Stock',0,'Blocked','D','TRY',0),
+('Active','Cash',2,'Manual','','EUR',7)`)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if source == "automatic" {
+				_, err = database.ExecContext(
+					t.Context(),
+					`UPDATE holdings SET price_provider='Yahoo Finance',
+instrument_id='GOOD',manual_price=0,base_currency='TRY' WHERE name='Active';
+INSERT INTO price_cache(provider,instrument_id,price,currency,source,expires_at)
+VALUES('Yahoo Finance','GOOD',7,'EUR','test',?)`,
+					time.Now().Add(time.Hour),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			prices := price.NewService(database, registry)
+
+			t.Cleanup(func() { _ = prices.Close() })
+
+			rows, err := NewHoldingService(
+				database,
+				prices,
+			).getWithPrices(t.Context(), "EUR", 100*time.Millisecond)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for _, row := range rows {
+				if row.Name == "Active" &&
+					(!row.ValuationAvailable || row.IsFailed || row.NormTotalEUR != 14 || row.NormTotalTRY != 700 ||
+						row.NormTotalUSD != 17.5) {
+					t.Fatalf("zero quotes starved positive EUR conversion: %+v", row)
+				}
+			}
+		})
+	}
+}

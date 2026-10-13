@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
@@ -437,6 +438,7 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 	}
 
 	failures := make([]error, len(keys))
+	quotes := make([]models.Price, len(keys))
 
 	var workers sync.WaitGroup
 	for worker := range min(maxConcurrentFetches, len(keys)) {
@@ -452,6 +454,8 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 				key := keys[index]
 
 				quote, err := service.getPrice(ctx, key.provider, key.instrument, true)
+				quotes[index] = quote
+
 				if err == nil && (quote.IsFailed || quote.IsStale) {
 					err = quote.Error
 					if err == nil {
@@ -475,7 +479,7 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 
 	return errors.Join(
 		errors.Join(failures...),
-		service.refreshHoldingsFX(ctx, holdings),
+		service.refreshHoldingsFX(ctx, holdings, quotes),
 		ctx.Err(),
 	)
 }
@@ -638,16 +642,39 @@ func (service *Service) testProviderBounded(
 	return quote, err
 }
 
-func (service *Service) refreshHoldingsFX(ctx context.Context, holdings []models.Holding) error {
-	for index := range holdings {
-		if holdings[index].BaseCurrency != "" {
-			_, err := service.getUSDTTRYQuote(ctx, true)
-
-			return err
-		}
+func (service *Service) refreshHoldingsFX(
+	ctx context.Context,
+	holdings []models.Holding,
+	quotes []models.Price,
+) error {
+	currency, err := db.GetSettingContext(ctx, service.db, "display_currency")
+	if err != nil {
+		return wrapOperationError("refreshHoldingsFX", err)
 	}
 
-	return nil
+	needsUSD, needsEUR := false, currency == currencyEUR
+
+	for index := range holdings {
+		holding := &holdings[index]
+		needsUSD = needsUSD || holding.BaseCurrency != ""
+		needsEUR = needsEUR || holding.BaseCurrency == currencyEUR ||
+			holding.CurrentCurrency == currencyEUR
+	}
+
+	for index := range quotes {
+		needsEUR = needsEUR || quotes[index].Currency == currencyEUR
+	}
+
+	var usdErr, eurErr error
+	if needsUSD {
+		_, usdErr = service.getUSDTTRYQuote(ctx, true)
+	}
+
+	if needsEUR {
+		_, eurErr = service.getFXTRYQuote(ctx, currencyEUR, true)
+	}
+
+	return errors.Join(usdErr, eurErr)
 }
 
 func refreshMetadataContext(ctx context.Context, force bool) context.Context {

@@ -87,7 +87,7 @@ func unavailableValuationRouter(t *testing.T, failure string) http.Handler {
 		_, err = database.ExecContext(t.Context(), `INSERT INTO price_cache
 			(provider, instrument_id, price, currency, source, expires_at, last_error) VALUES
 			('Frankfurter', 'USD', 40, 'TRY', 'test', ?, ''),
-			('Yahoo Finance', 'TEST', 100, 'EUR', 'test', ?, '')`, expires, expires)
+			('Yahoo Finance', 'TEST', 100, 'GBP', 'test', ?, '')`, expires, expires)
 		if err != nil {
 			t.Fatal(err)
 		}

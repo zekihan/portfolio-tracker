@@ -19,9 +19,14 @@ var ErrIncompatibleBackup = errors.New("backup is not compatible with this datab
 
 // restoreTables are the user-data tables replaced by a restore. Provider_registry
 // is configuration and is kept.
-var restoreTables = []string{"holdings", "snapshots", "price_cache", "settings"}
+var restoreTables = []string{"holdings", restoreSnapshotsTable, "price_cache", "settings"}
 
-const restoreSchema = "restore_src"
+const (
+	restoreSchema         = "restore_src"
+	restoreSnapshotsTable = "snapshots"
+)
+
+const restoreLegacyVersion, restoreEURVersion = 9, 12
 
 // RestoreFrom replaces holdings, snapshots, cached prices, and settings with the
 // contents of the SQLite database at path. The file is validated first and the
@@ -100,17 +105,22 @@ func detachRestoreSource(parent context.Context, conn *sqlx.Conn) error {
 	return nil
 }
 
-func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) error {
-	err := validateRestoreStructures(ctx, conn)
+func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) (int, error) {
+	sourceVersion, err := validateRestoreVersion(ctx, conn)
 	if err != nil {
-		return err
+		return 0, err
+	}
+
+	err = validateRestoreStructures(ctx, conn, sourceVersion)
+	if err != nil {
+		return 0, err
 	}
 
 	var integrityCheck string
 
 	err = sqlx.GetContext(ctx, conn, &integrityCheck, "PRAGMA "+restoreSchema+".integrity_check")
 	if err != nil {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"%w: %w",
 			ErrIncompatibleBackup,
 			err,
@@ -118,30 +128,34 @@ func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) error 
 	}
 
 	if integrityCheck != "ok" {
-		return fmt.Errorf("%w: integrity check failed", ErrIncompatibleBackup)
+		return 0, fmt.Errorf("%w: integrity check failed", ErrIncompatibleBackup)
 	}
 
+	return sourceVersion, nil
+}
+
+func validateRestoreVersion(ctx context.Context, conn sqlx.QueryerContext) (int, error) {
 	var sourceVersion, liveVersion int
 
-	err = sqlx.GetContext(ctx, conn, &sourceVersion, "PRAGMA "+restoreSchema+".user_version")
+	err := sqlx.GetContext(ctx, conn, &sourceVersion, "PRAGMA "+restoreSchema+".user_version")
 	if err != nil {
-		return fmt.Errorf("read backup schema version: %w", err)
+		return 0, fmt.Errorf("read backup schema version: %w", err)
 	}
 
 	err = sqlx.GetContext(ctx, conn, &liveVersion, "PRAGMA main.user_version")
 	if err != nil {
-		return fmt.Errorf("read schema version: %w", err)
+		return 0, fmt.Errorf("read schema version: %w", err)
 	}
 
-	// Versions 10 and 11 add local operational tables only; user tables are unchanged.
-	const legacyVersion, receiptVersion = 9, 11
-	if sourceVersion != liveVersion &&
-		(sourceVersion < legacyVersion || sourceVersion > liveVersion || liveVersion > receiptVersion) {
-		return fmt.Errorf("%w: schema version %d, expected %d",
+	// Versions 9-11 share user tables. Version 12 adds nullable EUR snapshot fields;
+	// older backups must retain their historical EUR values as unavailable.
+	if sourceVersion < restoreLegacyVersion || sourceVersion > liveVersion ||
+		liveVersion != restoreEURVersion {
+		return 0, fmt.Errorf("%w: schema version %d, expected %d",
 			ErrIncompatibleBackup, sourceVersion, liveVersion)
 	}
 
-	return nil
+	return sourceVersion, nil
 }
 
 func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
@@ -164,12 +178,12 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 	}
 
 	// Hold the same source read snapshot for structure/data validation and copying.
-	err = validateRestoreSource(ctx, tx)
+	sourceVersion, err := validateRestoreSource(ctx, tx)
 	if err != nil {
 		return err
 	}
 
-	historicalID, err := validateRestoreData(ctx, tx)
+	historicalID, err := validateRestoreData(ctx, tx, sourceVersion)
 	if err != nil {
 		return err
 	}
@@ -220,7 +234,9 @@ func copyRestoreTables(ctx context.Context, tx *sqlx.Tx) error {
 	}
 
 	for _, table := range restoreTables {
-		columns, columnsErr := tableColumns(ctx, tx, "main", table)
+		// Version-appropriate structures were validated before deletion. Omitting
+		// the two new target columns leaves legacy EUR values genuinely NULL.
+		columns, columnsErr := tableColumns(ctx, tx, restoreSchema, table)
 		if columnsErr != nil {
 			return columnsErr
 		}
