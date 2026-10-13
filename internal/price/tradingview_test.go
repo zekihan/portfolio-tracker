@@ -117,6 +117,19 @@ func TestTradingViewNormalizesSheetSymbols(t *testing.T) {
 		{input: "TRX", ticker: "CRYPTO:TRXUSD", market: "coin", currency: "USD"},
 		{input: "USDT", ticker: "CRYPTO:USDTUSD", market: "coin", currency: "USD"},
 		{input: "USDC", ticker: "CRYPTO:USDCUSD", market: "coin", currency: "USD"},
+		{input: "BTC", ticker: "CRYPTO:BTCUSD", market: "coin", currency: "USD"},
+		{input: "ETHUSD", ticker: "CRYPTO:ETHUSD", market: "coin", currency: "USD"},
+		{input: "CRYPTO:ETHUSD", ticker: "CRYPTO:ETHUSD", market: "coin", currency: "USD"},
+		{input: "TUSD-USD", ticker: "CRYPTO:TUSDUSD", market: "coin", currency: "USD"},
+		{input: " tusd-usd ", ticker: "CRYPTO:TUSDUSD", market: "coin", currency: "USD"},
+		{input: "CRYPTO:TUSDUSD", ticker: "CRYPTO:TUSDUSD", market: "coin", currency: "USD"},
+		{input: "CURRENCY:TUSDUSD", ticker: "CRYPTO:TUSDUSD", market: "coin", currency: "USD"},
+		{input: "CRYPTO:TUSD-USD", ticker: "CRYPTO:TUSDUSD", market: "coin", currency: "USD"},
+		{input: "CURRENCY:TUSD-USD", ticker: "CRYPTO:TUSDUSD", market: "coin", currency: "USD"},
+		{input: "PYUSD-USD", ticker: "CRYPTO:PYUSDUSD", market: "coin", currency: "USD"},
+		{input: "FDUSD-USD", ticker: "CRYPTO:FDUSDUSD", market: "coin", currency: "USD"},
+		// Raw concatenated pairs retain their prior meaning; use TUSD-USD for TrueUSD.
+		{input: "TUSD", ticker: "CRYPTO:TUSD", market: "coin", currency: "USD"},
 	} {
 		t.Run(test.input, func(t *testing.T) {
 			t.Parallel()
@@ -165,9 +178,13 @@ func TestTradingViewNormalizesSheetSymbols(t *testing.T) {
 
 			providerTestClient(getter).Transport = &localProviderTransport{target: target}
 
-			_, err = getter.GetPrice(t.Context(), test.input)
+			quote, err := getter.GetPrice(t.Context(), test.input)
 			if err != nil {
 				t.Fatal(err)
+			}
+
+			if quote.Value != 1 || quote.Currency != test.currency {
+				t.Fatalf("unexpected quote: %+v", quote)
 			}
 		})
 	}

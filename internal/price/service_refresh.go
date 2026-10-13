@@ -130,6 +130,7 @@ func (service *Service) coalescedPrice(
 	force, backgroundOnly bool,
 ) (models.Price, error) {
 	ctx = refreshMetadataContext(ctx, force)
+	instrument = safeQuoteInstrument(provider, instrument)
 
 	requestErr := ctx.Err()
 	if requestErr != nil {

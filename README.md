@@ -64,6 +64,8 @@ metadata caches, refreshes the USD/TRY dependency, and waits for results.
 Twelve Data quotes carry their actual currency. Alpha Vantage resolves exact-symbol
 currency metadata and caches it for 24 hours to avoid repeated metadata API
 credits; unknown or ambiguous currencies are rejected instead of assumed USD.
+For TradingView Crypto, use `TUSD-USD` or `CRYPTO:TUSDUSD` for TrueUSD.
+Bare concatenated pairs keep their existing meaning: `TUSD` means Threshold/USD.
 FX freshness is shown alongside quote freshness, and each valuation uses one
 consistent FX sample. Failure to persist a newly fetched price makes that lookup
 unavailable rather than presenting it as successfully refreshed.

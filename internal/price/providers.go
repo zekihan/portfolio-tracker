@@ -831,7 +831,19 @@ func (getter *TradingViewCrypto) GetPrice(
 ) (models.Price, error) {
 	symbol := strings.ToUpper(strings.TrimSpace(instrumentID))
 	symbol = strings.TrimPrefix(strings.TrimPrefix(symbol, "CURRENCY:"), "CRYPTO:")
-	symbol = strings.TrimSuffix(strings.TrimSuffix(symbol, "-USD"), currencyUSD)
+	// Strip exactly one quote suffix: TUSD-USD is TrueUSD, not Threshold (T).
+	// Keep the existing concatenated-pair interpretation for ambiguous raw TUSD.
+	if base, explicitPair := strings.CutSuffix(symbol, "-USD"); explicitPair {
+		symbol = base
+	} else {
+		symbol = strings.TrimSuffix(symbol, currencyUSD)
+	}
+
+	if symbol == "" {
+		return models.Price{}, instrumentFailure(
+			fmt.Errorf("%w: missing crypto symbol", errInstrument),
+		)
+	}
 
 	return tradingViewQuote(
 		ctx,

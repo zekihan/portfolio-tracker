@@ -22,7 +22,7 @@ function loadApp(elements = {}, setTimer = callback => callback(), generation = 
   const context = { document, setTimeout: setTimer, window: { crypto: require('node:crypto').webcrypto, scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
     getComputedStyle: node => ({ overflowY: node.overflowY || 'visible', getPropertyValue: () => '#123456' }),
     Option: class { constructor(text, value) { this.text = text; this.value = value; } },
-    FormData: class { constructor(form) { return form.formData; } },
+    FormData: class { constructor(form) { if (form) return form.formData; } append() {} },
     Chart: class { constructor(canvas, config) { this.config = config; this.options = config.options; this.data = config.data; } destroy() {} update() {} },
     fetch: (url, options) => new Promise((resolve, reject) => pending.push({ url, options, resolve, reject })) };
   vm.runInNewContext(source, context);
@@ -102,6 +102,7 @@ function element(value = '') {
     replaceChildren(...children) { this.children = children; },
     appendChild(child) { this.children.push(child); },
     setAttribute(key, value) { this.attrs[key] = value; },
+    removeAttribute(key) { delete this.attrs[key]; },
     focus() { this.focused = true; },
     showModal() { this.open = true; },
     dismiss(value) { this.returnValue = value; this.open = false; this.close(); },
@@ -1431,4 +1432,148 @@ test('failed currency request releases a blocked holding flow for an explicit re
   assert.equal(h.reloads, 0, 'keep currency failure feedback visible');
   h.app.saveDisplayCurrency('USD'); h.pending[2].resolve({ ok: true }); await flush();
   assert.match(destination, /currency=USD/);
+});
+
+
+function enablePull(h) {
+  h.app.initPullToRefresh();
+  h.gesture = () => {
+    const target = { closest: () => null, parentElement: h.document.body };
+    h.dispatch('touchstart', { target, touches: [{ clientY: 10 }] });
+    h.dispatch('touchmove', { target, touches: [{ clientY: 90 }], preventDefault() {} });
+    h.dispatch('touchend');
+  };
+  h.reloads = 0;
+  h.window.location.reload = () => h.reloads++;
+  h.refreshRequests = () => h.pending.filter(request => request.url === '/api/sources/refresh');
+  return h;
+}
+
+function settingsPullHarness() {
+  const ids = ['restore-review', 'restore-filename', 'restore-error', 'backup-status',
+    'restore-cancel', 'restore-btn', 'restore-confirm', 'clear-all-data', 'confirm-action',
+    'confirm-action-title', 'confirm-action-message', 'confirm-action-submit'];
+  const elements = Object.fromEntries(ids.map(id => [id, Object.assign(element(), { id })]));
+  elements['restore-review'].hidden = true;
+  const h = enablePull(loadApp(elements));
+  h.elements = elements;
+  h.app.initDisplaySettings();
+  h.chooseBackup = () => h.dispatch('change', { target: {
+    id: 'restore-file', files: [{ name: 'portfolio.db' }], value: 'chosen'
+  } });
+  h.restoreClick = id => h.dispatch('click', { target: { closest: () => elements[id] } });
+  return h;
+}
+
+test('mobile pull preserves selected backup review and unlocks after cancellation', async () => {
+  for (const refreshFirst of [false, true]) {
+    const h = settingsPullHarness();
+    if (refreshFirst) h.gesture();
+    h.chooseBackup();
+    h.gesture();
+    assert.equal(h.refreshRequests().length, refreshFirst ? 1 : 0);
+    if (refreshFirst) { h.refreshRequests()[0].resolve({ ok: true }); await flush(); }
+    assert.equal(h.reloads, 0);
+    assert.equal(h.elements['restore-review'].hidden, false);
+    assert.equal(h.elements['restore-filename'].textContent, 'portfolio.db');
+    h.restoreClick('restore-cancel');
+    h.gesture();
+    h.refreshRequests().at(-1).resolve({ ok: true }); await flush();
+    assert.equal(h.reloads, 1);
+  }
+});
+
+test('mobile pull does not interrupt restore upload and failure preserves review for retry', async () => {
+  for (const refreshFirst of [false, true]) {
+    const h = settingsPullHarness();
+    if (refreshFirst) h.gesture();
+    h.chooseBackup(); h.restoreClick('restore-confirm');
+    const restores = () => h.pending.filter(request => request.url === '/api/settings/restore');
+    assert.equal(restores().length, 1);
+    assert.equal(h.elements['restore-confirm'].disabled, true);
+    h.gesture();
+    assert.equal(h.refreshRequests().length, refreshFirst ? 1 : 0);
+    if (refreshFirst) { h.refreshRequests()[0].resolve({ ok: true }); await flush(); }
+    assert.equal(h.reloads, 0);
+    restores()[0].reject(new Error('offline')); await flush();
+    assert.equal(h.elements['restore-confirm'].disabled, false);
+    h.gesture();
+    assert.equal(h.refreshRequests().length, refreshFirst ? 1 : 0, 'failed restore retains selected backup');
+    h.restoreClick('restore-confirm');
+    assert.equal(restores().length, 2, 'restore can be retried');
+    restores()[1].reject(new Error('offline')); await flush();
+    h.restoreClick('restore-cancel'); h.gesture();
+    h.refreshRequests().at(-1).resolve({ ok: true }); await flush();
+    assert.equal(h.reloads, 1);
+  }
+});
+
+test('mobile pull waits for clear-all and releases its guard after failure', async () => {
+  for (const refreshFirst of [false, true]) {
+    const h = settingsPullHarness();
+    if (refreshFirst) h.gesture();
+    h.elements['clear-all-data'].click();
+    h.elements['confirm-action'].dismiss('confirm'); await flush();
+    const clear = h.pending.find(request => request.url === '/api/settings/clear-all');
+    assert.ok(clear);
+    h.gesture();
+    assert.equal(h.refreshRequests().length, refreshFirst ? 1 : 0);
+    if (refreshFirst) { h.refreshRequests()[0].resolve({ ok: true }); await flush(); }
+    assert.equal(h.reloads, 0);
+    clear.reject(new Error('offline')); await flush();
+    assert.equal(h.elements['clear-all-data'].disabled, false);
+    h.gesture(); h.refreshRequests().at(-1).resolve({ ok: true }); await flush();
+    assert.equal(h.reloads, 1);
+  }
+});
+
+test('mobile pull waits for individual and full history deletion, then permits normal refresh', async () => {
+  for (const all of [false, true]) {
+    for (const refreshFirst of [false, true]) {
+      const h = enablePull(historyApp());
+      respond(h.requests()[0], 2); await flush();
+      if (refreshFirst) h.gesture();
+      await confirmDelete(h, all);
+      h.gesture();
+      assert.equal(h.refreshRequests().length, refreshFirst ? 1 : 0);
+      if (refreshFirst) { h.refreshRequests()[0].resolve({ ok: true }); await flush(); }
+      assert.equal(h.reloads, 0);
+      deleteRequests(h)[0].reject(new Error('offline')); await flush();
+      respond(h.requests()[1], 2); await flush();
+      assert.equal(h.elements['clear-history'].disabled, false);
+      h.gesture(); h.refreshRequests().at(-1).resolve({ ok: true }); await flush();
+      assert.equal(h.reloads, 1);
+    }
+  }
+});
+
+test('pull guards preserve successful restore and destructive clear navigation', async () => {
+  for (const operation of ['restore', 'clear-all', 'clear-history']) {
+    const h = operation === 'clear-history' ? enablePull(historyApp()) : settingsPullHarness();
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    h.gesture();
+    let mutation;
+    if (operation === 'restore') {
+      h.chooseBackup(); h.restoreClick('restore-confirm');
+      mutation = h.pending.find(request => request.url === '/api/settings/restore');
+    } else if (operation === 'clear-all') {
+      h.elements['clear-all-data'].click();
+      h.elements['confirm-action'].dismiss('confirm'); await flush();
+      mutation = h.pending.find(request => request.url === '/api/settings/clear-all');
+    } else {
+      respond(h.requests()[0], 2); await flush();
+      await confirmDelete(h, true);
+      mutation = deleteRequests(h)[0];
+    }
+    h.refreshRequests()[0].resolve({ ok: true }); await flush();
+    assert.equal(h.reloads, 0);
+    assert.equal(destination, undefined);
+    mutation.resolve({ ok: true, json: async () => ({}) }); await flush();
+    if (operation === 'clear-history') {
+      assert.match(destination, /days=365/);
+      assert.match(destination, /currency=USD/);
+      respond(h.requests()[1], 0); await flush();
+    } else assert.equal(destination, '/settings');
+  }
 });

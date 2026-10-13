@@ -1591,7 +1591,9 @@ const PortfolioApp = (function() {
     };
     document.addEventListener('input', trackEdit);
     document.addEventListener('change', trackEdit);
-    const editing = () => currencyUpdateActive || sourceRequestsPending || sourceDraftsPending() || holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
+    const editing = () => currencyUpdateActive || settingsWritesPending || historyMutationActive ||
+      document.getElementById('restore-review')?.hidden === false ||
+      sourceRequestsPending || sourceDraftsPending() || holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
       document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input') ||
       [...document.querySelectorAll('form')].some(form => dirtyForms.has(form) ||
         [...form.elements].some(control => {
