@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -25,7 +26,7 @@ const restoreSchema = "restore_src"
 // RestoreFrom replaces holdings, snapshots, cached prices, and settings with the
 // contents of the SQLite database at path. The file is validated first and the
 // replacement runs in one transaction, so a failure leaves the live data unchanged.
-func (service *SettingsService) RestoreFrom(ctx context.Context, path string) error {
+func (service *SettingsService) RestoreFrom(ctx context.Context, path string) (result error) {
 	conn, err := service.db.Connx(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
@@ -33,6 +34,12 @@ func (service *SettingsService) RestoreFrom(ctx context.Context, path string) er
 
 	defer func() {
 		_ = conn.Close()
+	}()
+
+	// Install cleanup before ATTACH: cancellation can report an error after SQLite
+	// has attached the source. Never return an attached connection to the pool.
+	defer func() {
+		result = errors.Join(result, service.cleanupRestoreConnection(ctx, conn))
 	}()
 
 	// ATTACH cannot run inside a transaction, so it happens before BEGIN.
@@ -45,12 +52,52 @@ func (service *SettingsService) RestoreFrom(ctx context.Context, path string) er
 		)
 	}
 
-	defer func() {
-		//nolint:errcheck // Detach is best effort; the connection is reused by the pool
-		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DETACH DATABASE "+restoreSchema)
-	}()
-
 	return replaceFromRestoreSource(ctx, conn)
+}
+
+// A cleanup failure must never put an attached connection back in circulation.
+// Close the pool before releasing this connection: otherwise database/sql could
+// silently replace a discarded in-memory database with an empty one.
+func (service *SettingsService) cleanupRestoreConnection(
+	ctx context.Context,
+	conn *sqlx.Conn,
+) error {
+	err := detachRestoreSource(ctx, conn)
+	if err == nil {
+		return nil
+	}
+
+	closeErr := service.db.Close()
+
+	return fmt.Errorf("restore cleanup failed; database closed to prevent unsafe reuse: %w",
+		errors.Join(err, closeErr))
+}
+
+// Cleanup is independent of request cancellation but has a bounded lifetime.
+func detachRestoreSource(parent context.Context, conn *sqlx.Conn) error {
+	const cleanupTimeout = 5 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
+	defer cancel()
+
+	var attached int
+
+	err := conn.GetContext(ctx, &attached,
+		"SELECT COUNT(*) FROM pragma_database_list WHERE name = ?", restoreSchema)
+	if err != nil {
+		return fmt.Errorf("inspect restore attachment: %w", err)
+	}
+
+	if attached == 0 {
+		return nil
+	}
+
+	_, err = conn.ExecContext(ctx, "DETACH DATABASE "+restoreSchema)
+	if err != nil {
+		return fmt.Errorf("detach restore source: %w", err)
+	}
+
+	return nil
 }
 
 func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) error {
@@ -86,10 +133,10 @@ func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) error 
 		return fmt.Errorf("read schema version: %w", err)
 	}
 
-	// Version 10 adds operational snapshot coordination only; user tables are unchanged.
-	const legacyVersion, coordinatedVersion = 9, 10
+	// Versions 10 and 11 add local operational tables only; user tables are unchanged.
+	const legacyVersion, receiptVersion = 9, 11
 	if sourceVersion != liveVersion &&
-		(sourceVersion != legacyVersion || liveVersion != coordinatedVersion) {
+		(sourceVersion < legacyVersion || sourceVersion > liveVersion || liveVersion > receiptVersion) {
 		return fmt.Errorf("%w: schema version %d, expected %d",
 			ErrIncompatibleBackup, sourceVersion, liveVersion)
 	}
@@ -98,7 +145,10 @@ func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) error 
 }
 
 func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
-	tx, err := conn.BeginTxx(ctx, nil)
+	// Request cancellation must not start database/sql's asynchronous rollback:
+	// it can race DETACH and discard the sole connection of an in-memory DB.
+	// Statements still honor ctx; our deferred rollback finishes synchronously.
+	tx, err := conn.BeginTxx(context.WithoutCancel(ctx), nil)
 	if err != nil {
 		return fmt.Errorf("begin restore: %w", err)
 	}
@@ -131,7 +181,8 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 
 	_, err = tx.ExecContext(
 		ctx,
-		"UPDATE main.snapshot_state SET generation = generation + 1 WHERE id = 1",
+		"UPDATE main.snapshot_state SET generation = generation + 1 WHERE id = 1; "+
+			"DELETE FROM main.holding_create_receipts",
 	)
 	if err != nil {
 		return fmt.Errorf("invalidate snapshots before restore: %w", err)
@@ -145,6 +196,11 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 	err = preserveRestoreSequences(ctx, tx, sequences)
 	if err != nil {
 		return err
+	}
+
+	err = ctx.Err()
+	if err != nil {
+		return fmt.Errorf("commit restore: %w", err)
 	}
 
 	err = tx.Commit()

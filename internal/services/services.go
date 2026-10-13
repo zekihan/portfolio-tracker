@@ -65,65 +65,6 @@ manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings WH
 	return &holding, wrapOperationError("GetByID", err)
 }
 
-func (service *HoldingService) Create(ctx context.Context, holding *models.Holding) error {
-	if service.priceSvc != nil && holding.PriceProvider != "" &&
-		!service.priceSvc.HasProvider(holding.PriceProvider) {
-		return price.ErrUnknownProvider
-	}
-
-	if holding.ManualPrice.Valid &&
-		(holding.ManualPrice.Float64 < 0 || math.IsNaN(holding.ManualPrice.Float64) ||
-			math.IsInf(holding.ManualPrice.Float64, 0)) {
-		return errManualPriceMustBeFiniteAndNonnegative
-	}
-
-	now := time.Now().UTC()
-
-	manualPrice := 0.0
-	if holding.ManualPrice.Valid {
-		manualPrice = holding.ManualPrice.Float64
-	}
-
-	holding.ManualPriceAt = sql.NullTime{Time: now, Valid: manualPrice > 0}
-	holding.CreatedAt = now
-	holding.UpdatedAt = now
-
-	result, err := db.ExecPortfolioMutation(ctx, service.db, `
-                INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider,
-instrument_id, base_currency, basket, location, notes, est_price, manual_price, manual_price_at,
-created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
-		holding.Name,
-		holding.Ticker,
-		holding.AssetType,
-		holding.Quantity,
-		holding.PriceProvider,
-		holding.InstrumentID,
-		holding.BaseCurrency,
-		holding.Basket,
-		holding.Location,
-		holding.Notes,
-		holding.EstPrice,
-		manualPrice,
-		holding.ManualPriceAt,
-		holding.CreatedAt,
-		holding.UpdatedAt,
-	)
-	if err != nil {
-		return wrapOperationError("Create", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return wrapOperationError("Create", err)
-	}
-
-	holding.ID = int(id)
-
-	return nil
-}
-
 func (service *HoldingService) Update(ctx context.Context, holding *models.Holding) error {
 	if service.priceSvc != nil && holding.PriceProvider != "" &&
 		!service.priceSvc.HasProvider(holding.PriceProvider) {
@@ -237,7 +178,8 @@ func (service *HoldingService) GetDashboardData(
 
 	for index := range holdings {
 		holding := holdings[index]
-		if holding.ValuationAvailable {
+		// A zero position has a known contribution even when its unit quote is unavailable.
+		if holding.ValuationAvailable || holding.Quantity == 0 {
 			valuedCount++
 		}
 		// Currency-specific totals must not depend on the allocation display currency.
@@ -352,6 +294,7 @@ func NewSnapshotService(
 	return &SnapshotService{db: database, priceSvc: priceSvc, holdingSvc: holdingSvc}
 }
 
+//nolint:gocyclo // Snapshot completeness and quote-quality metadata have independent validation paths.
 func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 	// Capture the epoch before reading holdings. No transaction is held while
 	// providers perform network I/O; persistence checks this epoch atomically.
@@ -371,7 +314,7 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 	unvalued := 0
 
 	for index := range holdings {
-		if !holdings[index].ValuationAvailable {
+		if !holdings[index].ValuationAvailable && holdings[index].Quantity != 0 {
 			unvalued++
 		}
 	}
@@ -392,26 +335,32 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		totalTRY += valTRY
 		totalUSD += valUSD
 
-		if holding.IsStale {
+		// Quote quality only affects aggregate history when the position contributes value.
+		if holding.Quantity != 0 && holding.IsStale {
 			staleCount++
 		}
 
-		if holding.IsFailed {
+		if holding.Quantity != 0 && holding.IsFailed {
 			failedCount++
 		}
 
-		snapshotHoldings = append(snapshotHoldings, map[string]any{
+		snapshotHolding := map[string]any{
 			"id":                  holding.ID,
 			"name":                holding.Name,
 			"quantity":            holding.Quantity,
-			"price":               holding.CurrentPrice,
-			"currency":            holding.CurrentCurrency,
 			"value_try":           valTRY,
 			"value_usd":           valUSD,
 			"is_stale":            holding.IsStale,
 			"is_failed":           holding.IsFailed,
 			"valuation_available": true,
-		})
+		}
+		// Keep a known zero total without inventing an unavailable unit quote.
+		if holding.ValuationAvailable {
+			snapshotHolding["price"] = holding.CurrentPrice
+			snapshotHolding["currency"] = holding.CurrentCurrency
+		}
+
+		snapshotHoldings = append(snapshotHoldings, snapshotHolding)
 	}
 
 	if math.IsNaN(totalTRY) || math.IsInf(totalTRY, 0) ||

@@ -333,39 +333,6 @@ func (handler *Handler) getHolding(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, holding)
 }
 
-func (handler *Handler) createHolding(writer http.ResponseWriter, request *http.Request,
-) {
-	requestCtx := request.Context()
-
-	var holding models.Holding
-
-	err := decodeJSON(request, &holding)
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
-
-		return
-	}
-
-	if holding.ManualPrice.Valid && holding.ManualPrice.Float64 < 0 {
-		writeJSON(
-			writer,
-			http.StatusBadRequest,
-			map[string]any{errorKey: "manual price must be nonnegative"},
-		)
-
-		return
-	}
-
-	err = handler.holdingSvc.Create(requestCtx, &holding)
-	if err != nil {
-		respondHoldingMutationError(writer, request, err)
-
-		return
-	}
-
-	writeJSON(writer, http.StatusCreated, holding)
-}
-
 func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
@@ -933,7 +900,7 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 	valued := 0
 
 	for i := range holdings {
-		if holdings[i].ValuationAvailable {
+		if holdings[i].ValuationAvailable || holdings[i].Quantity == 0 {
 			valued++
 		}
 

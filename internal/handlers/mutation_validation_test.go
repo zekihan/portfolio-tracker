@@ -106,6 +106,7 @@ func TestHoldingWritesRejectUnknownProvider(t *testing.T) {
  "base_currency":"TRY","price_provider":"Unknown"}`,
 			handle: handler.updateHolding,
 		},
+		{name: "patch", body: `{"price_provider":"Unknown"}`, handle: handler.patchHolding},
 		{name: "mapping", body: `{"provider":"Unknown","instrumentId":"100"}`, handle: handler.updateHoldingProvider},
 	} {
 		t.Run(test.name, func(t *testing.T) {

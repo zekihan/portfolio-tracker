@@ -19,7 +19,7 @@ function loadApp(elements = {}, setTimer = callback => callback(), generation = 
     querySelectorAll: selector => selector === '.snapshot-delete' ? (elements['snapshots-tbody']?.children || []).flatMap(row => row.cells?.[5]?.children || []) : [],
     documentElement: { getAttribute: () => 'light', dataset: { portfolioGeneration: generation } }
   };
-  const context = { document, setTimeout: setTimer, window: { scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
+  const context = { document, setTimeout: setTimer, window: { crypto: require('node:crypto').webcrypto, scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
     getComputedStyle: node => ({ overflowY: node.overflowY || 'visible', getPropertyValue: () => '#123456' }),
     Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     FormData: class { constructor(form) { return form.formData; } },
@@ -883,7 +883,8 @@ function holdingMutationHarness() {
   const container = h.document.createElement('div');
   const get = h.document.getElementById;
   h.document.getElementById = id => id === 'modal-container' ? container : get(id);
-  container.querySelector = selector => selector === '.modal-overlay' ? h.currentModal || null : h.currentModal?.form.elements[0] || null;
+  h.modalContainer = container;
+  container.querySelector = selector => selector === '.modal-overlay' ? h.currentModal || null : selector.includes('[data-holding-form]') ? h.currentModal?.form || null : h.currentModal?.form.elements[0] || null;
   container.contains = node => Boolean(h.currentModal?.contains(node));
   container.replaceChildren = () => {
     if (container.contains(h.document.activeElement)) h.document.activeElement = h.document.body;
@@ -977,11 +978,11 @@ test('HTMX failures prevent sibling successes from reloading away error feedback
 test('a current modal success freezes submitted controls, closes only its modal, and safely refreshes', async () => {
   const h = holdingMutationHarness();
   const trigger = h.document.createElement('button'); trigger.focus();
-  const form = h.openForm();
+  const form = h.openForm(); form.elements[1].value = '6';
   h.submit(form); h.submit(form);
   assert.equal(h.pending.length, 1);
   assert.ok(form.elements.every(control => control.disabled));
-  assert.equal(JSON.parse(h.pending[0].options.body).quantity, 5, 'data is captured before controls are disabled');
+  assert.equal(JSON.parse(h.pending[0].options.body).quantity, 6, 'data is captured before controls are disabled');
   h.pending[0].resolve({ ok: true }); await flush();
   assert.equal(h.currentModal, null);
   assert.equal(h.modal, false);
@@ -992,7 +993,7 @@ test('a current modal success freezes submitted controls, closes only its modal,
 
 test('a dismissed modal save cannot reload or steal focus from a newer inline draft', async () => {
   const h = holdingMutationHarness();
-  const form = h.openForm(); h.submit(form); h.close();
+  const form = h.openForm(); form.elements[0].value = 'Updated name'; h.submit(form); h.close();
   const edit = h.edit('notes', 'Original'); edit.input.value = 'New unsaved draft';
   h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
   assert.equal(h.reloads, 0);
@@ -1003,7 +1004,7 @@ test('a dismissed modal save cannot reload or steal focus from a newer inline dr
 
 test('an old modal response cannot close or refocus a replacement modal', async () => {
   const h = holdingMutationHarness();
-  const first = h.openForm(); h.submit(first); h.close();
+  const first = h.openForm(); first.elements[0].value = 'Updated name'; h.submit(first); h.close();
   const second = h.openForm('2');
   second.elements[0].value = 'New modal draft';
   const current = h.currentModal;
@@ -1019,9 +1020,9 @@ test('an old modal response cannot close or refocus a replacement modal', async 
 test('a pending detached modal write blocks both inline and newer modal success reloads', async () => {
   for (const nextKind of ['inline', 'modal']) {
     const h = holdingMutationHarness();
-    const first = h.openForm(); h.submit(first); h.close();
+    const first = h.openForm(); first.elements[0].value = 'Updated name'; h.submit(first); h.close();
     if (nextKind === 'inline') { const edit = h.edit(); h.save(edit, '20'); }
-    else { const second = h.openForm('2'); h.submit(second); }
+    else { const second = h.openForm('2'); second.elements[0].value = 'Updated second name'; h.submit(second); }
     h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
     assert.equal(h.reloads, 0);
     h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
@@ -1061,9 +1062,63 @@ test('pull refresh completion does not reload during a detached modal write', as
   h.dispatch('touchmove', { target, touches: [{ clientY: 90 }], preventDefault() {} });
   h.dispatch('touchend');
   assert.equal(h.pending.length, 1);
-  const form = h.openForm(); h.submit(form); h.close();
+  const form = h.openForm(); form.elements[0].value = 'Updated name'; h.submit(form); h.close();
   h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
   assert.equal(h.reloads, 0);
   h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
   assert.equal(h.reloads, 1);
+});
+
+test('only the latest modal GET can swap and dismissal invalidates outstanding opens', () => {
+  const h = holdingMutationHarness();
+  const request = id => ({ xhr: {}, target: h.modalContainer, requestConfig: { verb: 'get', path: `/partials/holding-form/${id}` }, shouldSwap: true });
+  const first = request(1); const second = request(2);
+  h.emit('htmx:beforeRequest', first); h.emit('htmx:beforeRequest', second);
+  h.emit('htmx:beforeSwap', second); assert.equal(second.shouldSwap, true);
+  const form = h.openForm('2'); form.elements[0].value = 'Preserve draft';
+  h.emit('htmx:beforeSwap', first); assert.equal(first.shouldSwap, false);
+  assert.equal(h.currentModal.form, form);
+  const pending = request(3); h.emit('htmx:beforeRequest', pending);
+  h.emit('htmx:beforeSwap', pending); assert.equal(pending.shouldSwap, false, 'queued repeated opens must not replace an existing editor');
+  pending.shouldSwap = true;
+  h.close(); h.emit('htmx:beforeSwap', pending);
+  assert.equal(pending.shouldSwap, false);
+  const next = request(4); h.emit('htmx:beforeRequest', next); h.emit('htmx:beforeSwap', next);
+  assert.equal(next.shouldSwap, true, 'a deliberate later open remains available');
+});
+
+test('modal PATCH leaves stale untouched values out after an inline save completes', async () => {
+  const h = holdingMutationHarness();
+  const edit = h.edit('quantity', '5', '1'); h.save(edit, '20');
+  h.document.createElement('button').focus(); // Click Edit while the inline PATCH is pending.
+  const form = h.openForm('1'); form.elements[3].value = 'Only notes changed';
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(edit.td.dataset.sortValue, '20'); assert.equal(h.reloads, 0);
+  h.submit(form);
+  assert.equal(h.pending[1].options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(h.pending[1].options.body), { notes: 'Only notes changed' });
+  h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 1);
+});
+
+test('unchanged modal submits no write while clearing a changed value remains explicit', () => {
+  const h = holdingMutationHarness();
+  const unchanged = h.openForm(); h.submit(unchanged);
+  assert.equal(h.pending.length, 0); assert.equal(h.currentModal, null);
+  const edited = h.openForm(); edited.elements[3].value = ''; edited.elements[1].value = '0';
+  h.submit(edited);
+  assert.deepEqual(JSON.parse(h.pending[0].options.body), { notes: '', quantity: 0 });
+});
+
+test('new holding retry retains its idempotency key and independent identical forms get different keys', async () => {
+  const h = holdingMutationHarness(); const form = h.openForm('0'); h.submit(form);
+  const first = h.pending[0]; assert.equal(first.options.method, 'POST');
+  assert.match(first.options.headers['Idempotency-Key'], /^[a-f0-9]{32}$/);
+  first.reject(new Error('Response lost')); await flush(); h.submit(form);
+  assert.equal(h.pending[1].options.headers['Idempotency-Key'], first.options.headers['Idempotency-Key']);
+  assert.equal(h.pending[1].options.body, first.options.body);
+  h.pending[1].resolve({ ok: false, status: 422, json: async () => ({ error: 'This Add attempt already created a holding with different details; reload to check it before adding again.' }) });
+  await flush(); assert.match(form.error.textContent, /already created/); assert.equal(form.dataset.reloadRequired, undefined);
+  h.close(); const another = h.openForm('0'); h.submit(another);
+  assert.notEqual(h.pending[2].options.headers['Idempotency-Key'], first.options.headers['Idempotency-Key']);
 });

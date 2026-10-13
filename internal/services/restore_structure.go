@@ -28,7 +28,8 @@ func validateRestoreStructures(ctx context.Context, conn sqlx.QueryerContext) er
 (SELECT COUNT(*) FROM restore_src.sqlite_schema WHERE type NOT IN ('table', 'index')) +
 (SELECT COUNT(*) FROM pragma_table_list WHERE schema = ? AND type != 'table') +
 (SELECT COUNT(*) FROM main.sqlite_schema WHERE type = 'trigger'
-AND tbl_name IN ('holdings', 'snapshots', 'price_cache', 'settings', 'snapshot_state'))`, restoreSchema)
+AND tbl_name IN ('holdings', 'snapshots', 'price_cache', 'settings', 'snapshot_state',
+'holding_create_receipts'))`, restoreSchema)
 	if err != nil {
 		return fmt.Errorf("%w: inspect backup structures: %w", ErrIncompatibleBackup, err)
 	}

@@ -1390,8 +1390,28 @@ const PortfolioApp = (function() {
     const container = document.getElementById('modal-container');
     if (!container) return;
     let previousFocus;
+    let modalRequest = 0;
+    const modalRequests = new WeakMap();
+    const formBaselines = new WeakMap();
+    const captureBaseline = form => {
+      if (form && !formBaselines.has(form)) formBaselines.set(form, Object.fromEntries(new FormData(form)));
+    };
+    document.body.addEventListener('htmx:beforeRequest', event => {
+      const config = event.detail.requestConfig;
+      if (event.detail.target === container && config?.verb?.toLowerCase() === 'get') {
+        modalRequests.set(event.detail.xhr, ++modalRequest);
+      }
+    });
+    document.body.addEventListener('htmx:beforeSwap', event => {
+      const request = modalRequests.get(event.detail.xhr);
+      if (request !== undefined && (request !== modalRequest || container.querySelector('.modal-overlay'))) {
+        // Also cover queued repeat clicks: an already-open editor owns this target.
+        event.detail.shouldSwap = false;
+      }
+    });
     const close = (modal = container.querySelector('.modal-overlay')) => {
       if (!modal || container.querySelector('.modal-overlay') !== modal) return;
+      ++modalRequest; // A dismissed dialog must not be reopened by an older partial.
       const returnFocus = modal.contains(document.activeElement) || document.activeElement === document.body;
       container.replaceChildren();
       document.body.classList.remove('modal-open');
@@ -1400,6 +1420,7 @@ const PortfolioApp = (function() {
     };
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.detail.target !== container || !container.querySelector('.modal-overlay')) return;
+      captureBaseline(container.querySelector('[data-holding-form], [data-manual-price-form]'));
       previousFocus = document.activeElement;
       document.body.classList.add('modal-open');
       container.querySelector('input:not([type="hidden"]), button')?.focus();
@@ -1440,24 +1461,46 @@ const PortfolioApp = (function() {
       const manual = form.hasAttribute('data-manual-price-form');
       const id = Number(form.dataset.id);
       const data = Object.fromEntries(new FormData(form));
+      const error = form.querySelector('.form-error');
+      error.hidden = true;
+      if (!manual && id) {
+        const baseline = formBaselines.get(form);
+        if (!baseline) {
+          error.textContent = 'This form is out of date. Keep any unsaved edits, then reopen it before saving.';
+          error.hidden = false;
+          return;
+        }
+        // Never replace untouched fields with the older values rendered by a GET.
+        Object.keys(data).forEach(field => {
+          if (data[field] === baseline[field]) delete data[field];
+        });
+        if (!Object.keys(data).length) { close(modal); return; }
+      }
       if (!manual && !id && data.initial_manual_price !== undefined) {
         const value = data.initial_manual_price;
         data.manual_price = { Float64: Number(value), Valid: value !== '' };
         delete data.initial_manual_price;
       }
       const numericFields = manual ? ['price'] : ['quantity', 'est_price'];
-      for (const field of numericFields) data[field] = Number(data[field]);
-      const error = form.querySelector('.form-error');
-      error.hidden = true;
+      for (const field of numericFields) if (field in data) data[field] = Number(data[field]);
       form.dataset.saving = 'true';
       const controls = [...form.elements].map(control => [control, control.disabled]);
       controls.forEach(([control]) => { control.disabled = true; });
       holdingWritesPending++;
       try {
+        const headers = portfolioHeaders({ 'Content-Type': 'application/json' });
+        if (!manual && !id) {
+          if (!form.dataset.createKey) {
+            const bytes = new Uint8Array(16);
+            window.crypto.getRandomValues(bytes);
+            form.dataset.createKey = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+          }
+          headers['Idempotency-Key'] = form.dataset.createKey;
+        }
         const url = manual ? `/api/holdings/${id}/manual-price` : `/api/holdings${id ? `/${id}` : ''}`;
         const response = await fetch(url, {
-          method: clear ? 'DELETE' : manual ? 'PATCH' : id ? 'PUT' : 'POST',
-          headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
+          method: clear ? 'DELETE' : manual || id ? 'PATCH' : 'POST',
+          headers,
           ...(clear ? {} : { body: JSON.stringify(data) })
         });
         if (!response.ok) {

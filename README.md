@@ -123,6 +123,26 @@ The browser retains its initially rendered token; it never adopts tokens from
 background GETs. Successful clear/restore actions reload the whole page. Other
 open tabs must reload before their next write, including after clearing history.
 
+### Retrying holding creation
+
+`POST /api/holdings` optionally accepts one `Idempotency-Key` header containing
+1–128 ASCII letters, digits, hyphens, or underscores. Retain that key and the
+original payload when retrying a lost response. Within the same portfolio
+generation, the same key and persisted fields return the original **201** response
+without another insert, even if that holding was subsequently edited or deleted.
+Reusing a committed key with changed fields returns **422**; review the created
+holding before submitting another Add. Distinct keys allow intentionally identical
+holdings. Requests without a key remain non-idempotent for API compatibility.
+
+The browser generates one key per Add/Duplicate form and retains it across failed
+submissions. Keys survive server restarts. Generation checks still run before
+replaying a result; restore/clear discard local receipts and never import them
+from backups. This does not relax the generation preconditions above.
+
+Existing-holding forms use `PATCH` with only changed fields, so untouched values
+from an older form cannot undo an inline edit. Explicitly changed fields use the
+usual last-write behavior; the generation token is not a per-holding revision.
+
 ## Deployment
 
 ### Upgrading snapshot-lock ownership
@@ -145,6 +165,15 @@ Backups from schema v9 remain restorable because their user-data tables have the
 same layout. Restore validates row types and values before replacing live data.
 Operational generation/claim state belongs to the destination database and is
 not copied from a backup. Invalid backups leave existing data unchanged.
+
+### Upgrading create retries (schema v11)
+
+Schema v11 adds a durable holding-creation receipt ledger. Stop older replicas
+before upgrading a shared database. Backups from schemas v9, v10, and v11 remain
+restorable; operational receipts are local to the destination and are not restored.
+Older binaries reject schema v11 databases. Keep a pre-upgrade backup if rollback
+is needed, and restore it using the corresponding older binary instead of lowering
+`user_version` on an upgraded database.
 
 ### Docker
 

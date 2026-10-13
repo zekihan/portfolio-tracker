@@ -155,6 +155,14 @@ var Migrations = []string{
 		acquired_at INTEGER NOT NULL,
 		completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1))
 	);`,
+	// Schema v11 - Local create receipts are never imported by a restore.
+	`CREATE TABLE holding_create_receipts (
+		generation INTEGER NOT NULL,
+		idempotency_key TEXT NOT NULL,
+		request_hash TEXT NOT NULL,
+		response_json TEXT NOT NULL,
+		PRIMARY KEY (generation, idempotency_key)
+	);`,
 }
 
 func sqliteDSN(dbPath string) (string, error) {

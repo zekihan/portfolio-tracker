@@ -25,10 +25,7 @@ func (handler *Handler) patchHolding(writer http.ResponseWriter, request *http.R
 		return
 	}
 
-	if patch.Name == nil && patch.Ticker == nil &&
-		patch.Basket == nil && patch.Location == nil && patch.Notes == nil &&
-		patch.Quantity == nil &&
-		patch.EstPrice == nil {
+	if patch.IsEmpty() {
 		writeJSON(
 			writer,
 			http.StatusBadRequest,
@@ -38,9 +35,9 @@ func (handler *Handler) patchHolding(writer http.ResponseWriter, request *http.R
 		return
 	}
 
-	updated, err := handler.holdingSvc.Patch(request.Context(), id, patch)
+	updated, err := handler.holdingSvc.Patch(request.Context(), id, &patch)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
