@@ -675,6 +675,125 @@ test('inline happy path displays only the accepted value and schedules one safe 
   assert.equal(h.reloads, 1);
 });
 
+test('blank, whitespace and zero inline estimates clear with one PATCH on Enter or blur', async () => {
+  for (const value of ['', ' \t ', '0']) {
+    for (const trigger of ['Enter', 'blur']) {
+      const h = inlineRaceHarness();
+      const edit = h.edit('est_price', '200', '42');
+      edit.input.value = value;
+      if (trigger === 'Enter') edit.input.keydown({ key: 'Enter', preventDefault() {} });
+      else edit.input.blur();
+      edit.input.keydown({ key: 'Enter', preventDefault() {} });
+      edit.input.blur();
+      edit.input.keydown({ key: 'Escape', preventDefault() {} });
+      assert.equal(h.pending.length, 1);
+      assert.equal(h.pending[0].url, '/api/holdings/42');
+      assert.equal(h.pending[0].options.method, 'PATCH');
+      assert.deepEqual(JSON.parse(h.pending[0].options.body), { est_price: 0 });
+      assert.equal(edit.input.readOnly, true);
+      assert.equal(edit.td.attrs['aria-busy'], 'true');
+      assert.equal(edit.td.dataset.sortValue, '200');
+      h.runTimers();
+      assert.equal(h.reloads, 0);
+      h.pending[0].resolve({ ok: true }); await flush();
+      assert.equal(edit.td.dataset.sortValue, '0');
+      assert.equal(edit.td.textContent, Number(0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }));
+      assert.equal(edit.td.attrs['aria-busy'], undefined);
+      edit.input.blur();
+      h.runTimers(); h.runTimers();
+      assert.equal(h.pending.length, 1);
+      assert.equal(h.reloads, 1);
+    }
+  }
+});
+
+test('blank or unchanged zero estimates and blank required quantities issue no PATCH', () => {
+  for (const [field, original, values] of [
+    ['est_price', '0', ['', ' \t ', '0']],
+    ['quantity', '10', ['', ' \t ']]
+  ]) {
+    for (const value of values) {
+      for (const trigger of ['Enter', 'blur']) {
+        const h = inlineRaceHarness();
+        const edit = h.edit(field, original);
+        edit.input.value = value;
+        if (trigger === 'Enter') edit.input.keydown({ key: 'Enter', preventDefault() {} });
+        else edit.input.blur();
+        edit.input.blur();
+        h.runTimers();
+        assert.equal(h.pending.length, 0);
+        assert.equal(edit.td.dataset.sortValue, original);
+        assert.equal(edit.td.textContent, original);
+        assert.equal(h.reloads, 0);
+      }
+    }
+  }
+});
+
+test('Escape cancels a blank inline estimate before blur without clearing it', () => {
+  for (const value of ['', ' \t ']) {
+    const h = inlineRaceHarness();
+    const edit = h.edit('est_price', '200');
+    edit.input.value = value;
+    edit.input.keydown({ key: 'Escape', preventDefault() {} });
+    edit.input.blur();
+    h.runTimers();
+    assert.equal(h.pending.length, 0);
+    assert.equal(edit.td.dataset.sortValue, '200');
+    assert.equal(edit.td.textContent, '200');
+    assert.equal(h.document.activeElement, edit.td);
+    assert.equal(h.reloads, 0);
+  }
+});
+
+test('blank optional inline text still clears with an empty string rather than numeric zero', async () => {
+  for (const field of ['ticker', 'basket', 'location', 'notes']) {
+    for (const value of ['', ' \t ']) {
+      for (const trigger of ['Enter', 'blur']) {
+        const h = inlineRaceHarness();
+        h.document.body.appendChild = () => {};
+        const edit = h.edit(field, 'Original');
+        edit.input.value = value;
+        if (trigger === 'Enter') edit.input.keydown({ key: 'Enter', preventDefault() {} });
+        else edit.input.blur();
+        edit.input.blur();
+        assert.equal(h.pending.length, 1);
+        assert.deepEqual(JSON.parse(h.pending[0].options.body), { [field]: '' });
+        h.pending[0].resolve({ ok: true }); await flush();
+        assert.equal(edit.td.dataset.editValue, '');
+        assert.equal(edit.td.textContent, '—');
+        h.runTimers();
+        assert.equal(h.reloads, 1);
+      }
+    }
+  }
+});
+
+test('stale inline estimate clears retain the blank draft until Escape and cannot retry', async () => {
+  for (const status of [409, 428]) {
+    const h = inlineRaceHarness();
+    const edit = h.edit('est_price', '200');
+    h.save(edit, '');
+    assert.equal(h.pending.length, 1);
+    h.pending[0].resolve({ ok: false, status }); await flush(); h.runTimers();
+    assert.equal(edit.td.children[0], edit.input);
+    assert.equal(edit.input.value, '');
+    assert.equal(edit.input.readOnly, false);
+    assert.match(edit.input.attrs['aria-label'], /reload required/);
+    assert.equal(edit.td.dataset.sortValue, '200');
+    assert.equal(edit.td.attrs['aria-busy'], undefined);
+    h.save(edit, ''); edit.input.blur();
+    assert.equal(h.pending.length, 1);
+    assert.equal(h.reloads, 0);
+    edit.input.keydown({ key: 'Escape', preventDefault() {} });
+    edit.input.blur(); h.runTimers();
+    assert.equal(edit.td.textContent, '200');
+    assert.equal(edit.td.dataset.sortValue, '200');
+    assert.equal(h.pending.length, 1);
+    assert.equal(h.reloads, 0);
+  }
+});
+
 test('an older inline save cannot reload or steal focus from a newer unsaved editor', async () => {
   for (const startBeforeResponse of [true, false]) {
     const h = inlineRaceHarness();

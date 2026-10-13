@@ -1371,7 +1371,9 @@ const PortfolioApp = (function() {
       if (finished || reloadRequired) return;
       if (!input.reportValidity()) return;
       finished = true;
-      const newValue = input.value.trim();
+      const trimmedValue = input.value.trim();
+      // An empty optional estimate clears it, matching the modal's zero value.
+      const newValue = field === 'est_price' && trimmedValue === '' ? '0' : trimmedValue;
       if (newValue !== String(editValue) && (newValue !== '' || !numericField)) {
         input.readOnly = true;
         input.setAttribute('aria-label', `Saving ${field.replace(/_/g, ' ')}…`);
