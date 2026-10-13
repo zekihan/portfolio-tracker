@@ -203,16 +203,21 @@ func (service *HoldingService) runValuations(
 		})
 	}
 
+	// Positions contributing value get the shared budget first. Keep the original
+	// indexes so quote scheduling never changes the displayed holding order.
 queue:
-	for index := range holdings {
-		if !needsAutomaticQuote(&holdings[index]) {
-			continue
-		}
+	for _, zeroQuantity := range []bool{false, true} {
+		for index := range holdings {
+			if (holdings[index].Quantity == 0) != zeroQuantity ||
+				!needsAutomaticQuote(&holdings[index]) {
+				continue
+			}
 
-		select {
-		case jobs <- index:
-		case <-ctx.Done():
-			break queue
+			select {
+			case jobs <- index:
+			case <-ctx.Done():
+				break queue
+			}
 		}
 	}
 

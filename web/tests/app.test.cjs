@@ -469,6 +469,7 @@ test('currency updates share one lock across controls and failures recover witho
 test('source operations lock the entire row and restore previous disabled state after failure', async () => {
   const page = element(), row = element(), button = element(), input = element(), select = element(), blocked = element();
   blocked.disabled = true;
+  page.querySelectorAll = () => [input, select];
   row.querySelectorAll = () => [button, input, select, blocked];
   row.querySelector = selector => selector === '.provider-select' ? { value: 'Yahoo Finance' } :
     selector === '.source-test-result' ? null : { value: 'AAPL' };
@@ -1121,4 +1122,105 @@ test('new holding retry retains its idempotency key and independent identical fo
   await flush(); assert.match(form.error.textContent, /already created/); assert.equal(form.dataset.reloadRequired, undefined);
   h.close(); const another = h.openForm('0'); h.submit(another);
   assert.notEqual(h.pending[2].options.headers['Idempotency-Key'], first.options.headers['Idempotency-Key']);
+});
+
+function sourceRefreshHarness() {
+  const h = pullHarness();
+  const page = element(), row = element(), save = element(), input = element('AAPL'), select = element('Yahoo Finance'), refresh = element();
+  refresh.id = 'refresh-prices';
+  refresh.closest = () => null;
+  refresh.querySelectorAll = () => [];
+  page.querySelectorAll = () => [input, select];
+  row.querySelectorAll = selector => selector === '.provider-select, .instrument-input' ? [select, input] : [save, input, select];
+  row.querySelector = selector => selector === '.provider-select' ? select : selector === '.source-test-result' ? null : input;
+  row.dataset.holdingId = '1';
+  save.closest = () => row;
+  save.hasAttribute = () => true;
+  h.document.querySelector = selector => selector === '.sources-page' ? page : null;
+  h.app.initSources();
+  let reloads = 0;
+  h.window.location.reload = () => reloads++;
+  return { ...h, row, input, select, save, refresh, reloads: () => reloads,
+    click: button => page.click({ target: { closest: () => button } }),
+    respond: async (index, ok = true) => { h.pending[index].resolve({ ok, json: async () => ({}) }); await flush(); }
+  };
+}
+
+test('source refresh preserves mapping drafts made before or during refresh', async () => {
+  for (const timing of ['before', 'during']) {
+    const h = sourceRefreshHarness();
+    if (timing === 'before') h.input.value = 'MSFT';
+    h.click(h.refresh);
+    assert.equal(h.input.disabled, false);
+    if (timing === 'during') h.input.value = 'MSFT';
+    await h.respond(0);
+    assert.equal(h.reloads(), 0, timing);
+    assert.equal(h.input.value, 'MSFT');
+    assert.equal(h.refresh.disabled, false);
+    h.click(h.save);
+    assert.equal(h.pending.length, 2);
+    await h.respond(1);
+    h.click(h.refresh);
+    await h.respond(2);
+    assert.equal(h.reloads(), 1, 'saving updates the baseline and permits the next refresh');
+  }
+});
+
+test('source refresh excludes row saves in both directions and releases locks after failure', async () => {
+  const h = sourceRefreshHarness();
+  h.input.value = 'MSFT';
+  h.click(h.save);
+  h.click(h.refresh); h.gesture();
+  assert.equal(h.pending.length, 1, 'pending Save blocks both refresh paths');
+  h.pending[0].reject(new Error('offline')); await flush();
+  assert.equal(h.save.disabled, false);
+  assert.equal(h.row.dataset.pending, undefined);
+  h.click(h.refresh);
+  h.click(h.save); h.click(h.refresh); h.gesture();
+  assert.equal(h.pending.length, 2, 'refresh blocks Save and duplicate refresh');
+  assert.equal(h.save.disabled, false, 'blocked Save remains available to retry');
+  await h.respond(1, false);
+  assert.equal(h.refresh.disabled, false);
+  assert.equal(h.refresh.dataset.pending, undefined);
+  h.click(h.save);
+  await h.respond(2);
+  h.click(h.refresh);
+  await h.respond(3);
+  assert.equal(h.reloads(), 1);
+});
+
+test('source pull refresh shares exclusion and preserves mapping edits begun in flight', async () => {
+  const h = sourceRefreshHarness();
+  h.gesture();
+  h.click(h.save); h.click(h.refresh);
+  assert.equal(h.pending.length, 1);
+  h.input.value = 'MSFT';
+  await h.respond(0);
+  assert.equal(h.reloads(), 0);
+  h.gesture();
+  assert.equal(h.pending.length, 1, 'dirty mapping blocks another pull');
+  h.click(h.save);
+  await h.respond(1);
+  h.gesture();
+  assert.equal(h.pending.length, 3);
+  h.pending[2].reject(new Error('offline')); await flush();
+  h.click(h.refresh);
+  await h.respond(3);
+  assert.equal(h.reloads(), 1, 'pull failure releases the shared refresh lock');
+});
+
+test('source refresh retains failed-save drafts until a successful retry', async () => {
+  const h = sourceRefreshHarness();
+  h.input.value = 'MSFT';
+  h.click(h.save);
+  await h.respond(0, false);
+  h.click(h.refresh);
+  await h.respond(1);
+  assert.equal(h.reloads(), 0);
+  assert.equal(h.input.value, 'MSFT');
+  h.click(h.save);
+  await h.respond(2);
+  h.click(h.refresh);
+  await h.respond(3);
+  assert.equal(h.reloads(), 1);
 });

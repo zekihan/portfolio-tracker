@@ -71,6 +71,11 @@ const PortfolioApp = (function() {
   let allocationRequest = 0;
   let historyMutationActive = false;
   let currencyUpdateActive = false;
+  // Sources and mobile refresh share a lock; mapping drafts live outside forms.
+  let priceRefreshActive = false;
+  let sourceRequestsPending = 0;
+  const sourceBaselines = new Map();
+  const sourceDraftsPending = () => [...sourceBaselines].some(([control, value]) => control.value !== value);
 
   // Chart color palette
   const CHART_COLORS = [
@@ -216,7 +221,9 @@ const PortfolioApp = (function() {
   }
 
   function initSources() {
-    if (!document.querySelector('.sources-page')) return;
+    const page = document.querySelector('.sources-page');
+    if (!page) return;
+    page.querySelectorAll('.provider-select, .instrument-input').forEach(control => sourceBaselines.set(control, control.value));
     async function request(url, method, data) {
       const response = await fetch(url, {
         method, headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
@@ -229,9 +236,16 @@ const PortfolioApp = (function() {
     document.querySelector('.sources-page').addEventListener('click', async (event) => {
       const button = event.target.closest('[data-test-provider], [data-test-mapping], [data-save-mapping], #refresh-prices');
       if (!button || button.disabled) return;
+      const refresh = button.id === 'refresh-prices';
+      if (priceRefreshActive || (refresh && sourceRequestsPending)) {
+        showToast('Wait for the current source request to finish, then try again.', 'info');
+        return;
+      }
       const scope = button.closest('tr') || button;
       if (scope.dataset.pending) return;
       scope.dataset.pending = 'true';
+      if (refresh) priceRefreshActive = true;
+      else sourceRequestsPending++;
       const controls = [button, ...scope.querySelectorAll('button, input, select')];
       const disabledBefore = controls.map(control => control.disabled);
       controls.forEach(control => { control.disabled = true; });
@@ -242,9 +256,10 @@ const PortfolioApp = (function() {
         output.classList.remove('text-error');
       }
       try {
-        if (button.id === 'refresh-prices') {
+        if (refresh) {
           await request('/api/sources/refresh', 'POST');
-          window.location.reload();
+          if (!sourceDraftsPending() && !sourceRequestsPending) window.location.reload();
+          else showToast('Prices refreshed. Your unsaved source edits are still here; save them before refreshing the page.', 'info');
           return;
         }
         const row = button.closest('tr');
@@ -252,6 +267,7 @@ const PortfolioApp = (function() {
         const instrumentId = row.querySelector('.instrument-input, .provider-test-instrument').value.trim();
         if (button.hasAttribute('data-save-mapping')) {
           await request(`/api/holdings/${row.dataset.holdingId}/provider`, 'PUT', { provider, instrumentId });
+          row.querySelectorAll('.provider-select, .instrument-input').forEach(control => sourceBaselines.set(control, control.value));
           if (output) output.textContent = 'Price source saved';
           showToast('Price source saved', 'success');
         } else {
@@ -269,6 +285,8 @@ const PortfolioApp = (function() {
         }
         showToast(error.message, 'error');
       } finally {
+        if (refresh) priceRefreshActive = false;
+        else sourceRequestsPending--;
         controls.forEach((control, index) => { control.disabled = disabledBefore[index]; });
         delete scope.dataset.pending;
         scope.setAttribute('aria-busy', 'false');
@@ -1538,7 +1556,7 @@ const PortfolioApp = (function() {
     };
     document.addEventListener('input', trackEdit);
     document.addEventListener('change', trackEdit);
-    const editing = () => holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
+    const editing = () => sourceRequestsPending || sourceDraftsPending() || holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
       document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input') ||
       [...document.querySelectorAll('form')].some(form => dirtyForms.has(form) ||
         [...form.elements].some(control => {
@@ -1561,7 +1579,7 @@ const PortfolioApp = (function() {
     };
     document.addEventListener('touchstart', e => {
       reset();
-      if (refreshing || e.touches.length !== 1 || window.scrollY !== 0 || editing() || blockedTarget(e.target)) return;
+      if (refreshing || priceRefreshActive || e.touches.length !== 1 || window.scrollY !== 0 || editing() || blockedTarget(e.target)) return;
       startY = currentY = e.touches[0].clientY;
       pulling = true;
     }, { passive: true });
@@ -1583,15 +1601,16 @@ const PortfolioApp = (function() {
       if (!pulling) return;
       const delta = currentY - startY;
       reset();
-      if (delta <= 60 || refreshing || editing()) return;
+      if (delta <= 60 || refreshing || priceRefreshActive || editing()) return;
       refreshing = true;
+      priceRefreshActive = true;
       showToast('Refreshing prices...', 'info');
       fetch('/api/sources/refresh', { method: 'POST', headers: portfolioHeaders() }).then(response => {
         if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Price refresh failed'));
         // The user may have opened an editor while the refresh was in flight.
         if (!editing()) window.location.reload();
       }).catch(error => showToast(error.message, 'error'))
-        .finally(() => { refreshing = false; });
+        .finally(() => { refreshing = false; priceRefreshActive = false; });
     });
   }
 
