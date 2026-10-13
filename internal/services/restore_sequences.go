@@ -31,7 +31,7 @@ func restoreSequenceHighWater(
 
 	sequences := []restoreSequence{
 		{table: "holdings", value: historicalID},
-		{table: "snapshots"},
+		{table: restoreSnapshotsTable},
 		{table: "price_cache"},
 	}
 	for _, schema := range []string{"main", restoreSchema} {

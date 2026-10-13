@@ -25,7 +25,7 @@ type Holding struct {
 	CurrentCurrency string       `json:"current_currency,omitempty" db:"-"`
 	InstrumentID    string       `json:"instrument_id"              db:"instrument_id"`
 
-	BaseCurrency string `json:"base_currency" db:"base_currency" validate:"oneof=TRY USD"`
+	BaseCurrency string `json:"base_currency" db:"base_currency" validate:"oneof=TRY USD EUR"`
 
 	Basket     string `json:"basket"                db:"basket"`
 	Location   string `json:"location"              db:"location"`
@@ -80,6 +80,8 @@ type Price struct {
 }
 
 type Snapshot struct {
+	TotalValueEUR *float64  `json:"total_value_eur" db:"total_value_eur"`
+	EURTRYRate    *float64  `json:"eur_try_rate"    db:"eur_try_rate"` //nolint:tagliatelle // Acronym should be separated
 	Timestamp     time.Time `json:"timestamp"       db:"timestamp"`
 	CreatedAt     time.Time `json:"created_at"      db:"created_at"`
 	HoldingsJSON  string    `json:"holdings_json"   db:"holdings_json"`
@@ -130,18 +132,21 @@ type Settings struct {
 type DashboardData struct {
 	FXFetchedAt        time.Time
 	LastUpdated        time.Time
-	AllocationByCurr   map[string]float64
-	AllocationByLoc    map[string]float64
 	AllocationByBasket map[string]float64
 	AllocationByType   map[string]float64
+	AllocationByCurr   map[string]float64
+	AllocationByLoc    map[string]float64
 	ProviderHealth     []ProviderHealth
+	CurrentValueTRY    float64
+	UnvaluedCount      int
+	EstimatedValueEUR  float64
 	EstimatedValueUSD  float64
 	USDTRYRate         float64
-	CurrentValueTRY    float64
+	CurrentValueEUR    float64
 	EstimatedValueTRY  float64
 	CurrentValueUSD    float64
 	ValuedCount        int
-	UnvaluedCount      int
+	EURTRYRate         float64
 	CoverageCount      int
 	TotalHoldings      int
 	FailedCount        int
@@ -149,6 +154,7 @@ type DashboardData struct {
 	ValuationComplete  bool
 	FXIsStale          bool
 	FXIsFailed         bool
+	EURAvailable       bool
 }
 
 type ProviderHealth struct {
@@ -164,11 +170,15 @@ type ProviderHealth struct {
 type HoldingWithPrice struct {
 	Holding
 
-	Price           Price
-	NormPriceTRY    float64
-	NormPriceUSD    float64
-	NormTotalTRY    float64
-	NormTotalUSD    float64
-	NormEstTotalTRY float64
-	NormEstTotalUSD float64
+	Price                 Price
+	NormPriceEUR          float64
+	NormTotalEUR          float64
+	NormEstTotalEUR       float64
+	EURValuationAvailable bool
+	NormPriceTRY          float64
+	NormPriceUSD          float64
+	NormTotalTRY          float64
+	NormTotalUSD          float64
+	NormEstTotalTRY       float64
+	NormEstTotalUSD       float64
 }

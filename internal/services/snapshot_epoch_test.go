@@ -20,14 +20,22 @@ type snapshotBlockedFX struct {
 	release chan struct{}
 }
 
-func (g *snapshotBlockedFX) Name() string       { return "Frankfurter" }
-func (g *snapshotBlockedFX) Type() string       { return "FX" }
-func (g *snapshotBlockedFX) TTL() time.Duration { return time.Hour }
-func (g *snapshotBlockedFX) GetPrice(ctx context.Context, _ string) (models.Price, error) {
-	close(g.entered)
+func (getter *snapshotBlockedFX) Name() string       { return "Frankfurter" }
+func (getter *snapshotBlockedFX) Type() string       { return "FX" }
+func (getter *snapshotBlockedFX) TTL() time.Duration { return time.Hour }
+
+func (getter *snapshotBlockedFX) GetPrice(
+	ctx context.Context,
+	instrument string,
+) (models.Price, error) {
+	if instrument == "EUR" {
+		return models.Price{Value: 50, Currency: "TRY", Source: "test"}, nil
+	}
+
+	close(getter.entered)
 
 	select {
-	case <-g.release:
+	case <-getter.release:
 		return models.Price{Value: 40, Currency: "TRY", FetchedAt: time.Now(), Source: "test"}, nil
 	case <-ctx.Done():
 		return models.Price{}, wrapOperationError("test FX", ctx.Err())
@@ -170,6 +178,7 @@ func openSnapshotDatabase(t *testing.T, path string) *sqlx.DB {
 func TestScheduledSnapshotCompletionIsAtomicAndManualIndependent(t *testing.T) {
 	t.Parallel()
 	database := valuationDatabase(t)
+	seedEURQuote(t, database)
 	prices := price.NewService(database, price.DefaultRegistry())
 
 	t.Cleanup(func() { _ = prices.Close() })

@@ -18,6 +18,7 @@ import (
 const (
 	currencyTRY = "TRY"
 	currencyUSD = "USD"
+	currencyEUR = "EUR"
 )
 
 type pageRenderer struct {
@@ -88,13 +89,13 @@ func (renderer *pageRenderer) render(
 
 func (handler *Handler) pageCurrency(request *http.Request) string {
 	currency := request.URL.Query().Get("currency")
-	if currency == currencyTRY || currency == currencyUSD {
+	if supportedCurrency(currency) {
 		return currency
 	}
 
 	settings, err := handler.settingsSvc.GetAll(request.Context())
-	if err == nil && settings.DisplayCurrency == currencyUSD {
-		return currencyUSD
+	if err == nil && supportedCurrency(settings.DisplayCurrency) {
+		return settings.DisplayCurrency
 	}
 
 	return currencyTRY
@@ -133,4 +134,8 @@ func (handler *Handler) renderPageStatus(writer http.ResponseWriter, request *ht
 	data["ActivePage"] = strings.TrimSuffix(name, ".html")
 	handler.renderer.
 		render(writer, status, name, data)
+}
+
+func supportedCurrency(currency string) bool {
+	return currency == currencyTRY || currency == currencyUSD || currency == currencyEUR
 }

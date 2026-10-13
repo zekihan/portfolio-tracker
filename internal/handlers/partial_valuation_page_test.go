@@ -113,7 +113,7 @@ func partialValuationRouter(t *testing.T) http.Handler {
 	_, err = database.ExecContext(t.Context(), `INSERT INTO price_cache
  (provider, instrument_id, price, currency, source, expires_at, last_error) VALUES
  ('Frankfurter', 'USD', 40, 'TRY', 'test', ?, ''),
- ('Yahoo Finance', 'TEST', 100, 'EUR', 'test', ?, 'secret-upstream')`, expires, expires)
+ ('Yahoo Finance', 'TEST', 100, 'GBP', 'test', ?, 'secret-upstream')`, expires, expires)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,8 @@
   }
   const deadline = performance.now()+5000;
   while (!document.querySelector('#currency-menu button') && performance.now()<deadline) await new Promise(resolve=>setTimeout(resolve,50));
-  const target = document.documentElement.dataset.currency === 'USD' ? 'TRY' : 'USD';
+  const currencies = ['TRY', 'USD', 'EUR'];
+  const target = currencies[(currencies.indexOf(document.documentElement.dataset.currency) + 1) % currencies.length];
   document.querySelector('.currency-btn').click();
   const option = [...document.querySelectorAll('#currency-menu button')].find(button=>button.textContent.includes(`(${target})`));
   if (!option) throw new Error('Missing currency option');

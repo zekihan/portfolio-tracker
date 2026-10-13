@@ -50,3 +50,15 @@ func TestFormatQuantityPreservesFractionalUnits(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatCurrencyIncludesEuro(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct{ currency, want string }{
+		{"TRY", "₺ 1,234.50"}, {"USD", "$ 1,234.50"}, {"EUR", "€ 1,234.50"},
+	} {
+		if got := formatCurrency(1234.5, test.currency); got != test.want {
+			t.Errorf("formatCurrency(%s) = %q, want %q", test.currency, got, test.want)
+		}
+	}
+}

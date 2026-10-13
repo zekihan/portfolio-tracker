@@ -18,7 +18,7 @@
       if (canvas.textContent.trim()) throw new Error(`${range} tab inserted response text into canvas`);
       const chart = PortfolioApp.state().charts.portfolio;
       if (chart && chart !== previous && button.getAttribute('aria-selected') === 'true') {
-        const values = expected.map(row => currency === 'USD' ? row.value_usd : row.value_try);
+        const values = expected.map(row => row.failed_count > 0 || row.valuation_complete === false ? null : (row[{ TRY: 'value_try', USD: 'value_usd', EUR: 'value_eur' }[currency]] ?? null));
         const labels = expected.map(row => new Date(row.timestamp).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}));
         if (JSON.stringify(chart.data.datasets[0].data) !== JSON.stringify(values) || JSON.stringify(chart.data.labels) !== JSON.stringify(labels)) {
           throw new Error(`${range} chart differs from ${currency} history API`);

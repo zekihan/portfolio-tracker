@@ -25,7 +25,9 @@ func TestPageRoutesRenderTheirOwnContent(t *testing.T) {
 
 	_, err = database.ExecContext(t.Context(), `INSERT INTO price_cache
   (provider, instrument_id, price, currency, source, expires_at, last_error)
-  VALUES ('Frankfurter', 'USD', 40, 'TRY', 'test', ?, '')`, time.Now().UTC().Add(time.Hour))
+  VALUES ('Frankfurter', 'USD', 40, 'TRY', 'test', ?, ''),
+ ('Frankfurter', 'EUR', 50, 'TRY', 'test', ?, '')`,
+		time.Now().UTC().Add(time.Hour), time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +113,7 @@ func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
 	}{
 		{currency: "TRY", total: "₺ 200.00", estimate: "₺ 400.00"},
 		{currency: "USD", total: "$ 5.00", estimate: "$ 10.00"},
+		{currency: "EUR", total: "€ 4.00", estimate: "€ 8.00"},
 	} {
 		t.Run("populated holdings "+test.currency, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -132,7 +135,9 @@ func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
 				t.Error("missing coverage counts")
 			}
 
-			if strings.Contains(body, "$ 200.00") || strings.Contains(body, "$ 400.00") {
+			if strings.Contains(body, "$ 200.00") || strings.Contains(body, "$ 400.00") ||
+				strings.Contains(body, "€ 200.00") ||
+				strings.Contains(body, "€ 400.00") {
 				t.Error("TRY amounts mislabeled as USD")
 			}
 		})
@@ -142,7 +147,7 @@ func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
 func checkSavedPageCurrency(t *testing.T, router http.Handler, settings *services.SettingsService) {
 	t.Helper()
 
-	err := settings.SetDisplayCurrency(t.Context(), "USD")
+	err := settings.SetDisplayCurrency(t.Context(), "EUR")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +160,7 @@ func checkSavedPageCurrency(t *testing.T, router http.Handler, settings *service
 		)
 
 		body := response.Body.String()
-		if !strings.Contains(body, `data-currency="USD"`) {
+		if !strings.Contains(body, `data-currency="EUR"`) {
 			t.Errorf("%s ignores saved currency", path)
 		}
 

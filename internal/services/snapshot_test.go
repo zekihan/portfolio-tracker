@@ -20,6 +20,7 @@ func TestHoldingValuationRequiresFXRate(t *testing.T) {
 
 	t.Cleanup(func() { _ = database.Close() })
 
+	seedEURQuote(t, database)
 	priceService := price.NewService(database, price.NewRegistry())
 	service := NewHoldingService(database, priceService)
 
@@ -63,6 +64,7 @@ func TestSnapshotRequiresFXRate(t *testing.T) {
 
 			// The holding provider is valid even when no FX provider is registered.
 			test.registry.Register(price.NewManual())
+			seedEURQuote(t, database)
 			priceService := price.NewService(database, test.registry)
 			holdingService := NewHoldingService(database, priceService)
 

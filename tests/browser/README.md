@@ -4,22 +4,22 @@
 
 1. Build and start the server with a disposable database.
 2. Open `/holdings?currency=TRY`, wait for page load, and execute `bootstrap.js` in the browser console.
-3. Repeat on `/holdings?currency=USD`.
+3. Repeat on `/holdings?currency=USD` and `/holdings?currency=EUR`.
 4. Expect a result with `themeTogglesOnce: true`, `themeRestored: true`, and the requested currency. Assertion failures throw errors.
 
 Disable the browser cache or hard-reload after changing `app.js` so the test exercises the current asset. The regression toggles the theme twice and restores its original value. It does not modify portfolio data.
 
 `dashboard.js` runs on `/` and verifies that the obsolete unexported initialization call is absent and both charts initialize through the normal bootstrap within five seconds.
 
-`allocation-currency.js` compares the refreshed Asset Type chart total with the real API's selected-currency total. Run it on both `/?currency=TRY` and `/?currency=USD` with a nonzero portfolio and valid cached FX. The test changes the selected allocation view to Asset Type, without mutating holdings.
+`allocation-currency.js` compares the refreshed Asset Type chart total with the real API's selected-currency total. Run it on `/?currency=TRY`, `/?currency=USD`, and `/?currency=EUR` with a nonzero portfolio and valid cached FX. The test changes the selected allocation view to Asset Type, without mutating holdings.
 
-`allocation-views.js` exercises the public chart loader for Asset Type, Basket, Location, and Currency and compares each chart total with the corresponding API allocation. Run in TRY and USD using nonzero holdings with basket and location fields populated. It tests chart data loading/rendering, not tab click handling.
+`allocation-views.js` exercises the public chart loader for Asset Type, Basket, Location, and Currency and compares each chart total with the corresponding API allocation. Run in TRY, USD, and EUR using nonzero holdings with basket and location fields populated. It tests chart data loading/rendering, not tab click handling.
 
-`allocation-tabs.js` clicks each actual allocation button in TRY and USD, verifies the chart redraw and totals, and checks active/ARIA selection and absence of JSON in the canvas. Use a populated fixture with basket and location values.
+`allocation-tabs.js` clicks each actual allocation button in TRY, USD, and EUR, verifies the chart redraw and totals, and checks active/ARIA selection and absence of JSON in the canvas. Use a populated fixture with basket and location values.
 
-`portfolio-tabs.js` clicks every portfolio time-range tab in TRY and USD, comparing point values and labels with the history API and checking active/ARIA selection. Seed snapshots 15, 60, 120, and 240 days ago so every range has a different point count. It rejects fixtures that cannot distinguish the four ranges.
+`portfolio-tabs.js` clicks every portfolio time-range tab in TRY, USD, and EUR, comparing point values and labels with the history API and checking active/ARIA selection. Seed snapshots 15, 60, 120, and 240 days ago so every range has a different point count. It rejects fixtures that cannot distinguish the four ranges.
 
-`chart-refresh-selection.js` runs on a freshly loaded dashboard. It dispatches the real `portfolio-updated` event, verifies default views remain selected, then clicks non-default tabs and requires a subsequent event to redraw both charts without resetting the selections. Run in TRY and USD.
+`chart-refresh-selection.js` runs on a freshly loaded dashboard. It dispatches the real `portfolio-updated` event, verifies default views remain selected, then clicks non-default tabs and requires a subsequent event to redraw both charts without resetting the selections. Run in TRY, USD, and EUR.
 
 `dropdown-swaps.js` runs on a fresh holdings page containing a holding. It verifies toggle behavior before and after three dispatched `htmx:afterSwap` events, then verifies delegated handling of a newly inserted dropdown and outside-click closure. It does not change persisted holdings.
 
@@ -37,7 +37,7 @@ Inline saves use `PATCH /api/holdings/:id` for name, ticker, basket, location, n
 
 `inline-lifecycle.js` checks that Enter followed by blur makes exactly one real PATCH request and Escape followed by blur makes none. It re-reads persistence and restores fixture notes in a finally block. Run ONLY on a disposable populated holdings database.
 
-`currency-switcher.js` runs in two phases on a disposable fixture: first run clicks the opposite currency; after navigation, run it again to verify persisted settings, page currency, and page path, then restore the original setting. Repeat from the other currency to test both directions. If verification fails, the second run still restores the setting in a finally block. It performs real settings writes.
+`currency-switcher.js` runs in two phases on a disposable fixture: first run clicks the next currency (TRY → USD → EUR → TRY); after navigation, run it again to verify persisted settings, page currency, and page path, then restore the original setting. Repeat from each currency to test all three transitions. If verification fails, the second run still restores the setting in a finally block. It performs real settings writes.
 
 `pull-refresh.js` dispatches real touch events on a fresh page scrolled to the top. It requires one refresh POST for a deliberate pull and none for an initial tap, three subsequent taps, or a short pull. The refresh request is stubbed with a failed response to prevent navigation and provider requests; an error toast is expected. It does not simulate physical device gestures or change persisted holdings.
 

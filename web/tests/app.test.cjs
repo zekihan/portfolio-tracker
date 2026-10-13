@@ -111,7 +111,7 @@ function element(value = '') {
   };
 }
 function historyApp() {
-  const elements = Object.fromEntries(['date-range', 'filter-currency', 'holding-select', 'holding-basket', 'holding-location', 'reset-filters', 'first-page', 'prev-page', 'next-page', 'snapshot-value-heading', 'snapshots-tbody', 'snapshots-status', 'page-info', 'clear-history', 'history-delete-status', 'confirm-action', 'confirm-action-title', 'confirm-action-message', 'confirm-action-submit', 'portfolio-chart', 'portfolio-chart-status', 'holding-chart', 'holding-chart-status'].map(id => [id, element()]));
+  const elements = Object.fromEntries(['date-range', 'filter-currency', 'holding-select', 'holding-basket', 'holding-location', 'reset-filters', 'first-page', 'prev-page', 'next-page', 'snapshot-value-heading', 'snapshot-rate-heading', 'snapshots-tbody', 'snapshots-status', 'page-info', 'clear-history', 'history-delete-status', 'confirm-action', 'confirm-action-title', 'confirm-action-message', 'confirm-action-submit', 'portfolio-chart', 'portfolio-chart-status', 'holding-chart', 'holding-chart-status'].map(id => [id, element()]));
   elements['date-range'].value = '365';
   elements['filter-currency'].value = 'USD';
   const harness = loadApp(elements);
@@ -1233,7 +1233,7 @@ test('currency response preserves source drafts begun before or during its reque
     h.window.location.assign = value => { destination = value; };
     h.window.location.href = 'https://portfolio.test/sources?currency=TRY&filter=one#mapping';
     if (timing === 'before') h.input.value = 'MSFT';
-    h.app.saveDisplayCurrency('USD');
+    h.app.saveDisplayCurrency('EUR');
     assert.equal(h.input.disabled, false);
     if (timing === 'during') h.input.value = 'MSFT';
     await h.respond(0);
@@ -1241,10 +1241,10 @@ test('currency response preserves source drafts begun before or during its reque
     assert.equal(h.input.value, 'MSFT');
     assert.equal(h.app.state().displayCurrency, 'TRY');
     h.click(h.save); await h.respond(1);
-    h.app.saveDisplayCurrency('USD');
+    h.app.saveDisplayCurrency('EUR');
     assert.equal(h.pending.length, 3, 'deferred success releases currency lock');
     await h.respond(2);
-    assert.equal(destination, 'https://portfolio.test/sources?currency=USD&filter=one#mapping');
+    assert.equal(destination, 'https://portfolio.test/sources?currency=EUR&filter=one#mapping');
   }
 });
 
@@ -1576,4 +1576,64 @@ test('pull guards preserve successful restore and destructive clear navigation',
       respond(h.requests()[1], 0); await flush();
     } else assert.equal(destination, '/settings');
   }
+});
+
+
+test('EUR formatting and historical values never substitute TRY or USD', () => {
+  const { app } = loadApp();
+  assert.equal(app.formatCurrency(1234.5, 'EUR'), '€ 1,234.50');
+  assert.equal(app.formatCurrencyCompact(2000, 'EUR'), '€ 2.00K');
+  assert.equal(app.snapshotChartValue({ value_try: 500, value_usd: 10, value_eur: 8 }, 'EUR'), 8);
+  assert.equal(app.snapshotChartValue({ value_try: 500, value_usd: 10 }, 'EUR'), null);
+  assert.equal(app.snapshotChartValue({ value_eur: null }, 'EUR'), null);
+  assert.equal(app.snapshotChartValue({ value_eur: 0 }, 'EUR'), 0);
+  assert.equal(app.snapshotChartValue({ value_eur: 8, failed_count: 1 }, 'EUR'), null);
+});
+
+test('EUR portfolio chart labels euros and leaves legacy snapshot gaps', async () => {
+  const status = element();
+  const { app, pending } = loadApp({ 'portfolio-chart': {}, 'portfolio-chart-status': status, 'filter-currency': element('EUR') });
+  app.loadPortfolioChart('1m');
+  pending[0].resolve({ ok: true, json: async () => [
+    { timestamp: '2026-10-01', value_try: 100, value_usd: 2 },
+    { timestamp: '2026-10-02', value_try: 120, value_eur: null },
+    { timestamp: '2026-10-03', value_try: 150, value_eur: 3 },
+    { timestamp: '2026-10-04', value_try: 0, value_eur: 0 }
+  ] });
+  await flush();
+  const chart = app.state().charts.portfolio;
+  assert.equal(chart.data.datasets[0].label, 'Portfolio Value (EUR)');
+  assert.deepEqual(Array.from(chart.data.datasets[0].data), [null, null, 3, 0]);
+  assert.equal(chart.data.datasets[0].spanGaps, false);
+  assert.match(status.children[0].textContent, /recorded EUR exchange rate/);
+  assert.match(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Portfolio' }, raw: 3 }), /€ 3.00/);
+});
+
+test('EUR history table displays recorded euros and unavailable legacy values and rates', async () => {
+  const h = historyApp();
+  h.elements['filter-currency'].value = 'EUR';
+  h.elements['filter-currency'].change();
+  h.requests().at(-1).resolve({ ok: true, json: async () => [
+    { id: 1, timestamp: '2026-10-01', total_value_try: 100, total_value_usd: 2, usd_try_rate: 50 },
+    { id: 2, timestamp: '2026-10-02', total_value_eur: 0, eur_try_rate: 60 },
+    { id: 3, timestamp: '2026-10-03', total_value_eur: 5, eur_try_rate: 61 }
+  ] });
+  await flush();
+  const rows = h.elements['snapshots-tbody'].children;
+  assert.equal(h.elements['snapshot-value-heading'].textContent, 'Value (EUR)');
+  assert.equal(h.elements['snapshot-rate-heading'].textContent, 'EUR/TRY');
+  assert.deepEqual(rows.map(row => row.cells[1].textContent), ['Unavailable', '€ 0.00', '€ 5.00']);
+  assert.deepEqual(rows.map(row => row.cells[2].textContent), ['Unavailable', 60, 61]);
+});
+
+test('EUR currency save preserves URL filters and fragment', async () => {
+  const h = loadApp();
+  h.window.location.href = 'https://portfolio.test/holdings?basket=one&currency=USD#cash';
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  h.app.saveDisplayCurrency('EUR');
+  assert.deepEqual(JSON.parse(h.pending[0].options.body), { currency: 'EUR' });
+  h.pending[0].resolve({ ok: true });
+  await flush();
+  assert.equal(destination, 'https://portfolio.test/holdings?basket=one&currency=EUR#cash');
 });

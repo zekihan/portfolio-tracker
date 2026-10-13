@@ -33,6 +33,8 @@ func valuationDatabase(t *testing.T) *sqlx.DB {
 		t.Fatal(err)
 	}
 
+	seedEURQuote(t, database)
+
 	return database
 }
 
@@ -46,7 +48,7 @@ func TestPartialValuationIsExplicitAndCannotBecomeSnapshot(t *testing.T) {
  basket,location,notes,ticker) VALUES
  ('Manual','Cash',2,'Manual','','TRY',100,200,'','','',''),
  ('USD','Stock',1,'Cached','USD','USD',0,0,'','','',''),
- ('EUR','Stock',1,'Cached','EUR','TRY',0,0,'','','',''),
+ ('GBP','Stock',1,'Cached','GBP','TRY',0,0,'','','',''),
  ('Missing','Stock',1,'Manual','','TRY',0,50,'','','',''),
  ('Stale','Stock',1,'Cached','STALE','TRY',0,0,'','','','')`)
 	if err != nil {
@@ -56,7 +58,7 @@ func TestPartialValuationIsExplicitAndCannotBecomeSnapshot(t *testing.T) {
 	_, err = database.ExecContext(t.Context(), `INSERT INTO price_cache
  (provider,instrument_id,price,currency,source,expires_at,last_error) VALUES
  ('Cached','USD',100,'USD','test',?,''),
- ('Cached','EUR',100,'EUR','test',?,''),
+ ('Cached','GBP',100,'GBP','test',?,''),
  ('Cached','STALE',120,'TRY','test',?,'')`,
 		time.Now().Add(time.Hour), time.Now().Add(time.Hour), time.Now().Add(-time.Hour))
 	if err != nil {
@@ -89,7 +91,7 @@ func TestPartialValuationIsExplicitAndCannotBecomeSnapshot(t *testing.T) {
 	}
 
 	for _, holding := range holdings {
-		available := holding.Name != "EUR" && holding.Name != "Missing"
+		available := holding.Name != "GBP" && holding.Name != "Missing"
 		if holding.ValuationAvailable != available {
 			t.Fatalf("wrong availability: %+v", holding)
 		}

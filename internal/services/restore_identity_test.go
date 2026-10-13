@@ -25,7 +25,7 @@ func (restoreFixedFX) GetPrice(context.Context, string) (models.Price, error) {
 func TestRestoreRecoversIdentitiesAfterLegacyRestoreChain(t *testing.T) {
 	t.Parallel()
 
-	for _, version := range []int{9, 10} {
+	for _, version := range []int{9, 10, 11} {
 		t.Run(strconv.Itoa(version), func(t *testing.T) {
 			t.Parallel()
 			original := openTestDB(t, "original.db")
@@ -61,7 +61,7 @@ func TestRestoreRecoversIdentitiesAfterLegacyRestoreChain(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			execRestoreFixture(t, original, "PRAGMA user_version = "+strconv.Itoa(version))
+			useLegacyRestoreSchema(t, original, version)
 			firstPath := filepath.Join(t.TempDir(), "original-backup.db")
 
 			err = original.Backup(t.Context(), firstPath)
@@ -79,7 +79,7 @@ func TestRestoreRecoversIdentitiesAfterLegacyRestoreChain(t *testing.T) {
 				t.Fatalf("legacy fixture retained the deleted holding's sequence: %d", got)
 			}
 
-			execRestoreFixture(t, legacy, "PRAGMA user_version = "+strconv.Itoa(version))
+			useLegacyRestoreSchema(t, legacy, version)
 			secondPath := filepath.Join(t.TempDir(), "backup-after-legacy-restore.db")
 
 			err = legacy.Backup(t.Context(), secondPath)
@@ -158,7 +158,7 @@ func copyLegacyRestoreFixture(t *testing.T, service *SettingsService, path strin
 	defer func() { _ = tx.Rollback() }()
 
 	for _, table := range restoreTables {
-		columns, columnErr := tableColumns(t.Context(), tx, "main", table)
+		columns, columnErr := tableColumns(t.Context(), tx, "legacy_src", table)
 		if columnErr != nil {
 			t.Fatal(columnErr)
 		}

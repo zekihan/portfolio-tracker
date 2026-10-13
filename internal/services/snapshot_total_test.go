@@ -48,6 +48,7 @@ func TestSnapshotRejectsOverflowingTotals(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			seedEURQuote(t, database)
 			prices := price.NewService(database, price.DefaultRegistry())
 			service := NewSnapshotService(database, prices, NewHoldingService(database, prices))
 			err = service.CreateSnapshot(t.Context())

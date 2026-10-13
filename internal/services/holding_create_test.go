@@ -210,7 +210,7 @@ func TestCreateReceiptFailureRollsBackHolding(t *testing.T) {
 func TestCreateReceiptFencesRestoreAndClear(t *testing.T) {
 	t.Parallel()
 
-	for _, operation := range []string{"restore9", "restore10", "restore11", "clear"} {
+	for _, operation := range []string{"restore9", "restore10", "restore11", "restore12", "clear"} {
 		t.Run(operation, func(t *testing.T) {
 			t.Parallel()
 			target := openTestDB(t, "target.db")
@@ -289,10 +289,14 @@ func restoreReceiptFixture(t *testing.T, target *SettingsService, operation stri
 		t.Fatal(err)
 	}
 
+	if version < restoreEURVersion {
+		useLegacyRestoreSchema(t, source, version)
+	}
+
 	if version < 11 {
 		_, err = source.db.ExecContext(
 			t.Context(),
-			"DROP TABLE holding_create_receipts; PRAGMA user_version = "+strconv.Itoa(version),
+			"DROP TABLE holding_create_receipts",
 		)
 		if err != nil {
 			t.Fatal(err)
