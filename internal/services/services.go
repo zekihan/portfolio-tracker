@@ -164,7 +164,12 @@ func (service *HoldingService) GetDashboardData(
 	ctx context.Context,
 	displayCurrency string,
 ) (*models.DashboardData, error) {
-	holdings, fxQuote, eurQuote, err := service.getValuations(ctx, valuationBudget, displayCurrency)
+	holdings, fxQuote, eurQuote, err := service.getValuations(
+		ctx,
+		valuationBudget,
+		displayCurrency,
+		currentAndEstimatedValues,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +186,7 @@ func (service *HoldingService) GetDashboardData(
 
 	for index := range holdings {
 		holding := holdings[index]
-		eurUsed = eurUsed || holdingNeedsEUR(&holding)
+		eurUsed = eurUsed || currentAndEstimatedValues.holdingNeedsEUR(&holding)
 		// A zero position has a known contribution even when its unit quote is unavailable.
 		if holding.ValuationAvailable || holding.Quantity == 0 {
 			valuedCount++
@@ -331,7 +336,14 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return wrapOperationError("CreateSnapshot", err)
 	}
 
-	holdings, fxQuote, eurQuote, err := service.holdingSvc.getValuations(ctx, valuationBudget, "")
+	// History records current positions, so target estimates must not introduce
+	// FX requirements, quality flags, or normalization failures.
+	holdings, fxQuote, eurQuote, err := service.holdingSvc.getValuations(
+		ctx,
+		valuationBudget,
+		"",
+		currentValuesOnly,
+	)
 	if err != nil {
 		return err
 	}
@@ -683,7 +695,7 @@ var errManualPriceMustBeFiniteAndNonnegative = errors.New(
 	"manual price must be finite and nonnegative",
 )
 
-func (service *HoldingService) normalizeHolding(
+func (service *HoldingService) normalizeCurrentHolding(
 	holding *models.HoldingWithPrice,
 	rate float64,
 	eurRates ...float64,
@@ -713,6 +725,31 @@ func (service *HoldingService) normalizeHolding(
 		}
 	}
 
+	if !areFiniteValues(
+		holding.NormPriceTRY, holding.NormPriceUSD, holding.NormPriceEUR,
+		holding.NormTotalTRY, holding.NormTotalUSD, holding.NormTotalEUR,
+	) {
+		return errNonFiniteHoldingValue
+	}
+
+	return nil
+}
+
+func (service *HoldingService) normalizeHolding(
+	holding *models.HoldingWithPrice,
+	rate float64,
+	eurRates ...float64,
+) error {
+	err := service.normalizeCurrentHolding(holding, rate, eurRates...)
+	if err != nil {
+		return err
+	}
+
+	var eurRate float64
+	if len(eurRates) > 0 {
+		eurRate = eurRates[0]
+	}
+
 	// Zero and NULL estimates are both unset in the existing storage/input contract.
 	// Reuse normalized current totals so fallbacks retain the actual quote currency.
 	holding.NormEstTotalTRY = holding.NormTotalTRY
@@ -737,17 +774,7 @@ func (service *HoldingService) normalizeHolding(
 		}
 	}
 
-	if !areFiniteValues(
-		holding.NormPriceEUR,
-		holding.NormTotalEUR,
-		holding.NormEstTotalEUR,
-		holding.NormPriceTRY,
-		holding.NormPriceUSD,
-		holding.NormTotalTRY,
-		holding.NormTotalUSD,
-		holding.NormEstTotalTRY,
-		holding.NormEstTotalUSD,
-	) {
+	if !areFiniteValues(holding.NormEstTotalTRY, holding.NormEstTotalUSD, holding.NormEstTotalEUR) {
 		return errNonFiniteHoldingValue
 	}
 

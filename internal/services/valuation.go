@@ -14,12 +14,24 @@ const (
 	valuationWorkers = 4
 )
 
+type valuationScope uint8
+
+const (
+	currentValuesOnly valuationScope = iota
+	currentAndEstimatedValues
+)
+
 func (service *HoldingService) getWithPrices(
 	ctx context.Context,
 	displayCurrency string,
 	budget time.Duration,
 ) ([]models.HoldingWithPrice, error) {
-	holdings, _, _, err := service.getValuations(ctx, budget, displayCurrency)
+	holdings, _, _, err := service.getValuations(
+		ctx,
+		budget,
+		displayCurrency,
+		currentAndEstimatedValues,
+	)
 
 	return holdings, err
 }
@@ -29,6 +41,7 @@ func (service *HoldingService) getValuations(
 	ctx context.Context,
 	budget time.Duration,
 	displayCurrency string,
+	scope valuationScope,
 ) ([]models.HoldingWithPrice, models.Price, models.Price, error) {
 	valuationCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
@@ -57,7 +70,7 @@ func (service *HoldingService) getValuations(
 				fxQuote.Value,
 			)
 		} else {
-			err = service.normalizeHolding(&result[index], fxQuote.Value)
+			err = service.normalizeCurrentHolding(&result[index], fxQuote.Value)
 		}
 
 		if err != nil {
@@ -80,9 +93,14 @@ func (service *HoldingService) getValuations(
 		eurErr   error
 	)
 
-	requiredEUR := requiresEURValuation(result, displayCurrency)
+	requiredEUR := scope.requiresEURValuation(result, displayCurrency)
 	if requiredEUR {
-		eurQuote, eurErr = service.eurValuationQuote(ctx, valuationCtx, result, displayCurrency)
+		eurQuote, eurErr = service.eurValuationQuote(
+			ctx,
+			valuationCtx,
+			requiredEUR,
+			displayCurrency,
+		)
 	}
 
 	err = service.runValuations(valuationCtx, holdings, result, fxQuote.Value, true)
@@ -91,7 +109,12 @@ func (service *HoldingService) getValuations(
 	}
 
 	if !requiredEUR {
-		eurQuote, eurErr = service.eurValuationQuote(ctx, valuationCtx, result, displayCurrency)
+		eurQuote, eurErr = service.eurValuationQuote(
+			ctx,
+			valuationCtx,
+			requiredEUR,
+			displayCurrency,
+		)
 	}
 
 	if ctx.Err() != nil {
@@ -102,7 +125,14 @@ func (service *HoldingService) getValuations(
 		return nil, models.Price{}, models.Price{}, eurErr
 	}
 
-	err = service.finishCurrencyValuations(result, &fxQuote, &eurQuote, eurErr, displayCurrency)
+	err = service.finishCurrencyValuations(
+		result,
+		&fxQuote,
+		&eurQuote,
+		eurErr,
+		displayCurrency,
+		scope,
+	)
 	if err != nil {
 		return nil, models.Price{}, models.Price{}, err
 	}
@@ -188,7 +218,7 @@ func (service *HoldingService) valueHolding(
 		}
 	}
 
-	err := service.normalizeHolding(&hwp, rate)
+	err := service.normalizeCurrentHolding(&hwp, rate)
 
 	return hwp, err
 }
@@ -260,10 +290,12 @@ func (service *HoldingService) finishCurrencyValuations(
 	fxQuote, eurQuote *models.Price,
 	eurErr error,
 	displayCurrency string,
+	scope valuationScope,
 ) error {
 	for index := range result {
 		row := &result[index]
-		if row.Quantity != 0 && row.BaseCurrency == restoreCurrencyEUR && row.EstPrice > 0 &&
+		if scope == currentAndEstimatedValues && row.Quantity != 0 &&
+			row.BaseCurrency == restoreCurrencyEUR && row.EstPrice > 0 &&
 			eurQuote.Value <= 0 {
 			return eurErr
 		}
@@ -274,13 +306,19 @@ func (service *HoldingService) finishCurrencyValuations(
 			row.PriceError = "EUR exchange rate unavailable"
 		}
 
-		err := service.normalizeHolding(row, fxQuote.Value, eurQuote.Value)
+		var err error
+		if scope == currentAndEstimatedValues {
+			err = service.normalizeHolding(row, fxQuote.Value, eurQuote.Value)
+		} else {
+			err = service.normalizeCurrentHolding(row, fxQuote.Value, eurQuote.Value)
+		}
+
 		if err != nil {
 			return err
 		}
 
 		if row.ValuationAvailable &&
-			(displayCurrency == restoreCurrencyEUR || holdingNeedsEUR(row)) {
+			(displayCurrency == restoreCurrencyEUR || scope.holdingNeedsEUR(row)) {
 			row.IsStale = row.IsStale || eurQuote.IsStale
 
 			row.IsFailed = row.IsFailed || eurQuote.IsFailed

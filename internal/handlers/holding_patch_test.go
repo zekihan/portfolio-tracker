@@ -29,6 +29,15 @@ func TestHoldingPartialUpdates(t *testing.T) {
 		{func(holding *models.Holding) { holding.Ticker = "NEW" }, "ticker", `{"ticker":"NEW"}`, "1", 204, false},
 		{nil, "empty name", `{"name":""}`, "1", 400, false},
 		{func(holding *models.Holding) { holding.Notes = "New notes" }, "notes", `{"notes":"New notes"}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.Notes = " \n  First line\nSecond line\t \n "
+		}, "multiline notes", `{"notes":" \n  First line\nSecond line\t \n "}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.Notes = "first\r\nsecond\rthird"
+		}, "CRLF notes", `{"notes":"first\r\nsecond\rthird"}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.Notes = " \t "
+		}, "whitespace notes", `{"notes":" \t "}`, "1", 204, false},
 		{func(holding *models.Holding) { holding.Basket = "Long term" }, "basket", `{"basket":"Long term"}`, "1", 204, false},
 		{func(holding *models.Holding) {
 			holding.Location = "New location"

@@ -380,11 +380,12 @@ func TestZeroEURPositionsDoNotRequireFX(t *testing.T) {
 	positions := []models.HoldingWithPrice{{
 		BaseCurrency: "EUR", CurrentCurrency: "EUR", EstPrice: 100, ValuationAvailable: true,
 	}}
-	if requiresEURValuation(positions, "TRY") || holdingNeedsEUR(&positions[0]) {
+	if currentAndEstimatedValues.requiresEURValuation(positions, "TRY") ||
+		currentAndEstimatedValues.holdingNeedsEUR(&positions[0]) {
 		t.Fatal("zero position made optional EUR rate required")
 	}
 
-	if !requiresEURValuation(positions, "EUR") {
+	if !currentAndEstimatedValues.requiresEURValuation(positions, "EUR") {
 		t.Fatal("EUR display must still require an exchange rate")
 	}
 
@@ -408,5 +409,65 @@ VALUES('Closed euro','Cash',0,'EUR',10,20)`)
 	err = NewSnapshotService(database, prices, holdings).CreateSnapshot(t.Context())
 	if err != nil {
 		t.Fatalf("zero EUR must retain known zero contribution without EUR FX: %v", err)
+	}
+}
+
+func TestValuationScopeEURRequirements(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name          string
+		holding       models.HoldingWithPrice
+		wantCurrent   bool
+		wantEstimated bool
+	}{
+		{
+			name: "EUR target on USD current quote",
+			holding: models.HoldingWithPrice{
+				Quantity: 2, BaseCurrency: "EUR", CurrentCurrency: "USD",
+				EstPrice: 20, ValuationAvailable: true,
+			},
+			wantEstimated: true,
+		},
+		{
+			name: "actual EUR current quote with USD base",
+			holding: models.HoldingWithPrice{
+				Quantity: 2, BaseCurrency: "USD", CurrentCurrency: "EUR",
+				EstPrice: 20, ValuationAvailable: true,
+			},
+			wantCurrent: true, wantEstimated: true,
+		},
+		{
+			name: "EUR base without target",
+			holding: models.HoldingWithPrice{
+				Quantity: 2, BaseCurrency: "EUR", CurrentCurrency: "USD", ValuationAvailable: true,
+			},
+		},
+		{
+			name: "zero EUR position and target",
+			holding: models.HoldingWithPrice{
+				BaseCurrency: "EUR", CurrentCurrency: "EUR", EstPrice: 20, ValuationAvailable: true,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			positions := []models.HoldingWithPrice{test.holding}
+			if currentValuesOnly.requiresEURValuation(positions, "") != test.wantCurrent ||
+				currentValuesOnly.holdingNeedsEUR(&test.holding) != test.wantCurrent ||
+				currentAndEstimatedValues.requiresEURValuation(
+					positions,
+					"TRY",
+				) != test.wantEstimated ||
+				currentAndEstimatedValues.holdingNeedsEUR(&test.holding) != test.wantEstimated {
+				t.Fatalf("scope did not isolate required FX and quote quality: %+v", test.holding)
+			}
+
+			if !currentValuesOnly.requiresEURValuation(positions, "EUR") ||
+				!currentAndEstimatedValues.requiresEURValuation(positions, "EUR") {
+				t.Fatal("EUR display must still require its exchange rate in either scope")
+			}
+		})
 	}
 }
