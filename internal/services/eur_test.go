@@ -225,26 +225,61 @@ VALUES('Yahoo Finance','EURTEST',10,'EUR','test',?,'')`,
 	}
 }
 
-//nolint:gocyclo // Snapshot gaps and estimate quality must remain consistent across currencies.
+type pendingEURGetter struct{ unavailableEURGetter }
+
+func (pendingEURGetter) GetPrice(ctx context.Context, _ string) (models.Price, error) {
+	<-ctx.Done()
+
+	return models.Price{}, wrapOperationError("pending EUR", ctx.Err())
+}
+
 func TestStaleEURSnapshotIsGapAndEstimateIsFlagged(t *testing.T) {
 	t.Parallel()
+
+	for _, test := range []struct {
+		name       string
+		errorCount int
+	}{
+		{name: "refresh pending"},
+		{name: "previous refresh failed", errorCount: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			checkStaleEURSnapshotAndEstimate(t, test.errorCount)
+		})
+	}
+}
+
+//nolint:gocyclo // Snapshot gaps and estimate quality must remain consistent across currencies.
+func checkStaleEURSnapshotAndEstimate(t *testing.T, errorCount int) {
+	t.Helper()
 	database := valuationDatabase(t)
 	old := time.Now().UTC().Add(-2 * time.Hour)
+	lastError := ""
+
+	if errorCount > 0 {
+		lastError = errTestEUROffline.Error()
+	}
 
 	_, err := database.ExecContext(
 		t.Context(),
-		`UPDATE price_cache SET fetched_at=?, expires_at=? WHERE instrument_id='EUR';
+		`UPDATE price_cache SET fetched_at=?, expires_at=?, error_count=?, last_error=?
+WHERE instrument_id='EUR';
 INSERT INTO holdings(name,asset_type,quantity,price_provider,base_currency,manual_price)
 VALUES('Cash','Cash',2,'Manual','USD',10)`,
 		old,
 		old,
+		errorCount,
+		lastError,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	registry := price.NewRegistry()
-	registry.Register(unavailableEURGetter{})
+	// Keep the background retry pending so quality depends only on the seeded
+	// cache state, not on when the refresh goroutine records a provider failure.
+	registry.Register(pendingEURGetter{})
 	prices := price.NewService(database, registry)
 
 	t.Cleanup(func() { _ = prices.Close() })
@@ -283,8 +318,9 @@ UPDATE holdings SET price_provider='Frankfurter'`,
 	}
 
 	data, err := holdings.GetDashboardData(t.Context(), "USD")
-	if err != nil || !data.FXIsStale || !data.FXIsFailed || data.StaleCount != 1 ||
-		data.FailedCount != 1 ||
+	if err != nil || !data.FXIsStale || data.FXIsFailed != (errorCount > 0) ||
+		data.StaleCount != 1 ||
+		data.FailedCount != errorCount ||
 		data.EstimatedValueUSD != 50 ||
 		!data.FXFetchedAt.Equal(old) {
 		t.Fatalf("EUR estimate dependency quality: %+v %v", data, err)
