@@ -25,6 +25,19 @@ fetch() {
     docker run --rm --network "container:$container" "$probe" \
         wget -q -O - "http://127.0.0.1:8080$1"
 }
+http_request() {
+    # In -e mode nc gives the command its connected socket. Write the request
+    # without half-closing it, then read until the server closes the response.
+    # Preserve Docker stdout on fd 9 because nc redirects stdout to the socket.
+    docker run --rm --network "container:$container" "$probe" sh -c '
+        exec 9>&1
+        exec timeout 15 nc -w 10 127.0.0.1 8080 -e sh -c "$@"
+    ' sh 'printf "$@"; exec cat >&9' sh "$@"
+}
+fetch_response() {
+    # HTTP/1.0 keeps the body unchunked for the assertions below.
+    http_request 'GET %s HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n' "$1"
+}
 wait_ready() {
     attempts=0
     until fetch /api/settings > /dev/null; do
@@ -34,10 +47,37 @@ wait_ready() {
     done
 }
 wait_ready
-fetch / | grep -q '<!DOCTYPE html>'
+fetch_response /settings > "$fixture/settings-page.txt"
+head -n 1 "$fixture/settings-page.txt" | grep -q '^HTTP/1\.[01] 200 '
+grep -qi '^Content-Type: text/html' "$fixture/settings-page.txt"
+for marker in '<!DOCTYPE html>' 'class="settings-page"' '<h1>Settings</h1>' '</html>'; do
+    grep -Fq "$marker" "$fixture/settings-page.txt"
+done
+generation=$(awk 'tolower($1) == "x-portfolio-generation:" { sub("\r$", "", $2); print $2 }' "$fixture/settings-page.txt")
+case "$generation" in
+    ''|*[!0-9]*) echo "Settings response has no valid portfolio generation" >&2; exit 1 ;;
+esac
+# A fresh, network-isolated database has no FX quote. Require the intentional
+# unavailable page, not a generic 503 or a misleading zero-valued dashboard.
+fetch_response / > "$fixture/dashboard-page.txt"
+head -n 1 "$fixture/dashboard-page.txt" | grep -q '^HTTP/1\.[01] 503 '
+grep -qi '^Content-Type: text/html' "$fixture/dashboard-page.txt"
+for marker in '<!DOCTYPE html>' 'class="dashboard"' 'role="alert"' \
+    '<h1>Portfolio valuation unavailable</h1>' \
+    'Values and allocations are unavailable.' 'href="/?currency=TRY">Retry</a>' '</html>'; do
+    grep -Fq "$marker" "$fixture/dashboard-page.txt"
+done
+if grep -Eq 'id="(current-value-try|current-value-usd|allocation-chart)"|No holdings yet' "$fixture/dashboard-page.txt"; then
+    echo "Offline dashboard displayed misleading portfolio values" >&2
+    exit 1
+fi
 fetch /static/style.css > /dev/null
 fetch /static/app.js > /dev/null
+# Change durable state: comparing defaults alone cannot detect a reset database.
+http_request 'PATCH /api/settings/currency HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nX-Portfolio-Generation: %s\r\nContent-Length: 18\r\nConnection: close\r\n\r\n{"currency":"USD"}' "$generation" > "$fixture/update-response.txt"
+grep -q '^HTTP/1.1 200 ' "$fixture/update-response.txt"
 fetch /api/settings > "$fixture/settings-before.json"
+grep -q '"display_currency":"USD"' "$fixture/settings-before.json"
 docker cp "$container:/data/portfolio.db" "$fixture/portfolio.db"
 test -s "$fixture/portfolio.db"
 docker cp "$container:/usr/share/licenses/portfolio-tracker/LICENSE" "$fixture/LICENSE"

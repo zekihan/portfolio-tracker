@@ -13,6 +13,21 @@
         </div>
     </header>
 
+    {{if .ValuationUnavailable}}
+    <section class="card" role="alert">
+        <h2>{{if .HoldingsUnavailable}}Holdings unavailable{{else}}Holding valuations unavailable{{end}}</h2>
+        <p>{{if .HoldingsUnavailable}}We could not load your saved holdings.{{else}}We could not load complete valuations. Your saved holding details are still available to edit; calculated values are unavailable.{{end}} Please try again.</p>
+        <a class="btn btn-primary" href="/holdings?currency={{.DisplayCurrency}}">Retry</a>
+    </section>
+    {{end}}
+
+    {{if and (not .ValuationUnavailable) .UnvaluedCount}}
+    <section class="card" role="alert">
+        <h2>Partial holding valuations</h2>
+        <p>{{.ValuedCount}} of {{.TotalHoldings}} holdings valued; {{.UnvaluedCount}} unavailable. Edit an unavailable holding or set a manual price, or <a href="/sources">check its price source</a>.</p>
+    </section>
+    {{end}}
+    {{if not .HoldingsUnavailable}}
     <div class="mobile-only holding-search">
         <label for="mobile-holding-search">Filter by name</label>
         <input type="search" id="mobile-holding-search" class="form-input" placeholder="Holding name">
@@ -65,15 +80,17 @@
                     <td class="editable-cell" tabindex="0" data-field="name" data-edit-value="{{.Name}}">{{.Name}}</td>
                     <td class="editable-cell" tabindex="0" data-field="ticker" data-edit-value="{{.Ticker}}">{{.Ticker}}</td>
                     <td class="numeric editable-cell" tabindex="0" data-field="quantity" data-sort-value="{{.Quantity}}">{{formatQuantity .Quantity}}</td>
-                    <td class="numeric calculated-cell {{if .IsFailed}}price-failed{{else if .IsStale}}price-stale{{end}}" data-field="price" data-sort-value="{{.CurrentPrice}}">
-                        {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}}
-                        {{if .IsFailed}}<span class="badge badge-error">Failed</span>{{else if .IsStale}}<span class="badge badge-warning">Stale</span>{{end}}
+                    <td class="numeric calculated-cell {{if .IsFailed}}price-failed{{else if .IsStale}}price-stale{{end}}" data-field="price" data-sort-value="{{if .ValuationAvailable}}{{.CurrentPrice}}{{end}}">
+                        {{if .ValuationAvailable}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}Unavailable{{end}}
+                        {{if and .ValuationAvailable .IsFailed}}<span class="badge badge-error">Refresh failed</span>{{end}}
+                        {{if .IsStale}}<span class="badge badge-warning">Stale price or FX</span>{{end}}
+                        {{if and .ValuationAvailable (not .PriceFetchedAt.IsZero)}}<small>Quote as of {{formatTime .PriceFetchedAt}}</small>{{end}}
                     </td>
                     <td class="numeric editable-cell" tabindex="0" data-field="est_price" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
                     <td>{{.BaseCurrency}}</td>
-                    <td class="numeric calculated-cell">{{if gt $total 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt $estimate 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}}</td>
-                    <td class="numeric calculated-cell">{{if gt $unit 0}}{{formatCurrency $unit $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if .ValuationAvailable}}{{formatCurrency $total $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>
+                    <td class="numeric calculated-cell">{{if and (not $.ValuationUnavailable) (gt .EstPrice 0)}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if .ValuationAvailable}}{{formatCurrency $unit $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>
                     <td class="numeric calculated-cell">{{if and (gt .Quantity 0) (gt $estimate 0)}}{{formatCurrency (div $estimate .Quantity) $.DisplayCurrency}}{{else}}—{{end}}</td>
                     <td class="editable-cell" tabindex="0" data-field="basket" data-edit-value="{{.Basket}}">{{.Basket}}</td>
                     <td class="editable-cell" tabindex="0" data-field="location" data-edit-value="{{.Location}}">{{.Location}}</td>
@@ -112,7 +129,7 @@
                 <tr>
                     <td colspan="14" class="table-footer">
                         <div class="table-footer-content">
-                        <span id="coverage-badge">Estimated total covers {{.CoverageCount}} of {{.TotalHoldings}} holdings</span>
+                        <span id="coverage-badge">{{if .ValuationUnavailable}}Estimated totals unavailable{{else}}Estimated total covers {{.CoverageCount}} of {{.TotalHoldings}} holdings{{end}}</span>
                         <button class="btn btn-ghost btn-sm" id="column-toggle" aria-expanded="false" aria-controls="column-menu">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             Columns
@@ -134,7 +151,7 @@
             <header class="card-header">
                 <div>
                     <h3>{{.Name}} {{if .Ticker}}<span class="ticker">({{.Ticker}})</span>{{end}}</h3>
-                    <p class="meta">{{formatQuantity .Quantity}} × {{if gt .CurrentPrice 0}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}—{{end}} = {{if gt .NormTotalTRY 0}}{{formatCurrency $total $.DisplayCurrency}}{{else}}—{{end}}</p>
+                    <p class="meta">{{formatQuantity .Quantity}} × {{if .ValuationAvailable}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}Unavailable{{end}} = {{if .ValuationAvailable}}{{formatCurrency $total $.DisplayCurrency}}{{else}}Unavailable{{end}}</p>
                 </div>
                 <div class="dropdown">
                     <button class="btn btn-ghost btn-sm dropdown-toggle" aria-label="Actions for {{.Name}}" aria-expanded="false" aria-haspopup="true">
@@ -149,7 +166,9 @@
                 </div>
             </header>
             <div class="card-body">
-                <p class="meta">Est: {{if gt .NormEstTotalTRY 0}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}} {{if gt .EstPrice 0}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
+                <p class="meta">Est: {{if and (not $.ValuationUnavailable) (gt .EstPrice 0)}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}} {{if and .ValuationAvailable (gt .EstPrice 0)}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
+                {{if not .ValuationAvailable}}<p class="meta">Valuation unavailable. Edit this holding or set a manual price; <a href="/sources">check price sources</a>.</p>{{end}}
+                {{if .IsStale}}<p class="meta">Stale price or exchange rate. Quote{{if not .PriceFetchedAt.IsZero}} as of {{formatTime .PriceFetchedAt}}{{end}}</p>{{end}}
                 <p class="meta">Basket: {{.Basket}} • Location: {{.Location}}</p>
                 <div class="card-actions">
                     <button class="btn btn-sm btn-secondary" hx-get="/partials/holding-form/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Edit</button>
@@ -171,6 +190,8 @@
         </div>
         {{end}}
     </div>
+
+    {{end}}
 
     <!-- Floating Action Button for mobile -->
     <button class="fab mobile-only" hx-get="/partials/holding-form" hx-target="#modal-container" hx-swap="innerHTML" aria-label="Add holding">

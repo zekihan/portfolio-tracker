@@ -33,7 +33,7 @@ Disable the browser cache or hard-reload after changing `app.js` so the test exe
 
 `inline-save.js` saves all seven editable fields through the real UI and API, checks unrelated fields remain unchanged, exercises empty text and numeric zero, and restores the fixture through PATCH in a finally block. Run ONLY against a disposable populated holdings database; it performs real writes.
 
-Inline saves use `PATCH /api/holdings/:id` for name, ticker, basket, location, notes, quantity, and est_price. Omitted/null fields remain unchanged; empty text clears optional fields, but an empty name is rejected. Numeric values must be nonnegative. A successful update returns HTTP 204, a missing holding HTTP 404, and an empty or invalid patch HTTP 400. The existing full-record PUT contract is unchanged.
+Inline saves use `PATCH /api/holdings/:id` for name, ticker, basket, location, notes, quantity, and est_price. Omitted/null fields remain unchanged; empty text clears optional fields, but an empty name is rejected. Numeric values must be nonnegative. A successful update returns HTTP 204, a missing holding HTTP 404, and an empty or invalid patch HTTP 400. Full edit modals also use PATCH, submitting only fields changed since the form loaded; asset_type, price_provider, instrument_id, and base_currency are supported with the same validation as full updates. Unchanged modal saves issue no request. The existing full-record PUT contract is unchanged.
 
 `inline-lifecycle.js` checks that Enter followed by blur makes exactly one real PATCH request and Escape followed by blur makes none. It re-reads persistence and restores fixture notes in a finally block. Run ONLY on a disposable populated holdings database.
 

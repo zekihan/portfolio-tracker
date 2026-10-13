@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.19.0
       - uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.14.0
@@ -49,3 +52,23 @@ jobs:
           install-only: true
           version: v2.18.3
       - run: make container-test
+  native-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go test -count=1 -timeout=5m ./...
+      - uses: actions/setup-node@v7.1.0
+        if: runner.os == 'macOS'
+        with:
+          node-version: 24.19.0
+      - name: Test browser and delivery scripts on macOS
+        if: runner.os == 'macOS'
+        run: make test/web test/scripts

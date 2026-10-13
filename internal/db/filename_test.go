@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -58,62 +59,96 @@ func TestOpenPreservesMemoryConnectionModes(t *testing.T) {
 func TestOpenPreservesLiteralDatabaseFilename(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"portfolio.db", "portfolio?notes.db", "portfolio#notes.db", "portfolio%20notes.db"} {
+	for _, name := range []string{
+		"portfolio.db", "portfolio notes.db", "portfolio?notes.db", "portfolio#notes.db", "portfolio%20notes.db",
+	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), name)
 
-			database, err := Open(path)
-			if err != nil {
-				t.Fatal(err)
+			if runtime.GOOS == "windows" && name == "portfolio?notes.db" {
+				assertInvalidDatabaseFilename(t, path)
+
+				return
 			}
 
-			t.Cleanup(func() { _ = database.Close() })
-
-			_, statErr := os.Stat(path)
-			if statErr != nil {
-				t.Fatalf("requested database file not created: %v", statErr)
-			}
-
-			_, err = database.ExecContext(
-				t.Context(),
-				"UPDATE settings SET value = 'USD' WHERE key = 'display_currency'",
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			err = database.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			reopened, err := Open(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			t.Cleanup(func() { _ = reopened.Close() })
-
-			value, err := GetSettingContext(t.Context(), reopened, "display_currency")
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if value != "USD" {
-				t.Errorf("reopened setting = %q, want USD", value)
-			}
-
-			var foreignKeys int
-
-			err = reopened.GetContext(t.Context(), &foreignKeys, "PRAGMA foreign_keys")
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if foreignKeys != 1 {
-				t.Error("foreign keys not enabled")
-			}
+			assertLiteralDatabaseFilename(t, path)
 		})
+	}
+}
+
+func assertInvalidDatabaseFilename(t *testing.T, path string) {
+	t.Helper()
+
+	database, err := Open(path)
+	if err == nil {
+		_ = database.Close()
+
+		t.Fatal("Windows accepted an invalid filename")
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(entries) != 0 {
+		t.Fatalf("invalid filename created unintended files: %v", entries)
+	}
+}
+
+func assertLiteralDatabaseFilename(t *testing.T, path string) {
+	t.Helper()
+
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = database.Close() })
+
+	_, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatalf("requested database file not created: %v", statErr)
+	}
+
+	_, err = database.ExecContext(
+		t.Context(),
+		"UPDATE settings SET value = 'USD' WHERE key = 'display_currency'",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = database.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	value, err := GetSettingContext(t.Context(), reopened, "display_currency")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if value != "USD" {
+		t.Errorf("reopened setting = %q, want USD", value)
+	}
+
+	var foreignKeys int
+
+	err = reopened.GetContext(t.Context(), &foreignKeys, "PRAGMA foreign_keys")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if foreignKeys != 1 {
+		t.Error("foreign keys not enabled")
 	}
 }

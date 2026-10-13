@@ -12,85 +12,90 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
 
-type dashboardFXGetter struct {
-	cancel context.CancelFunc
-	calls  int
-}
+type dashboardFXGetter struct{ entered chan struct{} }
 
 func (g *dashboardFXGetter) Name() string       { return "Frankfurter" }
 func (g *dashboardFXGetter) Type() string       { return "FX" }
-func (g *dashboardFXGetter) TTL() time.Duration { return -time.Hour }
-func (g *dashboardFXGetter) GetPrice(context.Context, string) (models.Price, error) {
-	g.calls++
-	if g.calls == 2 && g.cancel != nil {
-		g.cancel()
-	}
+func (g *dashboardFXGetter) TTL() time.Duration { return time.Hour }
+func (g *dashboardFXGetter) GetPrice(ctx context.Context, _ string) (models.Price, error) {
+	close(g.entered)
+	<-ctx.Done()
 
-	var quote models.Price
-
-	quote.Value = 40
-	quote.Currency = "TRY"
-	quote.Source = "test"
-	quote.FetchedAt = time.Now().UTC()
-
-	return quote, nil
+	return models.Price{}, wrapOperationError("test FX", ctx.Err())
 }
 
-func TestDashboardPropagatesFinalFXCancellation(t *testing.T) {
+func TestDashboardPropagatesFXCancellation(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct {
-		name   string
-		cancel bool
-	}{
-		{name: "live", cancel: false}, {name: "canceled final FX lookup", cancel: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
+	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
+	t.Cleanup(func() { _ = database.Close() })
 
-			t.Cleanup(func() { _ = database.Close() })
+	getter := &dashboardFXGetter{entered: make(chan struct{})}
+	registry := price.NewRegistry()
+	registry.Register(getter)
+	prices := price.NewService(database, registry)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
+	t.Cleanup(func() { _ = prices.Close() })
 
-			getter := &dashboardFXGetter{cancel: nil, calls: 0}
-			if test.cancel {
-				getter.cancel = cancel
-			}
+	service := NewHoldingService(database, prices)
 
-			registry := price.NewRegistry()
-			registry.Register(getter)
-			service := NewHoldingService(database, price.NewService(database, registry))
-			dashboard, err := service.GetDashboardData(ctx, "TRY")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 
-			if getter.calls != 2 {
-				t.Fatalf("FX lookup count = %d, want 2", getter.calls)
-			}
+	type result struct {
+		dashboard *models.DashboardData
+		err       error
+	}
 
-			if test.cancel {
-				if !errors.Is(err, context.Canceled) {
-					t.Errorf("dashboard error = %v, want cancellation", err)
-				}
+	done := make(chan result, 1)
 
-				if dashboard != nil {
-					t.Error("returned dashboard after FX lookup cancellation")
-				}
+	go func() {
+		dashboard, getErr := service.GetDashboardData(ctx, "TRY")
+		done <- result{dashboard: dashboard, err: getErr}
+	}()
 
-				return
-			}
+	select {
+	case <-getter.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("FX fetch did not start")
+	}
 
-			if err != nil {
-				t.Fatal(err)
-			}
+	cancel()
 
-			if dashboard == nil || dashboard.USDTRYRate != 40 {
-				t.Errorf("invalid live dashboard: %+v", dashboard)
-			}
-		})
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, context.Canceled) || got.dashboard != nil {
+			t.Fatalf("got %+v, %v; want nil dashboard and cancellation", got.dashboard, got.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("dashboard ignored cancellation")
+	}
+}
+
+func TestDashboardCachedFXHonorsCanceledContext(t *testing.T) {
+	t.Parallel()
+	database := valuationDatabase(t)
+	prices := price.NewService(database, price.DefaultRegistry())
+
+	t.Cleanup(func() { _ = prices.Close() })
+
+	service := NewHoldingService(database, prices)
+
+	dashboard, err := service.GetDashboardData(t.Context(), "TRY")
+	if err != nil || dashboard == nil || dashboard.USDTRYRate != 40 ||
+		!dashboard.ValuationComplete {
+		t.Fatalf("invalid complete dashboard: %+v, %v", dashboard, err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	dashboard, err = service.GetDashboardData(ctx, "TRY")
+	if !errors.Is(err, context.Canceled) || dashboard != nil {
+		t.Fatalf("got %+v, %v; want nil dashboard and cancellation", dashboard, err)
 	}
 }

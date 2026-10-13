@@ -11,14 +11,42 @@ func TestHoldingHistoryUSDValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		json string
-		want float64
+		name      string
+		json      string
+		want      float64
+		available bool
 	}{
 		{name: "missing", json: `[{"id":1,"value_try":400}]`, want: 0},
 		{name: "null", json: `[{"id":1,"value_try":400,"value_usd":null}]`, want: 0},
 		{name: "string", json: `[{"id":1,"value_try":400,"value_usd":"10"}]`, want: 0},
-		{name: "number", json: `[{"id":1,"value_try":400,"value_usd":10}]`, want: 10},
+		{
+			name:      "number",
+			json:      `[{"id":1,"value_try":400,"value_usd":10}]`,
+			want:      10,
+			available: true,
+		},
+		{
+			name: "legacy failed",
+			json: `[{"id":1,"value_try":400,"value_usd":10,"is_failed":true}]`,
+			want: 10,
+		},
+		{
+			name:      "stale usable",
+			json:      `[{"id":1,"value_try":400,"value_usd":10,"is_stale":true}]`,
+			want:      10,
+			available: true,
+		},
+		{
+			name: "explicit unavailable",
+			json: `[{"id":1,"value_try":400,"value_usd":10,"valuation_available":false}]`,
+			want: 10,
+		},
+		{
+			name:      "explicit cached failure",
+			json:      `[{"id":1,"value_try":400,"value_usd":10,"is_failed":true,"valuation_available":true}]`,
+			want:      10,
+			available: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -50,6 +78,10 @@ func TestHoldingHistoryUSDValues(t *testing.T) {
 
 			if len(points) != 1 {
 				t.Fatalf("got %d history points, want 1", len(points))
+			}
+
+			if points[0].ValuationAvailable != test.available {
+				t.Fatalf("wrong availability: %+v", points[0])
 			}
 
 			if points[0].ValueTRY != 400 || points[0].ValueUSD != test.want {

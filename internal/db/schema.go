@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -136,6 +136,33 @@ var Migrations = []string{
 		acquired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	`,
+	// Schema v8 - Ownership tokens prevent a stale worker deleting a new lease.
+	`ALTER TABLE snapshot_lock ADD COLUMN owner TEXT NOT NULL DEFAULT '';`,
+	// Schema v9 - Align network provider metadata with the 15-minute cache lifetime.
+	`UPDATE provider_registry SET ttl_seconds = 900, updated_at = CURRENT_TIMESTAMP
+	 WHERE name IN ('Yahoo Finance', 'Alpha Vantage', 'Twelve Data', 'Finnhub',
+	 'Pusula Portföy', 'Garanti BBVA', 'İZKO Gold', 'TradingView BIST',
+	 'TradingView Crypto', 'CoinGecko', 'Frankfurter');`,
+	// Schema v10 - Operational state is local to this database, never restored.
+	`CREATE TABLE snapshot_state (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		generation INTEGER NOT NULL DEFAULT 0
+	);
+	INSERT INTO snapshot_state (id) VALUES (1);
+	CREATE TABLE snapshot_runs (
+		slot INTEGER PRIMARY KEY,
+		owner TEXT NOT NULL,
+		acquired_at INTEGER NOT NULL,
+		completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1))
+	);`,
+	// Schema v11 - Local create receipts are never imported by a restore.
+	`CREATE TABLE holding_create_receipts (
+		generation INTEGER NOT NULL,
+		idempotency_key TEXT NOT NULL,
+		request_hash TEXT NOT NULL,
+		response_json TEXT NOT NULL,
+		PRIMARY KEY (generation, idempotency_key)
+	);`,
 }
 
 func sqliteDSN(dbPath string) (string, error) {
@@ -153,13 +180,14 @@ func sqliteDSN(dbPath string) (string, error) {
 	)
 	if strings.HasPrefix(dbPath, "file:") {
 		uri, err = url.Parse(dbPath)
+		if err == nil {
+			err = normalizeWindowsFileURL(uri)
+		}
 	} else {
 		var absolute string
 
 		absolute, err = filepath.Abs(dbPath)
-		uri = new(url.URL)
-		uri.Scheme = "file"
-		uri.Path = absolute
+		uri = sqlitePathURL(absolute, runtime.GOOS == "windows")
 	}
 
 	if err != nil {
@@ -192,7 +220,9 @@ func Open(dbPath string) (*sqlx.DB, error) {
 
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(time.Hour)
+	// SQLite connections own in-memory databases. Keep the sole connection alive
+	// until Close; recycling it can silently discard the entire database.
+	db.SetConnMaxLifetime(0)
 
 	migrateErr := migrate(db)
 	if migrateErr != nil {
@@ -278,7 +308,7 @@ func SetSetting(db *sqlx.DB, key, value string) error {
 }
 
 func SetSettingContext(ctx context.Context, db *sqlx.DB, key, value string) error {
-	_, err := db.ExecContext(ctx,
+	_, err := ExecPortfolioMutation(ctx, db,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
 		key,

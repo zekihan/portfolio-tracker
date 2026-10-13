@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"html/template"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+
+	"github.com/zekihan/portfolio-tracker/internal/db"
 )
 
 const (
@@ -60,16 +63,26 @@ func (renderer *pageRenderer) render(
 	name string,
 	data any,
 ) {
-	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writer.WriteHeader(status)
+	var body bytes.Buffer
 
-	err := renderer.pages[name].ExecuteTemplate(writer, name, data)
+	err := renderer.pages[name].ExecuteTemplate(&body, name, data)
 	if err != nil {
 		slog.Error(
 			"Template rendering failed",
 			slog.String("template", name),
 			slog.Any("error", err),
 		)
+		writer.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
+
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.WriteHeader(status)
+
+	_, err = writer.Write(body.Bytes())
+	if err != nil {
+		slog.Error("Template response failed", slog.Any("error", err))
 	}
 }
 
@@ -90,6 +103,12 @@ func (handler *Handler) pageCurrency(request *http.Request) string {
 func (handler *Handler) renderPage(writer http.ResponseWriter, request *http.Request,
 	name string, data map[string]any,
 ) {
+	handler.renderPageStatus(writer, request, http.StatusOK, name, data)
+}
+
+func (handler *Handler) renderPageStatus(writer http.ResponseWriter, request *http.Request,
+	status int, name string, data map[string]any,
+) {
 	settings, err := handler.settingsSvc.GetAll(request.Context())
 	if err == nil {
 		data["Theme"] = settings.DarkMode
@@ -107,7 +126,11 @@ func (handler *Handler) renderPage(writer http.ResponseWriter, request *http.Req
 		}
 	}
 
+	if generation, ok := db.PortfolioGeneration(request.Context()); ok {
+		data["PortfolioGeneration"] = generation
+	}
+
 	data["ActivePage"] = strings.TrimSuffix(name, ".html")
 	handler.renderer.
-		render(writer, http.StatusOK, name, data)
+		render(writer, status, name, data)
 }

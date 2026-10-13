@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
@@ -165,30 +166,33 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.Handle("HEAD /static/{path...}", static)
 	router.Handle("GET /api/holdings", requireJSONBody()(http.HandlerFunc(handler.getHoldings)))
 	router.Handle("GET /api/holdings/{id}", requireJSONBody()(http.HandlerFunc(handler.getHolding)))
-	router.Handle("POST /api/holdings", requireJSONBody()(http.HandlerFunc(handler.createHolding)))
+	router.Handle(
+		"POST /api/holdings",
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.createHolding))),
+	)
 	router.Handle(
 		"PUT /api/holdings/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.updateHolding)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateHolding))),
 	)
 	router.Handle(
 		"PATCH /api/holdings/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.patchHolding)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.patchHolding))),
 	)
 	router.Handle(
 		"PATCH /api/holdings/{id}/est-price",
-		requireJSONBody()(http.HandlerFunc(handler.updateEstPrice)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateEstPrice))),
 	)
 	router.Handle(
 		"PATCH /api/holdings/{id}/manual-price",
-		requireJSONBody()(http.HandlerFunc(handler.updateManualPrice)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateManualPrice))),
 	)
 	router.Handle(
 		"DELETE /api/holdings/{id}/manual-price",
-		requireJSONBody()(http.HandlerFunc(handler.clearManualPrice)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearManualPrice))),
 	)
 	router.Handle(
 		"DELETE /api/holdings/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.deleteHolding)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.deleteHolding))),
 	)
 	router.Handle("GET /api/dashboard", requireJSONBody()(http.HandlerFunc(handler.getDashboard)))
 	router.Handle(
@@ -198,6 +202,14 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.Handle(
 		"GET /api/history/snapshots",
 		requireJSONBody()(http.HandlerFunc(handler.getSnapshots)),
+	)
+	router.Handle(
+		"DELETE /api/history/snapshots/{id}",
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.deleteSnapshot))),
+	)
+	router.Handle(
+		"DELETE /api/history/snapshots",
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearHistory))),
 	)
 	router.Handle(
 		"GET /api/history/chart",
@@ -221,28 +233,32 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	)
 	router.Handle(
 		"POST /api/sources/refresh",
-		requireJSONBody()(http.HandlerFunc(handler.refreshPrices)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.refreshPrices))),
 	)
 	router.Handle(
 		"PUT /api/holdings/{id}/provider",
-		requireJSONBody()(http.HandlerFunc(handler.updateHoldingProvider)),
+		requireJSONBody()(
+			requirePortfolioGeneration(http.HandlerFunc(handler.updateHoldingProvider)),
+		),
 	)
 	router.Handle("GET /api/settings", requireJSONBody()(http.HandlerFunc(handler.getSettings)))
 	router.Handle(
 		"PATCH /api/settings/currency",
-		requireJSONBody()(http.HandlerFunc(handler.updateCurrency)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateCurrency))),
 	)
 	router.Handle(
 		"PATCH /api/settings/dark-mode",
-		requireJSONBody()(http.HandlerFunc(handler.updateDarkMode)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateDarkMode))),
 	)
 	router.Handle(
 		"PATCH /api/settings/refresh-interval",
-		requireJSONBody()(http.HandlerFunc(handler.updateRefreshInterval)),
+		requireJSONBody()(
+			requirePortfolioGeneration(http.HandlerFunc(handler.updateRefreshInterval)),
+		),
 	)
 	router.Handle(
 		"DELETE /api/settings/clear-all",
-		requireJSONBody()(http.HandlerFunc(handler.clearAllData)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearAllData))),
 	)
 	router.Handle(
 		"GET /api/settings/backup",
@@ -250,7 +266,9 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	)
 	router.Handle(
 		"POST /api/settings/restore",
-		requireRestoreConfirmation()(http.HandlerFunc(handler.restoreBackup)),
+		requireRestoreConfirmation()(
+			requirePortfolioGeneration(http.HandlerFunc(handler.restoreBackup)),
+		),
 	)
 	router.Handle("GET /partials/holding-form", http.HandlerFunc(handler.holdingForm))
 	router.Handle("GET /partials/holding-form/{id}", http.HandlerFunc(handler.holdingForm))
@@ -263,14 +281,20 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.HandleFunc("GET /settings", handler.pageSettings)
 	router.HandleFunc("/", notFound)
 
-	return logRequests(recoverRequests(compatibleRoutes(router, static)))
+	return logRequests(
+		recoverRequests(handler.capturePortfolioGeneration(compatibleRoutes(router, static))),
+	)
 }
 
 // Holdings API.
 func (handler *Handler) getHoldings(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
-	displayCurrency := queryDefault(request, "currency", currencyTRY)
+
+	displayCurrency, valid := apiDisplayCurrency(writer, request)
+	if !valid {
+		return
+	}
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
 	if err != nil {
@@ -309,39 +333,6 @@ func (handler *Handler) getHolding(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, holding)
 }
 
-func (handler *Handler) createHolding(writer http.ResponseWriter, request *http.Request,
-) {
-	requestCtx := request.Context()
-
-	var holding models.Holding
-
-	err := decodeJSON(request, &holding)
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
-
-		return
-	}
-
-	if holding.ManualPrice.Valid && holding.ManualPrice.Float64 < 0 {
-		writeJSON(
-			writer,
-			http.StatusBadRequest,
-			map[string]any{errorKey: "manual price must be nonnegative"},
-		)
-
-		return
-	}
-
-	err = handler.holdingSvc.Create(requestCtx, &holding)
-	if err != nil {
-		respondInternalError(writer, request, err)
-
-		return
-	}
-
-	writeJSON(writer, http.StatusCreated, holding)
-}
-
 func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
@@ -366,7 +357,7 @@ func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.
 
 	err = handler.holdingSvc.Update(requestCtx, &holding)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -374,68 +365,12 @@ func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.
 	writeJSON(writer, http.StatusOK, holding)
 }
 
-func (handler *Handler) updateEstPrice(writer http.ResponseWriter, request *http.Request,
-) {
-	requestCtx := request.Context()
-
-	id, err := strconv.Atoi(request.PathValue("id"))
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
-
-		return
-	}
-
-	var req struct {
-		EstPrice float64 `json:"estPrice" validate:"gte=0"`
-	}
-
-	err = decodeJSON(request, &req)
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
-
-		return
-	}
-
-	err = handler.holdingSvc.UpdateEstPrice(requestCtx, id, req.EstPrice)
-	if err != nil {
-		respondInternalError(writer, request, err)
-
-		return
-	}
-
-	writer.WriteHeader(http.StatusOK)
+func (handler *Handler) updateEstPrice(writer http.ResponseWriter, request *http.Request) {
+	updateHoldingPrice(writer, request, "estPrice", handler.holdingSvc.UpdateEstPrice)
 }
 
-func (handler *Handler) updateManualPrice(writer http.ResponseWriter, request *http.Request,
-) {
-	requestCtx := request.Context()
-
-	id, err := strconv.Atoi(request.PathValue("id"))
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: invalidIDMsg})
-
-		return
-	}
-
-	var req struct {
-		Price float64 `json:"price" validate:"gte=0"`
-	}
-
-	err = decodeJSON(request, &req)
-	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
-
-		return
-	}
-
-	err = handler.holdingSvc.UpdateManualPrice(requestCtx, id, req.Price)
-	if err != nil {
-		respondInternalError(writer, request, err)
-
-		return
-	}
-
-	writer.WriteHeader(http.StatusOK)
+func (handler *Handler) updateManualPrice(writer http.ResponseWriter, request *http.Request) {
+	updateHoldingPrice(writer, request, "price", handler.holdingSvc.UpdateManualPrice)
 }
 
 func (handler *Handler) clearManualPrice(writer http.ResponseWriter, request *http.Request,
@@ -451,7 +386,7 @@ func (handler *Handler) clearManualPrice(writer http.ResponseWriter, request *ht
 
 	err = handler.holdingSvc.ClearManualPrice(requestCtx, id)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -472,7 +407,7 @@ func (handler *Handler) deleteHolding(writer http.ResponseWriter, request *http.
 
 	err = handler.holdingSvc.Delete(requestCtx, id)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -484,7 +419,11 @@ func (handler *Handler) deleteHolding(writer http.ResponseWriter, request *http.
 func (handler *Handler) getDashboard(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
-	displayCurrency := queryDefault(request, "currency", currencyTRY)
+
+	displayCurrency, valid := apiDisplayCurrency(writer, request)
+	if !valid {
+		return
+	}
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
@@ -499,7 +438,11 @@ func (handler *Handler) getDashboard(writer http.ResponseWriter, request *http.R
 func (handler *Handler) getAllocation(writer http.ResponseWriter, request *http.Request,
 ) {
 	requestCtx := request.Context()
-	displayCurrency := queryDefault(request, "currency", currencyTRY)
+
+	displayCurrency, valid := apiDisplayCurrency(writer, request)
+	if !valid {
+		return
+	}
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
 	if err != nil {
@@ -509,10 +452,13 @@ func (handler *Handler) getAllocation(writer http.ResponseWriter, request *http.
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"by_type":   data.AllocationByType,
-		"by_basket": data.AllocationByBasket,
-		"by_loc":    data.AllocationByLoc,
-		"by_curr":   data.AllocationByCurr,
+		"valuation_complete": data.ValuationComplete,
+		"valued_count":       data.ValuedCount,
+		"unvalued_count":     data.UnvaluedCount,
+		"by_type":            data.AllocationByType,
+		"by_basket":          data.AllocationByBasket,
+		"by_loc":             data.AllocationByLoc,
+		"by_curr":            data.AllocationByCurr,
 	})
 }
 
@@ -631,7 +577,10 @@ func (handler *Handler) downloadBackup(writer http.ResponseWriter, request *http
 // clearAllData deletes all user data and asks the browser to reload the page.
 func (handler *Handler) clearAllData(writer http.ResponseWriter, request *http.Request,
 ) {
-	err := handler.settingsSvc.ClearAllData(request.Context())
+	//nolint:contextcheck // The reset callback intentionally closes over this request context.
+	err := handler.withPriceCacheReset(request.Context(), func() error {
+		return handler.settingsSvc.ClearAllData(request.Context())
+	})
 	if err != nil {
 		respondInternalError(writer, request, err)
 
@@ -733,8 +682,8 @@ func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, reques
 	}
 
 	var req struct {
-		Provider     string `json:"provider"`
-		InstrumentID string `json:"instrumentId"`
+		Provider     *string `json:"provider"`
+		InstrumentID *string `json:"instrumentId"`
 	}
 
 	err = decodeJSON(request, &req)
@@ -744,14 +693,26 @@ func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, reques
 		return
 	}
 
+	if req.Provider == nil || req.InstrumentID == nil {
+		writeJSON(
+			writer,
+			http.StatusBadRequest,
+			map[string]any{
+				errorKey: "provider and instrumentId must be explicitly supplied strings",
+			},
+		)
+
+		return
+	}
+
 	err = handler.priceSvc.UpdateHoldingProviderContext(
 		request.Context(),
 		id,
-		req.Provider,
-		req.InstrumentID,
+		*req.Provider,
+		*req.InstrumentID,
 	)
 	if err != nil {
-		respondInternalError(writer, request, err)
+		respondHoldingMutationError(writer, request, err)
 
 		return
 	}
@@ -876,14 +837,19 @@ func (handler *Handler) pageDashboard(writer http.ResponseWriter, request *http.
 	displayCurrency := handler.pageCurrency(request)
 
 	data, err := handler.holdingSvc.GetDashboardData(requestCtx, displayCurrency)
+	status := http.StatusOK
+
 	if err != nil {
-		data = &models.DashboardData{} //nolint:exhaustruct_v5 // Empty struct for error fallback
+		slog.ErrorContext(requestCtx, "Dashboard valuation unavailable", slog.Any("error", err))
+
+		status = http.StatusServiceUnavailable
 	}
 
-	handler.renderPage(writer, request, "dashboard.html", map[string]any{
-		"Data":            data,
-		"DisplayCurrency": displayCurrency,
-		"Title":           titleDashboard, //nolint:goconst // Map key is required
+	handler.renderPageStatus(writer, request, status, "dashboard.html", map[string]any{
+		"ValuationUnavailable": err != nil,
+		"Data":                 data,
+		"DisplayCurrency":      displayCurrency,
+		"Title":                titleDashboard, //nolint:goconst // Map key is required
 	})
 }
 
@@ -893,8 +859,31 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 	displayCurrency := handler.pageCurrency(request)
 
 	holdings, err := handler.holdingSvc.GetWithPrices(requestCtx, displayCurrency)
-	if err != nil {
-		holdings = []models.HoldingWithPrice{}
+	valuationUnavailable := err != nil
+	holdingsUnavailable := false
+	status := http.StatusOK
+
+	if valuationUnavailable {
+		slog.ErrorContext(requestCtx, "Holdings valuation unavailable", slog.Any("error", err))
+
+		status = http.StatusServiceUnavailable
+		holdings = nil
+
+		// Keep saved metadata editable without presenting incomplete valuations.
+		savedHoldings, listErr := handler.holdingSvc.GetAll(requestCtx)
+		if listErr != nil {
+			slog.ErrorContext(
+				requestCtx,
+				"Holdings metadata unavailable",
+				slog.Any("error", listErr),
+			)
+
+			holdingsUnavailable = true
+		} else {
+			for index := range savedHoldings {
+				holdings = append(holdings, models.HoldingWithPrice{Holding: savedHoldings[index]})
+			}
+		}
 	}
 
 	baskets, err := handler.holdingSvc.GetUniqueBaskets(requestCtx)
@@ -908,21 +897,30 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 	}
 
 	coverage := 0
+	valued := 0
 
 	for i := range holdings {
+		if holdings[i].ValuationAvailable || holdings[i].Quantity == 0 {
+			valued++
+		}
+
 		if holdings[i].EstPrice > 0 {
 			coverage++
 		}
 	}
 
-	handler.renderPage(writer, request, "holdings.html", map[string]any{
-		"Holdings":        holdings,
-		"CoverageCount":   coverage,
-		"TotalHoldings":   len(holdings),
-		"DisplayCurrency": displayCurrency,
-		"Baskets":         baskets,
-		"Locations":       locations,
-		"Title":           titleHoldings,
+	handler.renderPageStatus(writer, request, status, "holdings.html", map[string]any{
+		"ValuationUnavailable": valuationUnavailable,
+		"HoldingsUnavailable":  holdingsUnavailable,
+		"Holdings":             holdings,
+		"CoverageCount":        coverage,
+		"ValuedCount":          valued,
+		"UnvaluedCount":        len(holdings) - valued,
+		"TotalHoldings":        len(holdings),
+		"DisplayCurrency":      displayCurrency,
+		"Baskets":              baskets,
+		"Locations":            locations,
+		"Title":                titleHoldings,
 	})
 }
 

@@ -73,6 +73,10 @@
     <!-- Snapshot Table -->
     <section class="card" aria-labelledby="snapshots-heading">
         <h2 id="snapshots-heading">Snapshots</h2>
+        <button type="button" class="btn btn-danger btn-sm" id="clear-history">Clear history</button>
+        <p>Deleting history leaves holdings and settings unchanged. Hourly snapshots continue automatically; correct or remove unwanted holdings separately.</p>
+        <div id="history-delete-status" role="status" aria-live="polite"></div>
+        <div id="snapshots-status" role="status" aria-live="polite"></div>
         <div class="table-container">
             <table class="snapshots-table">
                 <thead>
@@ -82,7 +86,7 @@
                         <th scope="col" class="numeric">USD/TRY</th>
                         <th scope="col" class="numeric">Stale</th>
                         <th scope="col" class="numeric">Failed</th>
-                        <th scope="col">Notes</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="snapshots-tbody">

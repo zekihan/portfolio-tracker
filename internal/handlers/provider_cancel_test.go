@@ -31,7 +31,7 @@ func TestProviderUpdateRespectsCancellation(t *testing.T) {
 
 			t.Cleanup(func() { _ = database.Close() })
 
-			_, err = database.Exec(`INSERT INTO holdings
+			_, err = database.ExecContext(t.Context(), `INSERT INTO holdings
 				(id, name, asset_type, price_provider, instrument_id)
 				VALUES (1, 'Stock', 'Stock', 'Yahoo Finance', 'OLD')`)
 			if err != nil {
@@ -67,7 +67,8 @@ func TestProviderUpdateRespectsCancellation(t *testing.T) {
 
 			var provider, instrument string
 
-			err = database.QueryRow(
+			err = database.QueryRowContext(
+				t.Context(),
 				"SELECT price_provider, instrument_id FROM holdings WHERE id = 1",
 			).Scan(&provider, &instrument)
 			if err != nil {

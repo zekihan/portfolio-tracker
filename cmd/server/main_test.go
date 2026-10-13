@@ -48,21 +48,24 @@ func TestSnapshotLockEmptyPortfolio(t *testing.T) {
 
 	t.Cleanup(func() { _ = second.Close() })
 
-	if !acquireSnapshotLock(first) {
+	owner, ok := acquireSnapshotLock(t.Context(), first)
+	if !ok {
 		t.Fatal("first instance did not acquire the lock")
 	}
 
-	if acquireSnapshotLock(second) {
+	_, ok = acquireSnapshotLock(t.Context(), second)
+	if ok {
 		t.Fatal("second instance acquired an already-held lock on an empty portfolio")
 	}
 
-	releaseSnapshotLock(first)
+	releaseSnapshotLock(t.Context(), first, owner)
 
-	if !acquireSnapshotLock(second) {
+	secondOwner, ok := acquireSnapshotLock(t.Context(), second)
+	if !ok {
 		t.Fatal("second instance did not acquire the released lock")
 	}
 
-	releaseSnapshotLock(second)
+	releaseSnapshotLock(t.Context(), second, secondOwner)
 }
 
 func TestSnapshotLockClosedDatabase(t *testing.T) {
@@ -78,7 +81,7 @@ func TestSnapshotLockClosedDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if acquireSnapshotLock(database) {
+	if _, ok := acquireSnapshotLock(t.Context(), database); ok {
 		t.Fatal("acquired a snapshot lock with a closed database")
 	}
 }
@@ -95,7 +98,8 @@ func TestSnapshotLockReclaimsStaleLock(t *testing.T) {
 
 	t.Cleanup(func() { _ = first.Close() })
 
-	if !acquireSnapshotLock(first) {
+	_, ok := acquireSnapshotLock(t.Context(), first)
+	if !ok {
 		t.Fatal("first instance did not acquire the lock")
 	}
 
@@ -114,9 +118,10 @@ func TestSnapshotLockReclaimsStaleLock(t *testing.T) {
 
 	t.Cleanup(func() { _ = second.Close() })
 
-	if !acquireSnapshotLock(second) {
+	secondOwner, ok := acquireSnapshotLock(t.Context(), second)
+	if !ok {
 		t.Fatal("second instance did not reclaim the stale lock")
 	}
 
-	releaseSnapshotLock(second)
+	releaseSnapshotLock(t.Context(), second, secondOwner)
 }

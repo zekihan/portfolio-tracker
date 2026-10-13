@@ -5,12 +5,10 @@ if [ -n "$(git status --porcelain)" ]; then
     echo "Working directory dirty" >&2
     exit 1
 fi
-current=$(tr -d '[:space:]' < VERSION)
+current=$(cat VERSION)
+sh ./scripts/validate_version.sh "$current"
 next=${1:-$(printf '%s\n' "$current" | awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}')}
-if ! printf '%s\n' "$next" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "Invalid version: $next" >&2
-    exit 1
-fi
+sh ./scripts/validate_version.sh "$next" "$current"
 if git rev-parse --verify --quiet "refs/tags/v$next" >/dev/null; then
     echo "Tag v$next already exists" >&2
     exit 1

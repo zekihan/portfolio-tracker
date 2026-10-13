@@ -4,21 +4,30 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
+	"github.com/zekihan/portfolio-tracker/internal/price"
 )
 
 // Patch updates supplied editable fields atomically without reading/replacing the holding.
 func (service *HoldingService) Patch(
 	ctx context.Context,
 	id int,
-	patch models.HoldingPatch,
+	patch *models.HoldingPatch,
 ) (bool, error) {
-	result, err := service.db.ExecContext(
-		ctx,
+	if patch.PriceProvider != nil && *patch.PriceProvider != "" && service.priceSvc != nil &&
+		!service.priceSvc.HasProvider(*patch.PriceProvider) {
+		return false, price.ErrUnknownProvider
+	}
+
+	result, err := db.ExecPortfolioMutation(
+		ctx, service.db,
 		`UPDATE holdings SET
  name = COALESCE(?, name), ticker = COALESCE(?, ticker),
  basket = COALESCE(?, basket), location = COALESCE(?, location), notes = COALESCE(?, notes),
  quantity = COALESCE(?, quantity), est_price = COALESCE(?, est_price),
+ asset_type = COALESCE(?, asset_type), price_provider = COALESCE(?, price_provider),
+ instrument_id = COALESCE(?, instrument_id), base_currency = COALESCE(?, base_currency),
  updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		patch.Name,
 		patch.Ticker,
@@ -27,6 +36,10 @@ func (service *HoldingService) Patch(
 		patch.Notes,
 		patch.Quantity,
 		patch.EstPrice,
+		patch.AssetType,
+		patch.PriceProvider,
+		patch.InstrumentID,
+		patch.BaseCurrency,
 		id,
 	)
 	if err != nil {

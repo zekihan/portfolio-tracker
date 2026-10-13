@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"slices"
@@ -13,6 +14,8 @@ import (
 
 var errUnsupportedValidationRule = errors.New("unsupported validation rule")
 
+var errTrailingJSON = errors.New("request body must contain exactly one JSON value")
+
 type validationErrors []string
 
 func (failures validationErrors) Error() string {
@@ -20,9 +23,22 @@ func (failures validationErrors) Error() string {
 }
 
 func decodeJSON(request *http.Request, destination any) error {
-	err := json.NewDecoder(request.Body).Decode(destination)
+	decoder := json.NewDecoder(request.Body)
+
+	err := decoder.Decode(destination)
 	if err != nil {
 		return err //nolint:wrapcheck // Decoder error text is part of the existing API response.
+	}
+
+	var trailing any
+
+	err = decoder.Decode(&trailing)
+	if !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err //nolint:wrapcheck // Preserve decoder errors in validation responses.
+		}
+
+		return errTrailingJSON
 	}
 
 	return validateRequest(destination)

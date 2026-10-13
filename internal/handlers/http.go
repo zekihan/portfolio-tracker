@@ -85,6 +85,8 @@ func compatibleRoutes(router *http.ServeMux, static http.Handler) http.Handler {
 			}
 		}
 
+		writer.Header().Set("Cache-Control", "no-store")
+
 		if strings.Contains(request.URL.Path, "//") {
 			missing.ServeHTTP(writer, request)
 

@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+
+	"github.com/zekihan/portfolio-tracker/internal/db"
 )
 
 // ClearAllData deletes holdings, snapshots, and cached prices, and resets
@@ -19,7 +21,14 @@ func (service *SettingsService) ClearAllData(ctx context.Context) error {
 		_ = tx.Rollback()
 	}()
 
+	err = db.CheckPortfolioGeneration(ctx, tx)
+	if err != nil {
+		return wrapOperationError("check portfolio generation", err)
+	}
+
 	statements := []string{
+		"UPDATE snapshot_state SET generation = generation + 1 WHERE id = 1",
+		"DELETE FROM holding_create_receipts",
 		"DELETE FROM holdings",
 		"DELETE FROM snapshots",
 		"DELETE FROM price_cache",

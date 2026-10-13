@@ -26,7 +26,7 @@ func TestTwelveDataValidatesPrices(t *testing.T) {
 			server := httptest.NewServer(
 				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(`{"price":"` + test.input + `"}`))
+					_, _ = w.Write([]byte(`{"close":"` + test.input + `","currency":"USD"}`))
 				}),
 			)
 			t.Cleanup(server.Close)

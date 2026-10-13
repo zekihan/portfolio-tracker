@@ -35,9 +35,11 @@ func (service *HoldingService) GetAll(ctx context.Context) ([]models.Holding, er
 	err := service.db.SelectContext(
 		ctx,
 		&holdings,
-		`SELECT updated_at, created_at, manual_price_at, price_provider, instrument_id, base_currency,
-basket, location, notes, name, asset_type, ticker, manual_price, id, quantity, est_price FROM
-holdings ORDER BY created_at DESC`,
+		`SELECT updated_at, created_at, manual_price_at,
+COALESCE(price_provider, '') AS price_provider, COALESCE(instrument_id, '') AS instrument_id,
+base_currency, COALESCE(basket, '') AS basket, COALESCE(location, '') AS location,
+COALESCE(notes, '') AS notes, name, asset_type, COALESCE(ticker, '') AS ticker,
+manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings ORDER BY created_at DESC`,
 	)
 
 	return holdings, wrapOperationError("GetAll", err)
@@ -49,9 +51,11 @@ func (service *HoldingService) GetByID(ctx context.Context, id int) (*models.Hol
 	err := service.db.GetContext(
 		ctx,
 		&holding,
-		`SELECT updated_at, created_at, manual_price_at, price_provider, instrument_id, base_currency,
-basket, location, notes, name, asset_type, ticker, manual_price, id, quantity, est_price FROM
-holdings WHERE id = ?`,
+		`SELECT updated_at, created_at, manual_price_at,
+COALESCE(price_provider, '') AS price_provider, COALESCE(instrument_id, '') AS instrument_id,
+base_currency, COALESCE(basket, '') AS basket, COALESCE(location, '') AS location,
+COALESCE(notes, '') AS notes, name, asset_type, COALESCE(ticker, '') AS ticker,
+manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings WHERE id = ?`,
 		id,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -61,63 +65,14 @@ holdings WHERE id = ?`,
 	return &holding, wrapOperationError("GetByID", err)
 }
 
-func (service *HoldingService) Create(ctx context.Context, holding *models.Holding) error {
-	if holding.ManualPrice.Valid &&
-		(holding.ManualPrice.Float64 < 0 || math.IsNaN(holding.ManualPrice.Float64) ||
-			math.IsInf(holding.ManualPrice.Float64, 0)) {
-		return errManualPriceMustBeFiniteAndNonnegative
-	}
-
-	now := time.Now().UTC()
-
-	manualPrice := 0.0
-	if holding.ManualPrice.Valid {
-		manualPrice = holding.ManualPrice.Float64
-	}
-
-	holding.ManualPriceAt = sql.NullTime{Time: now, Valid: manualPrice > 0}
-	holding.CreatedAt = now
-	holding.UpdatedAt = now
-
-	result, err := service.db.ExecContext(ctx, `
-                INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider,
-instrument_id, base_currency, basket, location, notes, est_price, manual_price, manual_price_at,
-created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
-		holding.Name,
-		holding.Ticker,
-		holding.AssetType,
-		holding.Quantity,
-		holding.PriceProvider,
-		holding.InstrumentID,
-		holding.BaseCurrency,
-		holding.Basket,
-		holding.Location,
-		holding.Notes,
-		holding.EstPrice,
-		manualPrice,
-		holding.ManualPriceAt,
-		holding.CreatedAt,
-		holding.UpdatedAt,
-	)
-	if err != nil {
-		return wrapOperationError("Create", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return wrapOperationError("Create", err)
-	}
-
-	holding.ID = int(id)
-
-	return nil
-}
-
 func (service *HoldingService) Update(ctx context.Context, holding *models.Holding) error {
+	if service.priceSvc != nil && holding.PriceProvider != "" &&
+		!service.priceSvc.HasProvider(holding.PriceProvider) {
+		return price.ErrUnknownProvider
+	}
+
 	holding.UpdatedAt = time.Now().UTC()
-	_, err := service.db.ExecContext(ctx, `
+	result, err := db.ExecPortfolioMutation(ctx, service.db, `
                 UPDATE holdings SET name = ?, ticker = ?, asset_type = ?, quantity = ?,
 price_provider = ?, instrument_id = ?, base_currency = ?, basket = ?, location = ?, notes = ?,
 est_price = ?, updated_at = ?
@@ -138,115 +93,58 @@ est_price = ?, updated_at = ?
 		holding.ID,
 	)
 
-	return wrapOperationError("Update", err)
+	return holdingMutationResult("Update", result, err)
 }
 
 func (service *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPrice float64) error {
-	_, err := service.db.ExecContext(ctx,
+	result, err := db.ExecPortfolioMutation(ctx, service.db,
 		"UPDATE holdings SET est_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		estPrice,
 		id,
 	)
 
-	return wrapOperationError("UpdateEstPrice", err)
+	return holdingMutationResult("UpdateEstPrice", result, err)
 }
 
 func (service *HoldingService) UpdateManualPrice(ctx context.Context, id int, quote float64) error {
-	_, err := service.db.ExecContext(
-		ctx,
+	result, err := db.ExecPortfolioMutation(
+		ctx, service.db,
 		`UPDATE holdings SET manual_price = ?, manual_price_at = CURRENT_TIMESTAMP,
 updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		quote,
 		id,
 	)
 
-	return wrapOperationError("UpdateManualPrice", err)
+	return holdingMutationResult("UpdateManualPrice", result, err)
 }
 
 func (service *HoldingService) ClearManualPrice(ctx context.Context, id int) error {
-	_, err := service.db.ExecContext(
+	result, err := db.ExecPortfolioMutation(
 		ctx,
+		service.db,
 		"UPDATE holdings SET manual_price = 0, manual_price_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		id,
 	)
 
-	return wrapOperationError("ClearManualPrice", err)
+	return holdingMutationResult("ClearManualPrice", result, err)
 }
 
 func (service *HoldingService) Delete(ctx context.Context, id int) error {
-	_, err := service.db.ExecContext(ctx, "DELETE FROM holdings WHERE id = ?", id)
+	result, err := db.ExecPortfolioMutation(
+		ctx,
+		service.db,
+		"DELETE FROM holdings WHERE id = ?",
+		id,
+	)
 
-	return wrapOperationError("Delete", err)
+	return holdingMutationResult("Delete", result, err)
 }
 
 func (service *HoldingService) GetWithPrices(
 	ctx context.Context,
 	displayCurrency string,
 ) ([]models.HoldingWithPrice, error) {
-	holdings, err := service.GetAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	usdTryRate, err := service.priceSvc.GetUSDTTRYRate(ctx)
-	if err != nil {
-		return nil, wrapOperationError("GetWithPrices", err)
-	}
-
-	result := make([]models.HoldingWithPrice, 0, len(holdings))
-	for index := range holdings {
-		holding := holdings[index]
-		hwp := models.HoldingWithPrice{Holding: holding}
-
-		// A manual price overrides the configured automatic provider.
-		if holding.ManualPrice.Valid && holding.ManualPrice.Float64 > 0 {
-			hwp.CurrentPrice = holding.ManualPrice.Float64
-			hwp.CurrentCurrency = holding.BaseCurrency
-			hwp.PriceSource = "Manual"
-			hwp.PriceFetchedAt = holding.ManualPriceAt.Time
-		} else if holding.PriceProvider != "" && holding.PriceProvider != "Manual" && holding.InstrumentID != "" {
-			quote, quoteErr := service.priceSvc.GetPrice(
-				ctx,
-				holding.PriceProvider,
-				holding.InstrumentID,
-			)
-			if quoteErr == nil {
-				hwp.CurrentPrice = quote.Value
-				hwp.CurrentCurrency = quote.Currency
-				hwp.PriceSource = quote.Source
-				hwp.PriceFetchedAt = quote.FetchedAt
-				hwp.IsStale = quote.IsStale
-				hwp.IsFailed = quote.IsFailed
-			} else {
-				hwp.PriceError = quoteErr.Error()
-				hwp.IsFailed = true
-			}
-		}
-
-		if ctx.Err() != nil {
-			return nil, wrapOperationError("GetWithPrices", ctx.Err())
-		}
-
-		if !canValueQuote(hwp.CurrentPrice, hwp.CurrentCurrency) {
-			return nil, errUnsupportedQuoteCurrency
-		}
-
-		err = service.normalizeHolding(&hwp, usdTryRate)
-		if err != nil {
-			return nil, err
-		}
-
-		result = append(result, hwp)
-	}
-
-	return result, nil
-}
-
-var errNonFiniteHoldingValue = errors.New("non-finite holding valuation")
-
-// A missing quote has zero value and needs no currency conversion.
-func canValueQuote(value float64, currency string) bool {
-	return value == 0 || currency == "TRY" || currency == "USD"
+	return service.getWithPrices(ctx, displayCurrency, valuationBudget)
 }
 
 var errNonFiniteDashboardTotals = errors.New("non-finite dashboard totals")
@@ -265,14 +163,14 @@ func (service *HoldingService) GetDashboardData(
 	ctx context.Context,
 	displayCurrency string,
 ) (*models.DashboardData, error) {
-	holdings, err := service.GetWithPrices(ctx, displayCurrency)
+	holdings, fxQuote, err := service.getValuations(ctx, valuationBudget)
 	if err != nil {
 		return nil, err
 	}
 
 	var totalTRY, totalUSD, estTotalTRY, estTotalUSD float64
 
-	staleCount, failedCount, coverageCount := 0, 0, 0
+	staleCount, failedCount, coverageCount, valuedCount := 0, 0, 0, 0
 	allocType := make(map[string]float64)
 	allocBasket := make(map[string]float64)
 	allocLoc := make(map[string]float64)
@@ -280,6 +178,10 @@ func (service *HoldingService) GetDashboardData(
 
 	for index := range holdings {
 		holding := holdings[index]
+		// A zero position has a known contribution even when its unit quote is unavailable.
+		if holding.ValuationAvailable || holding.Quantity == 0 {
+			valuedCount++
+		}
 		// Currency-specific totals must not depend on the allocation display currency.
 		totalTRY += holding.NormTotalTRY
 		totalUSD += holding.NormTotalUSD
@@ -327,17 +229,18 @@ func (service *HoldingService) GetDashboardData(
 		return nil, wrapOperationError("GetDashboardData", err)
 	}
 
-	usdTryRate, err := service.priceSvc.GetUSDTTRYRate(ctx)
-	if err != nil {
-		return nil, wrapOperationError("GetDashboardData", err)
-	}
-
 	return &models.DashboardData{
+		ValuationComplete:  valuedCount == len(holdings),
+		ValuedCount:        valuedCount,
+		UnvaluedCount:      len(holdings) - valuedCount,
 		CurrentValueTRY:    totalTRY,
 		CurrentValueUSD:    totalUSD,
 		EstimatedValueTRY:  estTotalTRY,
 		EstimatedValueUSD:  estTotalUSD,
-		USDTRYRate:         usdTryRate,
+		USDTRYRate:         fxQuote.Value,
+		FXIsStale:          fxQuote.IsStale,
+		FXIsFailed:         fxQuote.IsFailed,
+		FXFetchedAt:        fxQuote.FetchedAt,
 		StaleCount:         staleCount,
 		FailedCount:        failedCount,
 		CoverageCount:      coverageCount,
@@ -391,15 +294,33 @@ func NewSnapshotService(
 	return &SnapshotService{db: database, priceSvc: priceSvc, holdingSvc: holdingSvc}
 }
 
+//nolint:gocyclo // Snapshot completeness and quote-quality metadata have independent validation paths.
 func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
-	holdings, err := service.holdingSvc.GetWithPrices(ctx, "TRY")
+	// Capture the epoch before reading holdings. No transaction is held while
+	// providers perform network I/O; persistence checks this epoch atomically.
+	var generation int64
+
+	err := service.db.GetContext(ctx, &generation,
+		"SELECT generation FROM snapshot_state WHERE id = 1")
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+
+	holdings, fxQuote, err := service.holdingSvc.getValuations(ctx, valuationBudget)
 	if err != nil {
 		return err
 	}
 
-	usdTryRate, err := service.priceSvc.GetUSDTTRYRate(ctx)
-	if err != nil {
-		return wrapOperationError("CreateSnapshot", err)
+	unvalued := 0
+
+	for index := range holdings {
+		if !holdings[index].ValuationAvailable && holdings[index].Quantity != 0 {
+			unvalued++
+		}
+	}
+
+	if unvalued > 0 {
+		return &IncompleteValuationError{UnvaluedCount: unvalued, TotalHoldings: len(holdings)}
 	}
 
 	var totalTRY, totalUSD float64
@@ -414,25 +335,32 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		totalTRY += valTRY
 		totalUSD += valUSD
 
-		if holding.IsStale {
+		// Quote quality only affects aggregate history when the position contributes value.
+		if holding.Quantity != 0 && holding.IsStale {
 			staleCount++
 		}
 
-		if holding.IsFailed {
+		if holding.Quantity != 0 && holding.IsFailed {
 			failedCount++
 		}
 
-		snapshotHoldings = append(snapshotHoldings, map[string]any{
-			"id":        holding.ID,
-			"name":      holding.Name,
-			"quantity":  holding.Quantity,
-			"price":     holding.CurrentPrice,
-			"currency":  holding.CurrentCurrency,
-			"value_try": valTRY,
-			"value_usd": valUSD,
-			"is_stale":  holding.IsStale,
-			"is_failed": holding.IsFailed,
-		})
+		snapshotHolding := map[string]any{
+			"id":                  holding.ID,
+			"name":                holding.Name,
+			"quantity":            holding.Quantity,
+			"value_try":           valTRY,
+			"value_usd":           valUSD,
+			"is_stale":            holding.IsStale,
+			"is_failed":           holding.IsFailed,
+			"valuation_available": true,
+		}
+		// Keep a known zero total without inventing an unavailable unit quote.
+		if holding.ValuationAvailable {
+			snapshotHolding["price"] = holding.CurrentPrice
+			snapshotHolding["currency"] = holding.CurrentCurrency
+		}
+
+		snapshotHoldings = append(snapshotHoldings, snapshotHolding)
 	}
 
 	if math.IsNaN(totalTRY) || math.IsInf(totalTRY, 0) ||
@@ -445,21 +373,24 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 		return wrapOperationError("CreateSnapshot", err)
 	}
 
-	_, err = service.db.ExecContext(ctx, `
-                INSERT INTO snapshots (timestamp, total_value_try, total_value_usd,
-usd_try_rate, stale_count, failed_count, holdings_json)
-		VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
-	`,
-		totalTRY,
-		totalUSD,
-		usdTryRate,
-		staleCount,
-		failedCount,
-		string(holdingsJSON),
-	)
-
-	return wrapOperationError("CreateSnapshot", err)
+	return service.persistSnapshot(ctx, generation, &models.Snapshot{
+		TotalValueTRY: totalTRY, TotalValueUSD: totalUSD, USDTRYRate: fxQuote.Value,
+		StaleCount: staleCount, FailedCount: failedCount, HoldingsJSON: string(holdingsJSON),
+	})
 }
+
+// SQLite parses ISO timestamps directly; older drivers wrote Go time.String values.
+// The fallback extracts their numeric offset and ignores the redundant zone label.
+const snapshotTimeCTE = `WITH snapshot_times AS (
+ SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
+ usd_try_rate, stale_count, failed_count,
+ instr(substr(timestamp, 12), ' ') + 11 AS zone_at FROM snapshots
+), ordered_snapshots AS (
+ SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
+ usd_try_rate, stale_count, failed_count, COALESCE(julianday(timestamp), julianday(
+  substr(timestamp, 1, zone_at - 1) || substr(timestamp, zone_at + 1, 3) || ':' ||
+  substr(timestamp, zone_at + 4, 2))) AS instant FROM snapshot_times
+) `
 
 func (service *SnapshotService) GetSnapshots(
 	ctx context.Context,
@@ -470,9 +401,9 @@ func (service *SnapshotService) GetSnapshots(
 	err := service.db.SelectContext(
 		ctx,
 		&snapshots,
-		`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM snapshots WHERE (? = 0 OR timestamp >= ?)
-         ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+		snapshotTimeCTE+`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
+stale_count, failed_count FROM ordered_snapshots WHERE (? = 0 OR instant >= julianday(?))
+         ORDER BY instant DESC, id DESC LIMIT ? OFFSET ?`,
 		days,
 		time.Now().UTC().AddDate(0, 0, -days),
 		limit,
@@ -493,8 +424,8 @@ func (service *SnapshotService) GetSnapshotsForChart(
 	err := service.db.SelectContext(
 		ctx,
 		&snapshots,
-		`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC`,
+		snapshotTimeCTE+`SELECT timestamp, total_value_try, total_value_usd, usd_try_rate, stale_count, failed_count
+FROM ordered_snapshots WHERE instant >= julianday(?) ORDER BY instant, id`,
 		cutoff,
 	)
 	if err != nil {
@@ -522,59 +453,40 @@ func (service *SnapshotService) GetHoldingHistory(
 ) ([]HoldingHistoryPoint, error) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -days)
 
-	var snapshots []models.Snapshot
-
-	err := service.db.SelectContext(
-		ctx,
-		&snapshots,
-		`SELECT timestamp, created_at, holdings_json, id, total_value_try, total_value_usd, usd_try_rate,
-stale_count, failed_count FROM snapshots WHERE timestamp >= ? ORDER BY timestamp ASC`,
-		cutoff,
-	)
+	rows, err := service.db.QueryxContext(ctx,
+		snapshotTimeCTE+`SELECT timestamp, holdings_json FROM ordered_snapshots
+WHERE instant >= julianday(?) ORDER BY instant, id`, cutoff)
 	if err != nil {
 		return nil, wrapOperationError("GetHoldingHistory", err)
 	}
+	defer func() { _ = rows.Close() }()
 
 	points := make([]HoldingHistoryPoint, 0)
 
-	for _, snap := range snapshots {
-		var holdings []map[string]json.RawMessage
+	for rows.Next() {
+		var (
+			timestamp    time.Time
+			holdingsJSON string
+		)
 
-		err := json.Unmarshal([]byte(snap.HoldingsJSON), &holdings)
+		err = rows.Scan(&timestamp, &holdingsJSON)
 		if err != nil {
-			continue
+			return nil, wrapOperationError("GetHoldingHistory", err)
 		}
 
-		for _, holding := range holdings {
-			var id int
-
-			idErr := json.Unmarshal(holding["id"], &id)
-			if idErr != nil {
-				continue
-			}
-
-			if id == holdingID {
-				var valTRY, valUSD float64
-
-				valueErr := json.Unmarshal(holding["value_try"], &valTRY)
-				if valueErr != nil {
-					valTRY = 0
-				}
-
-				valueErr = json.Unmarshal(holding["value_usd"], &valUSD)
-				if valueErr != nil {
-					valUSD = 0
-				}
-
-				points = append(points, HoldingHistoryPoint{
-					Timestamp: snap.Timestamp,
-					ValueTRY:  valTRY,
-					ValueUSD:  valUSD,
-				})
-
-				break
-			}
+		point, found, decodeErr := findHoldingHistoryPoint(ctx, timestamp, holdingsJSON, holdingID)
+		if decodeErr != nil {
+			return nil, wrapOperationError("GetHoldingHistory", decodeErr)
 		}
+
+		if found {
+			points = append(points, point)
+		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, wrapOperationError("GetHoldingHistory", err)
 	}
 
 	return points, nil
@@ -590,9 +502,68 @@ type ChartPoint struct {
 }
 
 type HoldingHistoryPoint struct {
-	Timestamp time.Time `json:"timestamp"`
-	ValueTRY  float64   `json:"value_try"`
-	ValueUSD  float64   `json:"value_usd"`
+	Timestamp          time.Time `json:"timestamp"`
+	ValuationAvailable bool      `json:"valuation_available"`
+	IsStale            bool      `json:"is_stale"`
+	IsFailed           bool      `json:"is_failed"`
+	ValueTRY           float64   `json:"value_try"`
+	ValueUSD           float64   `json:"value_usd"`
+}
+
+func (service *SnapshotService) persistSnapshot(
+	ctx context.Context,
+	generation int64,
+	snapshot *models.Snapshot,
+) error {
+	tx, err := service.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+	defer func() {
+		//nolint:errcheck // Rollback after commit is harmless.
+		_ = tx.Rollback()
+	}()
+
+	slot, owner := db.SnapshotClaim(ctx)
+
+	result, err := tx.ExecContext(ctx, `
+                INSERT INTO snapshots (timestamp, total_value_try, total_value_usd,
+usd_try_rate, stale_count, failed_count, holdings_json)
+		SELECT CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?
+		FROM snapshot_state WHERE id = 1 AND generation = ?
+		AND (? = '' OR EXISTS (SELECT 1 FROM snapshot_runs
+			WHERE slot = ? AND owner = ? AND completed = 0))
+	`,
+		snapshot.TotalValueTRY,
+		snapshot.TotalValueUSD,
+		snapshot.USDTRYRate,
+		snapshot.StaleCount,
+		snapshot.FailedCount,
+		snapshot.HoldingsJSON,
+		generation, owner, slot, owner,
+	)
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return wrapOperationError("CreateSnapshot", err)
+	}
+
+	if count != 1 {
+		return db.ErrSnapshotSuperseded
+	}
+
+	if owner != "" {
+		_, err = tx.ExecContext(ctx,
+			"UPDATE snapshot_runs SET completed = 1 WHERE slot = ? AND owner = ?", slot, owner)
+		if err != nil {
+			return wrapOperationError("CreateSnapshot", err)
+		}
+	}
+
+	return wrapOperationError("CreateSnapshot", tx.Commit())
 }
 
 type SettingsService struct {
@@ -670,13 +641,15 @@ func (service *HoldingService) normalizeHolding(
 	holding *models.HoldingWithPrice,
 	rate float64,
 ) error {
-	holding.NormPriceTRY, holding.NormPriceUSD = service.normalizePrice(
-		holding.CurrentPrice,
-		holding.CurrentCurrency,
-		rate,
-	)
-	holding.NormTotalTRY = holding.Quantity * holding.NormPriceTRY
-	holding.NormTotalUSD = holding.Quantity * holding.NormPriceUSD
+	if holding.ValuationAvailable {
+		holding.NormPriceTRY, holding.NormPriceUSD = service.normalizePrice(
+			holding.CurrentPrice,
+			holding.CurrentCurrency,
+			rate,
+		)
+		holding.NormTotalTRY = holding.Quantity * holding.NormPriceTRY
+		holding.NormTotalUSD = holding.Quantity * holding.NormPriceUSD
+	}
 
 	if holding.EstPrice > 0 {
 		estTRY, estUSD := service.normalizePrice(holding.EstPrice, holding.BaseCurrency, rate)
@@ -715,11 +688,6 @@ func (service *HoldingService) normalizePrice(
 		usd = quote
 		if usdTryRate > 0 {
 			try = quote * usdTryRate
-		}
-	default:
-		try = quote
-		if usdTryRate > 0 {
-			usd = quote / usdTryRate
 		}
 	}
 

@@ -26,7 +26,7 @@ func TestProviderKeysPreserveQueryParameters(t *testing.T) {
 			},
 		},
 		{
-			name: "Twelve Data", env: "TWELVE_DATA_KEY", body: `{"price":"100","currency":"USD"}`,
+			name: "Twelve Data", env: "TWELVE_DATA_KEY", body: `{"close":"100","currency":"USD"}`,
 			create: func() (Getter, *http.Client) {
 				g := NewTwelveData()
 

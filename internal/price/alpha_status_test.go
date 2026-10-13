@@ -16,7 +16,9 @@ func TestAlphaVantageRejectsHTTPFailures(t *testing.T) {
 				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(status)
-					_, _ = w.Write([]byte(`{"Global Quote":{"05. price":"100"}}`))
+					_, _ = w.Write(
+						[]byte(`{"Global Quote":{"05. price":"100","08. currency":"USD"}}`),
+					)
 				}),
 			)
 			t.Cleanup(server.Close)

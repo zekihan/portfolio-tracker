@@ -46,7 +46,23 @@ func TestHoldingPartialUpdates(t *testing.T) {
 		}, "zero", `{"quantity":0,"est_price":0}`, "1", 204, false},
 		{nil, "empty", `{}`, "1", 400, false},
 		{nil, "null", `{"notes":null}`, "1", 400, false},
-		{nil, "unsupported", `{"asset_type":"Wrong"}`, "1", 400, false},
+		{nil, "invalid asset type", `{"asset_type":"Wrong"}`, "1", 400, false},
+		{nil, "invalid currency", `{"base_currency":"EUR"}`, "1", 400, false},
+		{nil, "unsupported", `{"manual_price":1}`, "1", 400, false},
+		{func(holding *models.Holding) {
+			holding.AssetType = models.AssetTypeCrypto
+		}, "asset type", `{"asset_type":"Crypto"}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.BaseCurrency = "USD"
+		}, "currency", `{"base_currency":"USD"}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.PriceProvider = ""
+			holding.InstrumentID = ""
+		}, "clear provider", `{"price_provider":"","instrument_id":""}`, "1", 204, false},
+		{func(holding *models.Holding) {
+			holding.PriceProvider = "Yahoo Finance"
+			holding.InstrumentID = "AAPL"
+		}, "provider", `{"price_provider":"Yahoo Finance","instrument_id":"AAPL"}`, "1", 204, false},
 		{nil, "negative quantity", `{"quantity":-1}`, "1", 400, false},
 		{nil, "negative estimate", `{"est_price":-1}`, "1", 400, false},
 		{nil, "invalid batch", `{"notes":"Do not save","est_price":-1}`, "1", 400, false},
@@ -117,6 +133,7 @@ func TestHoldingPartialUpdates(t *testing.T) {
 				strings.NewReader(test.body),
 			)
 			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(portfolioGenerationHeader, "0")
 
 			response := httptest.NewRecorder()
 			New(holdings, nil, nil, nil).SetupRoutes().ServeHTTP(response, request)

@@ -47,7 +47,7 @@ func TestGetPriceDoesNotUseFailedCacheRead(t *testing.T) {
 	service := NewService(database, registry)
 
 	_, err = service.GetPrice(t.Context(), getter.Name(), "TEST")
-	if !errors.Is(err, providerErr) {
-		t.Fatalf("got error %v, want provider failure instead of a phantom cached price", err)
+	if err == nil {
+		t.Fatal("failed cache generation read must not return a phantom cached price")
 	}
 }

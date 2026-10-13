@@ -26,7 +26,11 @@ func TestAlphaVantageValidatesPrices(t *testing.T) {
 			server := httptest.NewServer(
 				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(`{"Global Quote":{"05. price":"` + test.input + `"}}`))
+					_, _ = w.Write(
+						[]byte(
+							`{"Global Quote":{"05. price":"` + test.input + `","08. currency":"USD"}}`,
+						),
+					)
 				}),
 			)
 			t.Cleanup(server.Close)
