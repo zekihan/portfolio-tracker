@@ -21,7 +21,7 @@ jobs:
           go-version-file: go.mod
       - uses: actions/setup-node@v7.1.0
         with:
-          node-version: 24.19.0
+          node-version: 24.21.0
       - uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.14.0
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         if: runner.os == 'macOS'
         with:
-          node-version: 24.19.0
+          node-version: 24.21.0
       - name: Test browser and delivery scripts on macOS
         if: runner.os == 'macOS'
         run: make test/web test/scripts
