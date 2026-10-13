@@ -89,9 +89,9 @@
                     <td class="numeric editable-cell" tabindex="0" data-field="est_price" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
                     <td>{{.BaseCurrency}}</td>
                     <td class="numeric calculated-cell">{{if .ValuationAvailable}}{{formatCurrency $total $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>
-                    <td class="numeric calculated-cell">{{if and (not $.ValuationUnavailable) (gt .EstPrice 0)}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if and (not $.ValuationUnavailable) .EstimatedValuationAvailable}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>
                     <td class="numeric calculated-cell">{{if .ValuationAvailable}}{{formatCurrency $unit $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>
-                    <td class="numeric calculated-cell">{{if and (gt .Quantity 0) (gt $estimate 0)}}{{formatCurrency (div $estimate .Quantity) $.DisplayCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric calculated-cell">{{if and (not $.ValuationUnavailable) .EstimatedValuationAvailable (gt .Quantity 0)}}{{formatCurrency (div $estimate .Quantity) $.DisplayCurrency}}{{else}}—{{end}}</td>
                     <td class="editable-cell" tabindex="0" data-field="basket" data-edit-value="{{.Basket}}">{{.Basket}}</td>
                     <td class="editable-cell" tabindex="0" data-field="location" data-edit-value="{{.Location}}">{{.Location}}</td>
                     <td class="editable-cell" tabindex="0" data-field="notes" data-edit-value="{{.Notes}}">{{.Notes}}</td>
@@ -129,7 +129,7 @@
                 <tr>
                     <td colspan="14" class="table-footer">
                         <div class="table-footer-content">
-                        <span id="coverage-badge">{{if .ValuationUnavailable}}Estimated totals unavailable{{else}}Estimated total covers {{.CoverageCount}} of {{.TotalHoldings}} holdings{{end}}</span>
+                        <span id="coverage-badge">{{if .ValuationUnavailable}}Estimated totals unavailable{{else}}Estimated total covers {{.CoverageCount}} of {{.TotalHoldings}} holdings; uses current prices where no estimate is set{{end}}</span>
                         <button class="btn btn-ghost btn-sm" id="column-toggle" aria-expanded="false" aria-controls="column-menu">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             Columns
@@ -166,7 +166,7 @@
                 </div>
             </header>
             <div class="card-body">
-                <p class="meta">Est: {{if and (not $.ValuationUnavailable) (gt .EstPrice 0)}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}—{{end}} {{if and .ValuationAvailable (gt .EstPrice 0)}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
+                <p class="meta">Est: {{if and (not $.ValuationUnavailable) .EstimatedValuationAvailable}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}Unavailable{{end}} {{if and .ValuationAvailable (gt .EstPrice 0)}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
                 {{if not .ValuationAvailable}}<p class="meta">Valuation unavailable. Edit this holding or set a manual price; <a href="/sources">check price sources</a>.</p>{{end}}
                 {{if .IsStale}}<p class="meta">Stale price or exchange rate. Quote{{if not .PriceFetchedAt.IsZero}} as of {{formatTime .PriceFetchedAt}}{{end}}</p>{{end}}
                 <p class="meta">Basket: {{.Basket}} • Location: {{.Location}}</p>

@@ -42,24 +42,23 @@
 
             <article class="card value-card">
                 <header class="card-header">
-                    <h3>Estimated Value</h3>
+                    <h3>{{if .Data.EstimatedValuationComplete}}Estimated Value{{else}}Partial Estimated Value{{end}}</h3>
                     <span class="badge badge-info" id="coverage-badge">
-                        Coverage: {{if .Data.TotalHoldings}}{{coveragePercent .Data.CoverageCount .Data.TotalHoldings | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
+                        Estimated prices: {{if .Data.TotalHoldings}}{{coveragePercent .Data.CoverageCount .Data.TotalHoldings | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
                     </span>
                 </header>
                 <div class="value-main">
                     <div class="value-primary" id="estimated-value-try">
-                        {{if .Data.CoverageCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else if eq .DisplayCurrency "EUR"}}{{formatCurrency .Data.EstimatedValueEUR "EUR"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}—{{end}}
+                        {{if or .Data.EstimatedValuationComplete .Data.EstimatedValuedCount}}{{if eq .DisplayCurrency "USD"}}{{formatCurrency .Data.EstimatedValueUSD "USD"}}{{else if eq .DisplayCurrency "EUR"}}{{formatCurrency .Data.EstimatedValueEUR "EUR"}}{{else}}{{formatCurrency .Data.EstimatedValueTRY "TRY"}}{{end}}{{else}}Unavailable{{end}}
                     </div>
                     <div class="value-secondary" id="estimated-value-usd">
-                        {{if and .Data.ValuationComplete .Data.CoverageCount (eq .Data.CoverageCount .Data.TotalHoldings)}}
+                        {{if and .Data.ValuationComplete .Data.EstimatedValuationComplete}}
                         Diff: {{if eq .DisplayCurrency "USD"}}{{formatCurrency (sub .Data.EstimatedValueUSD .Data.CurrentValueUSD) "USD"}}{{else if eq .DisplayCurrency "EUR"}}{{formatCurrency (sub .Data.EstimatedValueEUR .Data.CurrentValueEUR) "EUR"}}{{else}}{{formatCurrency (sub .Data.EstimatedValueTRY .Data.CurrentValueTRY) "TRY"}}{{end}}
-                        {{else if not .Data.ValuationComplete}}Comparison unavailable until all holdings are valued.{{else if .Data.CoverageCount}}Partial estimate — add prices for the remaining holdings to compare totals.
-                        {{else}}Add estimated prices to your holdings to compare values.{{end}}
+                        {{else}}Comparison unavailable until all holdings are valued.{{end}}
                     </div>
                 </div>
                 <footer class="card-footer">
-                    <span>Based on estimated prices</span>
+                    <span>Uses estimated prices where set; otherwise current prices.{{if not .Data.EstimatedValuationComplete}} {{.Data.EstimatedValuedCount}} of {{.Data.TotalHoldings}} holdings included; remaining values unavailable.{{end}}</span>
                 </footer>
             </article>
         </div>

@@ -86,7 +86,7 @@ func TestDashboardTotalsPreserveCurrency(t *testing.T) {
 	}
 }
 
-func TestEstimateCoverageExcludesCurrentPrices(t *testing.T) {
+func TestEstimateCoverageAndCurrentPriceFallback(t *testing.T) {
 	t.Parallel()
 
 	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
@@ -131,7 +131,8 @@ func TestEstimateCoverageExcludesCurrentPrices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if data.CoverageCount != 1 || data.TotalHoldings != 2 || data.EstimatedValueTRY != 20 {
+	if data.CoverageCount != 1 || data.TotalHoldings != 2 || data.EstimatedValueTRY != 30 ||
+		data.EstimatedValuedCount != 2 || !data.EstimatedValuationComplete {
 		t.Errorf("unexpected estimate coverage: %+v", data)
 	}
 }

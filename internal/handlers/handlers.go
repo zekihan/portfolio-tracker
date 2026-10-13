@@ -908,7 +908,7 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 			valued++
 		}
 
-		if holdings[i].EstPrice > 0 {
+		if holdings[i].EstimatedValuationAvailable {
 			coverage++
 		}
 	}

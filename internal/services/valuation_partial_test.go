@@ -101,7 +101,8 @@ func TestPartialValuationIsExplicitAndCannotBecomeSnapshot(t *testing.T) {
 			t.Fatalf("misleading unavailable row: %+v", holding)
 		}
 
-		if holding.Name == "Stale" && !holding.IsStale {
+		if holding.Name == "Stale" && (!holding.IsStale || !holding.EstimatedValuationAvailable ||
+			holding.NormEstTotalTRY != 120) {
 			t.Fatal("stale cache not labeled")
 		}
 	}
@@ -119,7 +120,8 @@ func TestPartialValuationIsExplicitAndCannotBecomeSnapshot(t *testing.T) {
 	}
 
 	if data.CurrentValueTRY != 4320 || data.CurrentValueUSD != 108 ||
-		data.EstimatedValueTRY != 450 {
+		data.EstimatedValueTRY != 4570 || data.EstimatedValuedCount != 4 ||
+		data.EstimatedValuationComplete {
 		t.Fatalf("wrong partial totals: %+v", data)
 	}
 
@@ -364,7 +366,8 @@ func TestStaleFXQualityAndSnapshotRateStayConsistent(t *testing.T) {
 	if !data.ValuationComplete || !data.FXIsStale || !data.FXIsFailed || data.StaleCount != 1 ||
 		data.FailedCount != 1 ||
 		data.USDTRYRate != 40 ||
-		data.CurrentValueTRY != 800 {
+		data.CurrentValueTRY != 800 || data.EstimatedValueTRY != 800 ||
+		data.EstimatedValueUSD != 20 || !data.EstimatedValuationComplete {
 		t.Fatalf("incorrect stale FX quality: %+v", data)
 	}
 
