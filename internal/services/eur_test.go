@@ -142,7 +142,8 @@ VALUES('Cash','Cash',2,'Manual','USD',10)`)
 
 	data, err := holdings.GetDashboardData(t.Context(), "TRY")
 	if err != nil || !data.ValuationComplete || data.CurrentValueTRY != 800 || data.EURAvailable ||
-		data.FXIsFailed {
+		data.FXIsFailed || data.EstimatedValueTRY != 800 || data.EstimatedValueUSD != 20 ||
+		!data.EstimatedValuationComplete {
 		t.Fatalf("TRY dashboard: %+v %v", data, err)
 	}
 
@@ -172,7 +173,8 @@ VALUES('Cash','Cash',2,'Manual','USD',10)`)
 
 	rows, err := holdings.GetWithPrices(t.Context(), "TRY")
 	if err != nil || len(rows) != 1 || rows[0].ValuationAvailable || !rows[0].IsFailed ||
-		rows[0].NormTotalTRY != 0 {
+		rows[0].NormTotalTRY != 0 || rows[0].EstimatedValuationAvailable ||
+		rows[0].NormEstTotalTRY != 0 || rows[0].NormEstTotalUSD != 0 || rows[0].NormEstTotalEUR != 0 {
 		t.Fatalf("EUR holding without FX: %+v %v", rows, err)
 	}
 

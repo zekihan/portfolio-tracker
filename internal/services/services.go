@@ -159,7 +159,7 @@ func areFiniteValues(values ...float64) bool {
 	return true
 }
 
-//nolint:gocyclo // Currency totals, allocations, completeness and FX quality are independent.
+//nolint:gocognit,gocyclo // Currency totals, allocations, completeness and FX quality are independent.
 func (service *HoldingService) GetDashboardData(
 	ctx context.Context,
 	displayCurrency string,
@@ -173,7 +173,7 @@ func (service *HoldingService) GetDashboardData(
 
 	var totalTRY, totalUSD, totalEUR, estTotalTRY, estTotalUSD, estTotalEUR float64
 
-	staleCount, failedCount, coverageCount, valuedCount := 0, 0, 0, 0
+	staleCount, failedCount, coverageCount, valuedCount, estimatedValuedCount := 0, 0, 0, 0, 0
 	allocType := make(map[string]float64)
 	allocBasket := make(map[string]float64)
 	allocLoc := make(map[string]float64)
@@ -204,6 +204,10 @@ func (service *HoldingService) GetDashboardData(
 
 		if holding.EstPrice > 0 {
 			coverageCount++
+		}
+
+		if holding.EstimatedValuationAvailable {
+			estimatedValuedCount++
 		}
 
 		// Allocations based on current value.
@@ -245,31 +249,33 @@ func (service *HoldingService) GetDashboardData(
 	}
 
 	return &models.DashboardData{
-		ValuationComplete:  valuedCount == len(holdings),
-		ValuedCount:        valuedCount,
-		UnvaluedCount:      len(holdings) - valuedCount,
-		CurrentValueEUR:    totalEUR,
-		EstimatedValueEUR:  estTotalEUR,
-		EURTRYRate:         eurQuote.Value,
-		EURAvailable:       eurQuote.Value > 0,
-		CurrentValueTRY:    totalTRY,
-		CurrentValueUSD:    totalUSD,
-		EstimatedValueTRY:  estTotalTRY,
-		EstimatedValueUSD:  estTotalUSD,
-		USDTRYRate:         fxQuote.Value,
-		FXIsStale:          fxQuote.IsStale || (eurUsed && eurQuote.IsStale),
-		FXIsFailed:         fxQuote.IsFailed || (eurUsed && eurQuote.IsFailed),
-		FXFetchedAt:        fxFetchedAt,
-		StaleCount:         staleCount,
-		FailedCount:        failedCount,
-		CoverageCount:      coverageCount,
-		TotalHoldings:      len(holdings),
-		LastUpdated:        time.Now().UTC(),
-		AllocationByType:   allocType,
-		AllocationByBasket: allocBasket,
-		AllocationByLoc:    allocLoc,
-		AllocationByCurr:   allocCurr,
-		ProviderHealth:     providerHealth,
+		ValuationComplete:          valuedCount == len(holdings),
+		EstimatedValuationComplete: estimatedValuedCount == len(holdings),
+		EstimatedValuedCount:       estimatedValuedCount,
+		ValuedCount:                valuedCount,
+		UnvaluedCount:              len(holdings) - valuedCount,
+		CurrentValueEUR:            totalEUR,
+		EstimatedValueEUR:          estTotalEUR,
+		EURTRYRate:                 eurQuote.Value,
+		EURAvailable:               eurQuote.Value > 0,
+		CurrentValueTRY:            totalTRY,
+		CurrentValueUSD:            totalUSD,
+		EstimatedValueTRY:          estTotalTRY,
+		EstimatedValueUSD:          estTotalUSD,
+		USDTRYRate:                 fxQuote.Value,
+		FXIsStale:                  fxQuote.IsStale || (eurUsed && eurQuote.IsStale),
+		FXIsFailed:                 fxQuote.IsFailed || (eurUsed && eurQuote.IsFailed),
+		FXFetchedAt:                fxFetchedAt,
+		StaleCount:                 staleCount,
+		FailedCount:                failedCount,
+		CoverageCount:              coverageCount,
+		TotalHoldings:              len(holdings),
+		LastUpdated:                time.Now().UTC(),
+		AllocationByType:           allocType,
+		AllocationByBasket:         allocBasket,
+		AllocationByLoc:            allocLoc,
+		AllocationByCurr:           allocCurr,
+		ProviderHealth:             providerHealth,
 	}, nil
 }
 
@@ -687,6 +693,9 @@ func (service *HoldingService) normalizeHolding(
 		eurRate = eurRates[0]
 	}
 
+	holding.NormPriceTRY, holding.NormPriceUSD, holding.NormPriceEUR = 0, 0, 0
+	holding.NormTotalTRY, holding.NormTotalUSD, holding.NormTotalEUR = 0, 0, 0
+
 	holding.EURValuationAvailable = holding.ValuationAvailable && eurRate > 0
 	if holding.ValuationAvailable {
 		holding.NormPriceTRY, holding.NormPriceUSD = service.normalizePrice(
@@ -704,7 +713,16 @@ func (service *HoldingService) normalizeHolding(
 		}
 	}
 
+	// Zero and NULL estimates are both unset in the existing storage/input contract.
+	// Reuse normalized current totals so fallbacks retain the actual quote currency.
+	holding.NormEstTotalTRY = holding.NormTotalTRY
+	holding.NormEstTotalUSD = holding.NormTotalUSD
+	holding.NormEstTotalEUR = holding.NormTotalEUR
+
+	holding.EstimatedValuationAvailable = holding.ValuationAvailable || holding.Quantity == 0
 	if holding.EstPrice > 0 {
+		holding.EstimatedValuationAvailable = holding.Quantity == 0 ||
+			holding.BaseCurrency != restoreCurrencyEUR || eurRate > 0
 		estTRY, estUSD := service.normalizePrice(
 			holding.EstPrice,
 			holding.BaseCurrency,

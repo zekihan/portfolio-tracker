@@ -63,7 +63,7 @@ func (h *Holding) TotalValue() float64 {
 
 func (h *Holding) EstimatedTotalValue() float64 {
 	if h.EstPrice <= 0 {
-		return 0
+		return h.TotalValue()
 	}
 
 	return h.Quantity * h.EstPrice
@@ -130,31 +130,33 @@ type Settings struct {
 }
 
 type DashboardData struct {
-	FXFetchedAt        time.Time
-	LastUpdated        time.Time
-	AllocationByBasket map[string]float64
-	AllocationByType   map[string]float64
-	AllocationByCurr   map[string]float64
-	AllocationByLoc    map[string]float64
-	ProviderHealth     []ProviderHealth
-	CurrentValueTRY    float64
-	UnvaluedCount      int
-	EstimatedValueEUR  float64
-	EstimatedValueUSD  float64
-	USDTRYRate         float64
-	CurrentValueEUR    float64
-	EstimatedValueTRY  float64
-	CurrentValueUSD    float64
-	ValuedCount        int
-	EURTRYRate         float64
-	CoverageCount      int
-	TotalHoldings      int
-	FailedCount        int
-	StaleCount         int
-	ValuationComplete  bool
-	FXIsStale          bool
-	FXIsFailed         bool
-	EURAvailable       bool
+	FXFetchedAt                time.Time
+	LastUpdated                time.Time
+	AllocationByBasket         map[string]float64
+	AllocationByType           map[string]float64
+	AllocationByCurr           map[string]float64
+	AllocationByLoc            map[string]float64
+	ProviderHealth             []ProviderHealth
+	CurrentValueTRY            float64
+	UnvaluedCount              int
+	EstimatedValueEUR          float64
+	EstimatedValueUSD          float64
+	USDTRYRate                 float64
+	CurrentValueEUR            float64
+	EstimatedValueTRY          float64
+	CurrentValueUSD            float64
+	ValuedCount                int
+	EURTRYRate                 float64
+	CoverageCount              int
+	EstimatedValuedCount       int
+	TotalHoldings              int
+	FailedCount                int
+	StaleCount                 int
+	ValuationComplete          bool
+	EstimatedValuationComplete bool
+	FXIsStale                  bool
+	FXIsFailed                 bool
+	EURAvailable               bool
 }
 
 type ProviderHealth struct {
@@ -170,15 +172,16 @@ type ProviderHealth struct {
 type HoldingWithPrice struct {
 	Holding
 
-	Price                 Price
-	NormPriceEUR          float64
-	NormTotalEUR          float64
-	NormEstTotalEUR       float64
-	EURValuationAvailable bool
-	NormPriceTRY          float64
-	NormPriceUSD          float64
-	NormTotalTRY          float64
-	NormTotalUSD          float64
-	NormEstTotalTRY       float64
-	NormEstTotalUSD       float64
+	Price                       Price
+	NormPriceEUR                float64
+	NormTotalEUR                float64
+	NormEstTotalEUR             float64
+	EURValuationAvailable       bool
+	EstimatedValuationAvailable bool
+	NormPriceTRY                float64
+	NormPriceUSD                float64
+	NormTotalTRY                float64
+	NormTotalUSD                float64
+	NormEstTotalTRY             float64
+	NormEstTotalUSD             float64
 }
