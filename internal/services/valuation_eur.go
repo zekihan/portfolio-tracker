@@ -12,11 +12,9 @@ import (
 // ordinary TRY/USD pages only request EUR when needed or already cached.
 func (service *HoldingService) eurValuationQuote(
 	ctx, requiredCtx context.Context,
-	holdings []models.HoldingWithPrice,
+	required bool,
 	displayCurrency string,
 ) (models.Price, error) {
-	required := requiresEURValuation(holdings, displayCurrency)
-
 	if required {
 		quote, err := service.priceSvc.GetEURTRYQuote(requiredCtx)
 
@@ -48,9 +46,9 @@ WHERE (provider = 'Frankfurter' AND instrument_id = 'EUR') OR
 	return quote, wrapOperationError("EUR exchange rate", err)
 }
 
-func holdingNeedsEUR(holding *models.HoldingWithPrice) bool {
+func (scope valuationScope) holdingNeedsEUR(holding *models.HoldingWithPrice) bool {
 	return holding.Quantity != 0 && (holding.CurrentCurrency == restoreCurrencyEUR ||
-		(holding.BaseCurrency == restoreCurrencyEUR && holding.EstPrice > 0))
+		(scope == currentAndEstimatedValues && holding.BaseCurrency == restoreCurrencyEUR && holding.EstPrice > 0))
 }
 
 func oldestFXTime(first, second time.Time) time.Time {
@@ -61,7 +59,10 @@ func oldestFXTime(first, second time.Time) time.Time {
 	return first
 }
 
-func requiresEURValuation(holdings []models.HoldingWithPrice, displayCurrency string) bool {
+func (scope valuationScope) requiresEURValuation(
+	holdings []models.HoldingWithPrice,
+	displayCurrency string,
+) bool {
 	if displayCurrency == restoreCurrencyEUR {
 		return true
 	}
@@ -73,7 +74,7 @@ func requiresEURValuation(holdings []models.HoldingWithPrice, displayCurrency st
 		}
 
 		if (holding.CurrentCurrency == restoreCurrencyEUR && holding.ValuationAvailable) ||
-			(holding.BaseCurrency == restoreCurrencyEUR && holding.EstPrice > 0) {
+			(scope == currentAndEstimatedValues && holding.BaseCurrency == restoreCurrencyEUR && holding.EstPrice > 0) {
 			return true
 		}
 	}

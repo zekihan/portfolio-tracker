@@ -1320,7 +1320,8 @@ const PortfolioApp = (function() {
     const field = td.dataset.field;
     const row = td.closest('tr');
     const holdingId = row.dataset.id;
-    const currentValue = td.textContent.trim();
+    const multiline = field === 'notes';
+    const currentValue = multiline ? td.textContent : td.textContent.trim();
 
     let input;
     if (field === 'basket' || field === 'location') {
@@ -1335,6 +1336,12 @@ const PortfolioApp = (function() {
         document.body.appendChild(list);
       }
       input.setAttribute('list', list.id);
+    } else if (multiline) {
+      input = document.createElement('textarea');
+      input.rows = 3;
+      input.title = 'Enter for a new line; Ctrl/Cmd+Enter or click away to save; Escape to cancel';
+      input.setAttribute('aria-description', input.title);
+      input.setAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter Escape');
     } else if (field === 'quantity' || field === 'est_price') {
       input = document.createElement('input');
       input.type = 'number';
@@ -1349,6 +1356,9 @@ const PortfolioApp = (function() {
     const editValue = numericField ? (td.dataset.sortValue ?? currentValue.replace(/[₺$,\s]/g, '')) : (td.dataset.editValue ?? currentValue);
     input.setAttribute('aria-label', `Edit ${field.replace(/_/g, ' ')}`);
     input.value = editValue;
+    // Textareas normalize CRLF/CR to LF. An untouched editor must not rewrite
+    // the original stored text just because the browser normalized its value.
+    const initialValue = multiline ? input.value : String(editValue);
     input.className = 'inline-edit-input';
     input.style.cssText = 'width: 100%; padding: 4px 8px; border: 1px solid var(--border-focus); border-radius: 4px; background: var(--bg-primary); font-family: inherit; font-size: inherit;';
 
@@ -1371,10 +1381,10 @@ const PortfolioApp = (function() {
       if (finished || reloadRequired) return;
       if (!input.reportValidity()) return;
       finished = true;
-      const trimmedValue = input.value.trim();
+      const enteredValue = multiline ? input.value : input.value.trim();
       // An empty optional estimate clears it, matching the modal's zero value.
-      const newValue = field === 'est_price' && trimmedValue === '' ? '0' : trimmedValue;
-      if (newValue !== String(editValue) && (newValue !== '' || !numericField)) {
+      const newValue = field === 'est_price' && enteredValue === '' ? '0' : enteredValue;
+      if (newValue !== initialValue && (newValue !== '' || !numericField)) {
         input.readOnly = true;
         input.setAttribute('aria-label', `Saving ${field.replace(/_/g, ' ')}…`);
         td.setAttribute('aria-busy', 'true');
@@ -1425,7 +1435,8 @@ const PortfolioApp = (function() {
 
     input.addEventListener('blur', save);
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); save(); }
+      if (e.isComposing) return;
+      if (e.key === 'Enter' && (!multiline || e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
       if (e.key === 'Escape' && !finished) {
         e.preventDefault();
         finished = true;

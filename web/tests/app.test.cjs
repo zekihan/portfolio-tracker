@@ -627,6 +627,17 @@ function inlineRaceHarness() {
   h.document.createElement = tag => {
     const node = element();
     node.tagName = tag.toUpperCase();
+    // Match DOM value sanitization so single-line controls cannot silently hide
+    // a multiline editor regression. Textareas normalize only line endings.
+    let value = '';
+    Object.defineProperty(node, 'value', {
+      get: () => value,
+      set(next) {
+        value = String(next);
+        if (node.tagName === 'INPUT' && node.type === 'text') value = value.replace(/[\r\n]/g, '');
+        if (node.tagName === 'TEXTAREA') value = value.replace(/\r\n?/g, '\n');
+      }
+    });
     node.style = {};
     node.select = () => {};
     node.reportValidity = () => true;
@@ -654,10 +665,84 @@ function inlineRaceHarness() {
   };
   h.save = (edit, value) => {
     edit.input.value = value;
-    edit.input.keydown({ key: 'Enter', preventDefault() {} });
+    edit.input.keydown({ key: 'Enter', ctrlKey: edit.td.dataset.field === 'notes', preventDefault() {} });
   };
   return h;
 }
+
+test('untouched inline notes preserve line breaks and whitespace without a PATCH', () => {
+  for (const original of ['first line\nsecond line', 'alpha\r\nbeta\rgamma', ' \n  indented\t \n ', '', ' \t ']) {
+    for (const trigger of ['blur', 'Ctrl+Enter', 'Meta+Enter', 'Escape']) {
+      const h = inlineRaceHarness();
+      const edit = h.edit('notes', original);
+      assert.equal(edit.input.tagName, 'TEXTAREA');
+      assert.equal(edit.input.value, original.replace(/\r\n?/g, '\n'));
+      if (trigger === 'blur') edit.input.blur();
+      else edit.input.keydown({ key: trigger === 'Escape' ? 'Escape' : 'Enter',
+        ctrlKey: trigger === 'Ctrl+Enter', metaKey: trigger === 'Meta+Enter', preventDefault() {} });
+      edit.input.blur();
+      h.runTimers();
+      assert.equal(h.pending.length, 0);
+      assert.equal(edit.td.dataset.editValue, original);
+      assert.equal(edit.td.textContent, original);
+      assert.equal(h.reloads, 0);
+    }
+  }
+});
+
+test('inline notes Enter allows newlines and composition cannot save or cancel the draft', () => {
+  const h = inlineRaceHarness();
+  const edit = h.edit('notes', 'Before');
+  edit.input.value = 'First line\nSecond line';
+  for (const event of [
+    { key: 'Enter' }, { key: 'Enter', shiftKey: true },
+    { key: 'Enter', ctrlKey: true, isComposing: true },
+    { key: 'Escape', isComposing: true }
+  ]) {
+    let prevented = false;
+    edit.input.keydown({ ...event, preventDefault() { prevented = true; } });
+    assert.equal(prevented, false);
+    assert.equal(h.pending.length, 0);
+    assert.equal(edit.td.children[0], edit.input);
+    assert.equal(edit.input.value, 'First line\nSecond line');
+  }
+  edit.input.keydown({ key: 'Escape', preventDefault() {} });
+  edit.input.blur();
+  assert.equal(edit.td.textContent, 'Before');
+  assert.equal(h.pending.length, 0);
+  assert.equal(h.document.activeElement, edit.td);
+});
+
+test('inline notes save exact multiline and whitespace drafts once on blur or explicit save', async () => {
+  for (const value of [' \n  First line\nSecond line\t \n ', '', ' \t ']) {
+    for (const trigger of ['blur', 'Ctrl+Enter', 'Meta+Enter']) {
+      const h = inlineRaceHarness();
+      const edit = h.edit('notes', 'Before', '42');
+      edit.input.value = value;
+      const save = () => {
+        if (trigger === 'blur') edit.input.blur();
+        else edit.input.keydown({ key: 'Enter', ctrlKey: trigger === 'Ctrl+Enter',
+          metaKey: trigger === 'Meta+Enter', preventDefault() {} });
+      };
+      save(); save(); edit.input.blur();
+      edit.input.keydown({ key: 'Escape', preventDefault() {} });
+      assert.equal(h.pending.length, 1);
+      assert.equal(h.pending[0].url, '/api/holdings/42');
+      assert.equal(h.pending[0].options.method, 'PATCH');
+      assert.deepEqual(JSON.parse(h.pending[0].options.body), { notes: value });
+      assert.equal(edit.input.readOnly, true);
+      assert.equal(edit.td.attrs['aria-busy'], 'true');
+      assert.equal(edit.td.dataset.editValue, 'Before');
+      h.pending[0].resolve({ ok: true }); await flush();
+      assert.equal(edit.td.dataset.editValue, value);
+      assert.equal(edit.td.textContent, value || '—');
+      assert.equal(h.document.activeElement, edit.td);
+      h.runTimers(); h.runTimers();
+      assert.equal(h.pending.length, 1);
+      assert.equal(h.reloads, 1);
+    }
+  }
+});
 
 test('inline happy path displays only the accepted value and schedules one safe reload', async () => {
   const h = inlineRaceHarness();
@@ -747,7 +832,7 @@ test('Escape cancels a blank inline estimate before blur without clearing it', (
 });
 
 test('blank optional inline text still clears with an empty string rather than numeric zero', async () => {
-  for (const field of ['ticker', 'basket', 'location', 'notes']) {
+  for (const field of ['ticker', 'basket', 'location']) {
     for (const value of ['', ' \t ']) {
       for (const trigger of ['Enter', 'blur']) {
         const h = inlineRaceHarness();
@@ -896,7 +981,7 @@ test('Escape or an unchanged edit releases a deferred inline refresh without ano
     h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
     assert.equal(h.reloads, 0);
     if (key === 'Escape') second.input.value = 'Discard this draft';
-    second.input.keydown({ key, preventDefault() {} });
+    second.input.keydown({ key, ctrlKey: true, preventDefault() {} });
     h.runTimers();
     assert.equal(h.reloads, 1);
     assert.equal(h.pending.length, 1);
@@ -931,14 +1016,14 @@ test('409 and 428 inline failures preserve drafts and require an explicit reload
   for (const status of [409, 428]) {
     const h = inlineRaceHarness();
     const accepted = h.edit(); h.save(accepted, '20');
-    const conflicted = h.edit('notes', 'Original note'); h.save(conflicted, 'Keep this failed draft');
+    const conflicted = h.edit('notes', 'Original note'); h.save(conflicted, '  Keep this\nfailed draft\n');
     const newest = h.edit('notes', 'Another note'); newest.input.value = 'Keep this unsaved draft too';
     h.pending[0].resolve({ ok: true });
     h.pending[1].resolve({ ok: false, status });
     await flush(); h.runTimers();
     assert.equal(h.reloads, 0);
     assert.equal(conflicted.td.children[0], conflicted.input);
-    assert.equal(conflicted.input.value, 'Keep this failed draft');
+    assert.equal(conflicted.input.value, '  Keep this\nfailed draft\n');
     assert.equal(conflicted.input.readOnly, false);
     assert.match(conflicted.input.attrs['aria-label'], /reload required/);
     assert.equal(conflicted.td.attrs['aria-busy'], undefined);
