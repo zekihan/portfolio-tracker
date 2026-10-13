@@ -6,7 +6,7 @@ const vm = require('node:vm');
 function loadApp(elements = {}, setTimer = callback => callback(), generation = '') {
   const source = fs.readFileSync('web/static/app.js', 'utf8').replace(
     '    init,\n    showToast,',
-    '    init,\n    safeStorage,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initModalHandling,\n    initHoldingMutationTracking,\n    initDisclosureKeyboard,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
+    '    init,\n    safeStorage,\n    initDisplaySettings,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initModalHandling,\n    initHoldingMutationTracking,\n    initDisclosureKeyboard,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
   const pending = [];
   const listeners = {};
   const document = {
@@ -448,7 +448,7 @@ test('restricted storage falls back locally and the early theme script still app
 test('currency updates share one lock across controls and failures recover without navigation', async () => {
   const select = element('USD'), first = element(), second = element();
   const h = loadApp({ 'display-currency': select });
-  h.document.querySelectorAll = () => [select, first, second];
+  h.document.querySelectorAll = selector => selector === '#currency-menu button, #display-currency' ? [select, first, second] : [];
   let destination;
   h.window.location.assign = value => { destination = value; };
   h.app.saveDisplayCurrency('USD');
@@ -1223,4 +1223,212 @@ test('source refresh retains failed-save drafts until a successful retry', async
   h.click(h.refresh);
   await h.respond(3);
   assert.equal(h.reloads(), 1);
+});
+
+test('currency response preserves source drafts begun before or during its request and unlocks retry', async () => {
+  for (const timing of ['before', 'during']) {
+    const h = sourceRefreshHarness();
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    h.window.location.href = 'https://portfolio.test/sources?currency=TRY&filter=one#mapping';
+    if (timing === 'before') h.input.value = 'MSFT';
+    h.app.saveDisplayCurrency('USD');
+    assert.equal(h.input.disabled, false);
+    if (timing === 'during') h.input.value = 'MSFT';
+    await h.respond(0);
+    assert.equal(destination, undefined, timing);
+    assert.equal(h.input.value, 'MSFT');
+    assert.equal(h.app.state().displayCurrency, 'TRY');
+    h.click(h.save); await h.respond(1);
+    h.app.saveDisplayCurrency('USD');
+    assert.equal(h.pending.length, 3, 'deferred success releases currency lock');
+    await h.respond(2);
+    assert.equal(destination, 'https://portfolio.test/sources?currency=USD&filter=one#mapping');
+  }
+});
+
+test('currency navigation preserves active inline drafts, pending writes, modal state and dirty forms', async () => {
+  for (const reason of ['inline', 'write', 'modal', 'form', 'focused']) {
+    const h = inlineRaceHarness();
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    h.app.saveDisplayCurrency('USD');
+    if (reason === 'inline' || reason === 'write') {
+      const edit = h.edit();
+      if (reason === 'write') h.save(edit, '20');
+    }
+    if (reason === 'modal') h.modal = true;
+    if (reason === 'form') h.forms = [{ elements: [{ tagName: 'INPUT', value: 'draft', defaultValue: '' }] }];
+    if (reason === 'focused') h.document.activeElement = { matches: () => true };
+    h.pending[0].resolve({ ok: true }); await flush();
+    assert.equal(destination, undefined, reason);
+    assert.equal(h.app.state().displayCurrency, 'TRY');
+    assert.match(h.notice.children.at(-1).innerHTML, /saved as USD.*still shows TRY/);
+    h.app.saveDisplayCurrency('TRY');
+    assert.equal(h.pending.at(-1).url, '/api/settings/currency', 'controls are not permanently locked');
+  }
+});
+
+test('focused currency select is exempt but other dirty controls remain protected', async () => {
+  for (const dirtyOther of [false, true]) {
+    const select = element('USD'), disabledButton = element();
+    select.tagName = 'SELECT'; select.matches = () => true;
+    select.selectedIndex = 1; select.options = [{ defaultSelected: true }, { defaultSelected: false }];
+    disabledButton.disabled = true;
+    const h = loadApp({ 'display-currency': select });
+    h.document.activeElement = select;
+    h.document.querySelectorAll = selector => selector === '#currency-menu button, #display-currency' ? [select, disabledButton] :
+      selector === 'form' ? [{ elements: [select, { tagName: 'INPUT', value: dirtyOther ? 'draft' : '', defaultValue: '' }] }] : [];
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    h.app.saveDisplayCurrency('USD');
+    h.pending[0].resolve({ ok: true }); await flush();
+    if (dirtyOther) {
+      assert.equal(destination, undefined);
+      assert.equal(select.disabled, false);
+      assert.equal(disabledButton.disabled, true);
+      assert.equal(select.value, 'TRY');
+    } else assert.match(destination, /currency=USD/);
+  }
+});
+
+test('source refresh and currency completion cooperate in either response order', async () => {
+  for (const order of ['currency-first', 'refresh-first']) {
+    const h = sourceRefreshHarness();
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    h.click(h.refresh);
+    h.app.saveDisplayCurrency('USD');
+    if (order === 'currency-first') {
+      await h.respond(1);
+      assert.equal(destination, undefined, 'refresh still pending');
+      await h.respond(0);
+    } else {
+      await h.respond(0);
+      assert.equal(h.reloads(), 0, 'refresh cannot interrupt currency PATCH');
+      await h.respond(1);
+    }
+    assert.equal(h.reloads(), 0);
+    assert.match(destination, /currency=USD/);
+  }
+});
+
+test('holding refresh waits for currency and uses its saved URL in either completion order', async () => {
+  for (const order of ['currency-first', 'holding-first']) {
+    const h = inlineRaceHarness();
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    const edit = h.edit(); h.save(edit, '20');
+    h.app.saveDisplayCurrency('USD');
+    if (order === 'currency-first') {
+      h.pending[1].resolve({ ok: true }); await flush();
+      assert.equal(destination, undefined);
+      h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+    } else {
+      h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+      assert.equal(h.reloads, 0);
+      h.pending[1].resolve({ ok: true }); await flush();
+    }
+    assert.equal(h.reloads, 0);
+    assert.match(destination, /currency=USD/);
+  }
+});
+
+test('currency blocks navigation over a reviewed restore and permits retry after cancellation', async () => {
+  const review = element(); review.hidden = false;
+  const h = loadApp({ 'restore-review': review });
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  h.app.saveDisplayCurrency('USD'); h.pending[0].resolve({ ok: true }); await flush();
+  assert.equal(destination, undefined);
+  review.hidden = true;
+  h.app.saveDisplayCurrency('USD'); h.pending[1].resolve({ ok: true }); await flush();
+  assert.match(destination, /currency=USD/);
+});
+
+test('currency completion waits for detached modal and HTMX writes', async () => {
+  for (const kind of ['modal', 'htmx']) {
+    const h = holdingMutationHarness();
+    let destination;
+    h.window.location.assign = value => { destination = value; };
+    h.app.saveDisplayCurrency('USD');
+    let mutation;
+    if (kind === 'modal') {
+      const form = h.openForm(); form.elements[0].value = 'New name';
+      h.submit(form); h.close();
+    } else mutation = h.startDelete();
+    h.pending[0].resolve({ ok: true }); await flush();
+    assert.equal(destination, undefined);
+    if (kind === 'modal') { h.pending[1].resolve({ ok: true }); await flush(); }
+    else h.endDelete(mutation);
+    h.runTimers();
+    assert.match(destination, /currency=USD/);
+  }
+});
+
+test('currency success does not interrupt a settings theme write and failure releases its guard', async () => {
+  const theme = element('system');
+  const h = loadApp({ 'dark-mode': theme });
+  h.app.initDisplaySettings();
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  h.app.saveDisplayCurrency('USD');
+  theme.value = 'dark'; theme.change();
+  h.pending[0].resolve({ ok: true }); await flush();
+  assert.equal(destination, undefined);
+  assert.equal(theme.disabled, true);
+  h.pending[1].reject(new Error('offline')); await flush();
+  assert.equal(theme.disabled, false);
+  h.app.saveDisplayCurrency('USD'); h.pending[2].resolve({ ok: true }); await flush();
+  assert.match(destination, /currency=USD/);
+});
+
+test('currency success waits for source saves and a failed later currency choice keeps the last saved target', async () => {
+  const h = sourceRefreshHarness();
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  h.app.saveDisplayCurrency('USD');
+  h.input.value = 'MSFT'; h.click(h.save);
+  await h.respond(0);
+  assert.equal(destination, undefined);
+  h.app.saveDisplayCurrency('TRY');
+  h.pending[2].reject(new Error('offline')); await flush();
+  await h.respond(1);
+  h.click(h.refresh); await h.respond(3);
+  assert.match(destination, /currency=USD/, 'failed TRY request cannot replace saved USD');
+});
+
+test('mobile pull and currency save do not interrupt each other in either response order', async () => {
+  for (const order of ['currency-first', 'refresh-first']) {
+    const h = pullHarness();
+    let destination, reloads = 0;
+    h.window.location.assign = value => { destination = value; };
+    h.window.location.reload = () => { reloads++; };
+    h.gesture(); h.app.saveDisplayCurrency('USD');
+    if (order === 'currency-first') {
+      h.pending[1].resolve({ ok: true }); await flush();
+      assert.equal(destination, undefined);
+      h.pending[0].resolve({ ok: true }); await flush();
+    } else {
+      h.pending[0].resolve({ ok: true }); await flush();
+      assert.equal(reloads, 0);
+      h.pending[1].resolve({ ok: true }); await flush();
+    }
+    assert.match(destination, /currency=USD/);
+    assert.equal(reloads, 0);
+  }
+});
+
+test('failed currency request releases a blocked holding flow for an explicit retry', async () => {
+  const h = inlineRaceHarness();
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  const edit = h.edit(); h.save(edit, '20');
+  h.app.saveDisplayCurrency('USD');
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0);
+  h.pending[1].reject(new Error('offline')); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0, 'keep currency failure feedback visible');
+  h.app.saveDisplayCurrency('USD'); h.pending[2].resolve({ ok: true }); await flush();
+  assert.match(destination, /currency=USD/);
 });

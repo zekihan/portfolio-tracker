@@ -19,6 +19,8 @@ function safeStorage(name) {
 }
 const localPreferences = safeStorage('localStorage');
 const sessionPreferences = safeStorage('sessionStorage');
+// Settings writes can outlive a currency request (restore lives below the app).
+let settingsWritesPending = 0;
 
 // This token belongs to the data initially rendered on this page. Never replace
 // it from asynchronous reads: their IDs may refer to a restored portfolio.
@@ -71,6 +73,7 @@ const PortfolioApp = (function() {
   let allocationRequest = 0;
   let historyMutationActive = false;
   let currencyUpdateActive = false;
+  let savedDisplayCurrency;
   // Sources and mobile refresh share a lock; mapping drafts live outside forms.
   let priceRefreshActive = false;
   let sourceRequestsPending = 0;
@@ -186,6 +189,7 @@ const PortfolioApp = (function() {
     clear?.addEventListener('click', async () => {
       if (!await confirmAction('This will delete all holdings, snapshots, and settings. Download a backup first to keep the current data.', 'Clear all data')) return;
       clear.disabled = true;
+      settingsWritesPending++;
       try {
         const response = await fetch('/api/settings/clear-all', { method: 'DELETE', headers: portfolioHeaders() });
         if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to clear data'));
@@ -195,7 +199,7 @@ const PortfolioApp = (function() {
       } catch (error) {
         clear.disabled = false;
         showToast(error.message, 'error');
-      }
+      } finally { settingsWritesPending--; }
     });
     const currency = document.getElementById('display-currency');
     currency?.addEventListener('change', () => saveDisplayCurrency(currency.value));
@@ -203,6 +207,7 @@ const PortfolioApp = (function() {
     if (theme) theme.value = localPreferences.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
     theme?.addEventListener('change', async () => {
       theme.disabled = true;
+      settingsWritesPending++;
       try {
         const response = await fetch('/api/settings/dark-mode', {
           method: 'PATCH', headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
@@ -216,7 +221,7 @@ const PortfolioApp = (function() {
       } catch (error) {
         theme.value = localPreferences.getItem('theme') || 'system';
         showToast(error.message, 'error');
-      } finally { theme.disabled = false; }
+      } finally { theme.disabled = false; settingsWritesPending--; }
     });
   }
 
@@ -258,8 +263,8 @@ const PortfolioApp = (function() {
       try {
         if (refresh) {
           await request('/api/sources/refresh', 'POST');
-          if (!sourceDraftsPending() && !sourceRequestsPending) window.location.reload();
-          else showToast('Prices refreshed. Your unsaved source edits are still here; save them before refreshing the page.', 'info');
+          if (!sourceDraftsPending() && !sourceRequestsPending && !currencyUpdateActive) reloadWithSavedCurrency();
+          else showToast('Prices refreshed. Finish any pending changes before refreshing the page.', 'info');
           return;
         }
         const row = button.closest('tr');
@@ -384,27 +389,51 @@ const PortfolioApp = (function() {
     });
   }
 
+  // Any refresh after a deferred currency save must keep the requested currency
+  // in the URL, including when an existing explicit ?currency= overrides settings.
+  function reloadWithSavedCurrency() {
+    if (savedDisplayCurrency === undefined) { window.location.reload(); return; }
+    const url = new URL(window.location.href);
+    url.searchParams.set('currency', savedDisplayCurrency);
+    window.location.assign(url.href);
+  }
+
   async function saveDisplayCurrency(currency) {
     if (currencyUpdateActive) return;
     currencyUpdateActive = true;
     const controls = [...document.querySelectorAll('#currency-menu button, #display-currency')];
+    const disabledBefore = controls.map(control => control.disabled);
     controls.forEach(control => { control.disabled = true; });
+    let navigating = false;
     try {
       const response = await fetch('/api/settings/currency', {
         method: 'PATCH', headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ currency })
       });
       if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to save display currency. Please try again.'));
+      savedDisplayCurrency = currency;
       closeDropdown();
-      const url = new URL(window.location.href);
-      url.searchParams.set('currency', currency);
-      window.location.assign(url.href);
+      // A user can start editing after the request began. Keep this page's
+      // currency labels truthful until a safe navigation actually replaces it.
+      const restoreReview = document.getElementById('restore-review');
+      if (sourceRequestsPending || sourceDraftsPending() || priceRefreshActive ||
+          historyMutationActive || settingsWritesPending ||
+          (restoreReview && !restoreReview.hidden) ||
+          pageNavigationIsBlocked(true)) {
+        showToast(`Currency preference saved as ${currency}. This page still shows ${state.displayCurrency}. Finish editing, then select ${currency} again to apply it.`, 'info');
+      } else {
+        reloadWithSavedCurrency();
+        navigating = true;
+      }
     } catch (error) {
-      const select = document.getElementById('display-currency');
-      if (select) select.value = state.displayCurrency;
-      currencyUpdateActive = false;
-      controls.forEach(control => { control.disabled = false; });
       showToast(error.message || 'Unable to save display currency. Please try again.', 'error');
+    } finally {
+      if (!navigating) {
+        const select = document.getElementById('display-currency');
+        if (select) select.value = state.displayCurrency;
+        currencyUpdateActive = false;
+        controls.forEach((control, index) => { control.disabled = disabledBefore[index]; });
+      }
     }
   }
 
@@ -1234,11 +1263,17 @@ const PortfolioApp = (function() {
   }
 
   function holdingReloadIsBlocked() {
-    if (inlineEditors.size || holdingWritesPending || holdingHtmxRequests.size || holdingWriteFailed) return true;
+    return currencyUpdateActive || holdingWriteFailed || pageNavigationIsBlocked();
+  }
+
+  function pageNavigationIsBlocked(ignoreCurrencyControl = false) {
+    if (inlineEditors.size || holdingWritesPending || holdingHtmxRequests.size) return true;
     if (document.body.classList.contains('modal-open') ||
         document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input, .htmx-request, form[data-saving]')) return true;
-    if (document.activeElement?.matches?.('input, select, textarea, [contenteditable="true"]')) return true;
+    if (document.activeElement?.matches?.('input, select, textarea, [contenteditable="true"]') &&
+        !(ignoreCurrencyControl && document.activeElement === document.getElementById('display-currency'))) return true;
     return [...document.querySelectorAll('form')].some(form => [...form.elements].some(control => {
+      if (ignoreCurrencyControl && control === document.getElementById('display-currency')) return false;
       if (control.type === 'checkbox' || control.type === 'radio') return control.checked !== control.defaultChecked;
       if (control.type === 'file') return control.files.length > 0;
       if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA') return control.value !== control.defaultValue;
@@ -1273,7 +1308,7 @@ const PortfolioApp = (function() {
         return;
       }
       holdingRefreshNeeded = false;
-      window.location.reload();
+      reloadWithSavedCurrency();
     }, 0);
   }
 
@@ -1556,7 +1591,7 @@ const PortfolioApp = (function() {
     };
     document.addEventListener('input', trackEdit);
     document.addEventListener('change', trackEdit);
-    const editing = () => sourceRequestsPending || sourceDraftsPending() || holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
+    const editing = () => currencyUpdateActive || sourceRequestsPending || sourceDraftsPending() || holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
       document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input') ||
       [...document.querySelectorAll('form')].some(form => dirtyForms.has(form) ||
         [...form.elements].some(control => {
@@ -1608,7 +1643,7 @@ const PortfolioApp = (function() {
       fetch('/api/sources/refresh', { method: 'POST', headers: portfolioHeaders() }).then(response => {
         if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Price refresh failed'));
         // The user may have opened an editor while the refresh was in flight.
-        if (!editing()) window.location.reload();
+        if (!editing()) reloadWithSavedCurrency();
       }).catch(error => showToast(error.message, 'error'))
         .finally(() => { refreshing = false; priceRefreshActive = false; });
     });
@@ -1698,6 +1733,7 @@ window.PortfolioApp = PortfolioApp;
     }
     if (!pendingFile) return;
     restoring = true;
+    settingsWritesPending++;
     const controls = ['restore-btn', 'restore-cancel', 'restore-confirm'].map(id => document.getElementById(id));
     controls.forEach(control => { control.disabled = true; });
     const review = document.getElementById('restore-review');
@@ -1722,6 +1758,7 @@ window.PortfolioApp = PortfolioApp;
       error.hidden = false;
     } finally {
       restoring = false;
+      settingsWritesPending--;
       controls.forEach(control => { control.disabled = false; });
       review.removeAttribute('aria-busy');
       button.textContent = 'Restore backup';
