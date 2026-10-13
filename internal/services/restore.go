@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/zekihan/portfolio-tracker/internal/db"
 )
 
 // ErrIncompatibleBackup is returned when an uploaded database cannot replace
@@ -49,18 +50,18 @@ func (service *SettingsService) RestoreFrom(ctx context.Context, path string) er
 		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DETACH DATABASE "+restoreSchema)
 	}()
 
-	err = validateRestoreSource(ctx, conn)
+	return replaceFromRestoreSource(ctx, conn)
+}
+
+func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) error {
+	err := validateRestoreStructures(ctx, conn)
 	if err != nil {
 		return err
 	}
 
-	return replaceFromRestoreSource(ctx, conn)
-}
+	var integrityCheck string
 
-func validateRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
-	var quickCheck string
-
-	err := sqlx.GetContext(ctx, conn, &quickCheck, "PRAGMA "+restoreSchema+".quick_check")
+	err = sqlx.GetContext(ctx, conn, &integrityCheck, "PRAGMA "+restoreSchema+".integrity_check")
 	if err != nil {
 		return fmt.Errorf(
 			"%w: %w",
@@ -69,7 +70,7 @@ func validateRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		)
 	}
 
-	if quickCheck != "ok" {
+	if integrityCheck != "ok" {
 		return fmt.Errorf("%w: integrity check failed", ErrIncompatibleBackup)
 	}
 
@@ -93,29 +94,6 @@ func validateRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 			ErrIncompatibleBackup, sourceVersion, liveVersion)
 	}
 
-	for _, table := range restoreTables {
-		liveColumns, columnsErr := tableColumns(ctx, conn, "main", table)
-		if columnsErr != nil {
-			return columnsErr
-		}
-
-		sourceColumns, columnsErr := tableColumns(ctx, conn, restoreSchema, table)
-		if columnsErr != nil {
-			return columnsErr
-		}
-
-		for _, column := range liveColumns {
-			if !containsString(sourceColumns, column) {
-				return fmt.Errorf(
-					"%w: table %s has no column %s",
-					ErrIncompatibleBackup,
-					table,
-					column,
-				)
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -130,7 +108,23 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		_ = tx.Rollback()
 	}()
 
-	err = validateRestoreData(ctx, tx)
+	err = db.CheckPortfolioGeneration(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("check restore generation: %w", err)
+	}
+
+	// Hold the same source read snapshot for structure/data validation and copying.
+	err = validateRestoreSource(ctx, tx)
+	if err != nil {
+		return err
+	}
+
+	historicalID, err := validateRestoreData(ctx, tx)
+	if err != nil {
+		return err
+	}
+
+	sequences, err := restoreSequenceHighWater(ctx, tx, historicalID)
 	if err != nil {
 		return err
 	}
@@ -143,8 +137,27 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		return fmt.Errorf("invalidate snapshots before restore: %w", err)
 	}
 
+	err = copyRestoreTables(ctx, tx)
+	if err != nil {
+		return err
+	}
+
+	err = preserveRestoreSequences(ctx, tx, sequences)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("commit restore: %w", err)
+	}
+
+	return nil
+}
+
+func copyRestoreTables(ctx context.Context, tx *sqlx.Tx) error {
 	for _, table := range restoreTables {
-		_, err = tx.ExecContext(ctx, "DELETE FROM main."+table)
+		_, err := tx.ExecContext(ctx, "DELETE FROM main."+table)
 		if err != nil {
 			return fmt.Errorf("clear %s: %w", table, err)
 		}
@@ -162,23 +175,17 @@ func replaceFromRestoreSource(ctx context.Context, conn *sqlx.Conn) error {
 		}
 
 		list := strings.Join(quoted, ", ")
-		statement := fmt.Sprintf("INSERT INTO main.%[1]s (%[2]s) SELECT %[2]s FROM %[3]s.%[1]s",
-			table, list, restoreSchema)
+		statement := fmt.Sprintf(
+			"INSERT INTO main.%[1]s (%[2]s) SELECT %[2]s FROM %[3]s.%[1]s NOT INDEXED",
+			table,
+			list,
+			restoreSchema,
+		)
 
-		_, err = tx.ExecContext(ctx, statement)
+		_, err := tx.ExecContext(ctx, statement)
 		if err != nil {
 			return fmt.Errorf("%w: restore %s: %w", ErrIncompatibleBackup, table, err)
 		}
-	}
-
-	err = preserveRestoreSequences(ctx, tx)
-	if err != nil {
-		return err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("commit restore: %w", err)
 	}
 
 	return nil
@@ -231,40 +238,4 @@ func tableColumns(
 
 func quoteIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-func containsString(values []string, target string) bool {
-	return slices.Contains(values, target)
-}
-
-// Preserve deleted IDs too: snapshots may still refer to holdings no longer present.
-func preserveRestoreSequences(ctx context.Context, tx *sqlx.Tx) error {
-	var invalid int
-
-	err := tx.GetContext(ctx, &invalid, `SELECT COUNT(*) FROM restore_src.sqlite_sequence
-WHERE name IN ('holdings', 'snapshots', 'price_cache') AND (typeof(seq) != 'integer' OR seq < 0)`)
-	if err != nil {
-		return fmt.Errorf("%w: read restored sequences: %w", ErrIncompatibleBackup, err)
-	}
-
-	if invalid != 0 {
-		return fmt.Errorf("%w: invalid restored sequence", ErrIncompatibleBackup)
-	}
-
-	for _, table := range []string{"holdings", "snapshots", "price_cache"} {
-		_, err := tx.ExecContext(ctx, `INSERT INTO main.sqlite_sequence (name, seq)
-SELECT ?, 0 WHERE NOT EXISTS (SELECT 1 FROM main.sqlite_sequence WHERE name = ?)`, table, table)
-		if err != nil {
-			return fmt.Errorf("initialize restored sequence: %w", err)
-		}
-
-		_, err = tx.ExecContext(ctx, `UPDATE main.sqlite_sequence
-SET seq = MAX(seq, COALESCE((SELECT MAX(seq) FROM restore_src.sqlite_sequence WHERE name = ?), 0))
-WHERE name = ?`, table, table)
-		if err != nil {
-			return fmt.Errorf("preserve restored sequence: %w", err)
-		}
-	}
-
-	return nil
 }

@@ -127,7 +127,7 @@ func cachedQuote(entry *models.PriceCacheEntry, stale bool) models.Price {
 func (service *Service) coalescedPrice(
 	ctx context.Context,
 	provider, instrument string,
-	force bool,
+	force, backgroundOnly bool,
 ) (models.Price, error) {
 	ctx = refreshMetadataContext(ctx, force)
 
@@ -188,19 +188,13 @@ func (service *Service) coalescedPrice(
 		return models.Price{}, err
 	}
 
-	background := cached != nil && !force
+	background := backgroundOnly || (cached != nil && !force)
 	flight, waiter, err := service.joinFlight(ctx, getter, instrument, cached, background)
 
 	state.gate.RUnlock()
 
 	if background {
-		quote := cachedQuote(cached, true)
-		if err != nil {
-			quote.IsFailed = true
-			quote.Error = err
-		}
-
-		return quote, nil
+		return refreshingQuote(cached, err)
 	}
 
 	if err != nil {
@@ -208,6 +202,21 @@ func (service *Service) coalescedPrice(
 	}
 
 	return service.waitForFlight(ctx, flight, waiter)
+}
+
+// A cold background request has no quote yet; its shared flight owns the refresh.
+func refreshingQuote(cached *models.PriceCacheEntry, err error) (models.Price, error) {
+	if cached == nil {
+		return models.Price{}, err
+	}
+
+	quote := cachedQuote(cached, true)
+	if err != nil {
+		quote.IsFailed = true
+		quote.Error = err
+	}
+
+	return quote, nil
 }
 
 func (service *Service) waitForFlight(

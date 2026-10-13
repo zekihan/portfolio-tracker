@@ -20,12 +20,25 @@ function safeStorage(name) {
 const localPreferences = safeStorage('localStorage');
 const sessionPreferences = safeStorage('sessionStorage');
 
+// This token belongs to the data initially rendered on this page. Never replace
+// it from asynchronous reads: their IDs may refer to a restored portfolio.
+const portfolioGeneration = document.documentElement.dataset?.portfolioGeneration || '';
+function portfolioHeaders(headers = {}) {
+  return { ...headers, 'X-Portfolio-Generation': portfolioGeneration };
+}
+function portfolioErrorMessage(response, fallback) {
+  return response.status === 409 || response.status === 428 ?
+    'Portfolio changed or this page is out of date. Keep any unsaved edits, then reload before trying again.' : fallback;
+}
+
+
 // Send HTMX request bodies as JSON: the API handlers only accept application/json.
 if (window.htmx) {
   htmx.defineExtension('json-body', {
     onEvent: (name, evt) => {
       if (name === 'htmx:configRequest') {
         evt.detail.headers['Content-Type'] = 'application/json';
+        evt.detail.headers['X-Portfolio-Generation'] = portfolioGeneration;
       }
     },
     encodeParameters: (xhr, parameters) => {
@@ -95,11 +108,8 @@ const PortfolioApp = (function() {
     });
     document.body.addEventListener('htmx:beforeRequest', onHtmxBeforeRequest);
     document.body.addEventListener('portfolio-updated', onPortfolioUpdated);
-    document.body.addEventListener('htmx:afterRequest', event => {
-      if (event.detail.successful && event.detail.requestConfig?.verb === 'delete' &&
-          event.detail.requestConfig.path.startsWith('/api/holdings/')) window.location.reload();
-    });
-    document.body.addEventListener('htmx:responseError', () => showToast('The request failed. Please try again.', 'error'));
+    initHoldingMutationTracking();
+    document.body.addEventListener('htmx:responseError', event => showToast(portfolioErrorMessage(event.detail.xhr || {}, 'The request failed. Please try again.'), 'error'));
     document.body.addEventListener('htmx:sendError', () => showToast('Unable to connect to the server.', 'error'));
     
     // Load initial chart data
@@ -172,8 +182,8 @@ const PortfolioApp = (function() {
       if (!await confirmAction('This will delete all holdings, snapshots, and settings. Download a backup first to keep the current data.', 'Clear all data')) return;
       clear.disabled = true;
       try {
-        const response = await fetch('/api/settings/clear-all', { method: 'DELETE' });
-        if (!response.ok) throw new Error('Unable to clear data');
+        const response = await fetch('/api/settings/clear-all', { method: 'DELETE', headers: portfolioHeaders() });
+        if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to clear data'));
         localPreferences.removeItem('theme');
         sessionPreferences.removeItem('portfolio-holding-filters');
         window.location.assign('/settings');
@@ -190,10 +200,10 @@ const PortfolioApp = (function() {
       theme.disabled = true;
       try {
         const response = await fetch('/api/settings/dark-mode', {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          method: 'PATCH', headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ mode: theme.value })
         });
-        if (!response.ok) throw new Error('Unable to save theme');
+        if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to save theme'));
         localPreferences.setItem('theme', theme.value);
         applyTheme(theme.value);
         document.getElementById('themeToggle')?.setAttribute('aria-pressed', document.documentElement.dataset.theme === 'dark');
@@ -209,11 +219,11 @@ const PortfolioApp = (function() {
     if (!document.querySelector('.sources-page')) return;
     async function request(url, method, data) {
       const response = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' },
+        method, headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
         ...(data ? { body: JSON.stringify(data) } : {})
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || body.success === false) throw new Error(body.error || 'Request failed');
+      if (!response.ok || body.success === false) throw new Error(portfolioErrorMessage(response, body.error || 'Request failed'));
       return body;
     }
     document.querySelector('.sources-page').addEventListener('click', async (event) => {
@@ -363,20 +373,20 @@ const PortfolioApp = (function() {
     controls.forEach(control => { control.disabled = true; });
     try {
       const response = await fetch('/api/settings/currency', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ currency })
       });
-      if (!response.ok) throw new Error('Unable to save display currency. Please try again.');
+      if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to save display currency. Please try again.'));
       closeDropdown();
       const url = new URL(window.location.href);
       url.searchParams.set('currency', currency);
       window.location.assign(url.href);
-    } catch {
+    } catch (error) {
       const select = document.getElementById('display-currency');
       if (select) select.value = state.displayCurrency;
       currencyUpdateActive = false;
       controls.forEach(control => { control.disabled = false; });
-      showToast('Unable to save display currency. Please try again.', 'error');
+      showToast(error.message || 'Unable to save display currency. Please try again.', 'error');
     }
   }
 
@@ -824,11 +834,19 @@ const PortfolioApp = (function() {
         document.getElementById('snapshots-tbody').setAttribute('aria-busy', 'false');
         deleteStatus.textContent = all ? 'Clearing history…' : 'Deleting snapshot…';
         const response = await fetch(all ? '/api/history/snapshots' : `/api/history/snapshots/${snapshot.id}`, {
-          method: 'DELETE', ...(all ? { headers: { 'X-Clear-History-Confirm': 'clear-history' } } : {})
+          method: 'DELETE', headers: portfolioHeaders(all ? { 'X-Clear-History-Confirm': 'clear-history' } : {})
         });
-        if (!response.ok) throw new Error('History was not deleted. Please try again.');
+        if (!response.ok) throw new Error(portfolioErrorMessage(response, 'History was not deleted. Please try again.'));
         historyMutationActive = false;
-        if (all) document.getElementById('snapshots-tbody').replaceChildren();
+        if (all) {
+          document.getElementById('snapshots-tbody').replaceChildren();
+          // Clearing history advances the portfolio epoch. Rebuild the entire
+          // page rather than adopting a token from an arbitrary later read.
+          const url = new URL(window.location.href);
+          url.searchParams.set('days', range.value);
+          url.searchParams.set('currency', currency.value);
+          window.location.assign(url.href);
+        }
         else Array.from(document.getElementById('snapshots-tbody').children).forEach(row => {
           if (row.dataset.snapshotId === String(snapshot.id)) row.remove();
         });
@@ -836,9 +854,9 @@ const PortfolioApp = (function() {
         loadPortfolioChart();
         loadHolding();
         await loadSnapshots(all ? 0 : offset);
-      } catch {
+      } catch (error) {
         historyMutationActive = false;
-        deleteStatus.textContent = 'Unable to confirm deletion. Check the refreshed history before trying again.';
+        deleteStatus.textContent = error.message?.includes('Portfolio changed') ? error.message : 'Unable to confirm deletion. Check the refreshed history before trying again.';
         // A lost response may hide a successful DELETE. Reconcile with the server,
         // and replace any interrupted loading states, keeping rows until reads succeed.
         loadPortfolioChart();
@@ -1160,7 +1178,89 @@ const PortfolioApp = (function() {
     });
   }
 
+  // A holding mutation may finish after the user has started another edit.
+  // Coordinate inline, modal and HTMX writes before refreshing the page.
+  const inlineEditors = new Map();
+  const holdingHtmxRequests = new Map();
+  let holdingWritesPending = 0;
+  let holdingRefreshNeeded = false;
+  let holdingReloadScheduled = false;
+  let holdingWriteFailed = false;
+  let holdingDeleteSucceeded = false;
+  let holdingRefreshNotice;
+
+  function initHoldingMutationTracking() {
+    const mutation = config => config && /^(post|put|patch|delete)$/i.test(config.verb) &&
+      /^\/api\/holdings(?:\/|$)/.test(config.path);
+    document.body.addEventListener('htmx:beforeSend', event => {
+      if (mutation(event.detail.requestConfig)) {
+        holdingHtmxRequests.set(event.detail.xhr, event.detail.requestConfig);
+      }
+    });
+    document.body.addEventListener('htmx:beforeSwap', event => {
+      const config = event.detail.requestConfig || holdingHtmxRequests.get(event.detail.xhr);
+      // A delayed delete swap could remove a newer editor inside its target row.
+      // Keep the current view intact until the shared refresh can run safely.
+      if (mutation(config) && config.verb.toLowerCase() === 'delete') event.detail.shouldSwap = false;
+    });
+    document.body.addEventListener('htmx:afterRequest', event => {
+      const config = event.detail.requestConfig || holdingHtmxRequests.get(event.detail.xhr);
+      holdingHtmxRequests.delete(event.detail.xhr);
+      if (!mutation(config)) return;
+      if (event.detail.successful) {
+        holdingRefreshNeeded = true;
+        if (config.verb.toLowerCase() === 'delete') holdingDeleteSucceeded = true;
+      } else holdingWriteFailed = true;
+      scheduleHoldingRefresh();
+    });
+  }
+
+  function holdingReloadIsBlocked() {
+    if (inlineEditors.size || holdingWritesPending || holdingHtmxRequests.size || holdingWriteFailed) return true;
+    if (document.body.classList.contains('modal-open') ||
+        document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input, .htmx-request, form[data-saving]')) return true;
+    if (document.activeElement?.matches?.('input, select, textarea, [contenteditable="true"]')) return true;
+    return [...document.querySelectorAll('form')].some(form => [...form.elements].some(control => {
+      if (control.type === 'checkbox' || control.type === 'radio') return control.checked !== control.defaultChecked;
+      if (control.type === 'file') return control.files.length > 0;
+      if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA') return control.value !== control.defaultValue;
+      if (control.tagName === 'SELECT') {
+        const options = [...control.options];
+        if (control.multiple) return options.some(option => option.selected !== option.defaultSelected);
+        const defaultIndex = options.findIndex(option => option.defaultSelected);
+        return control.selectedIndex !== (defaultIndex < 0 && options.length ? 0 : defaultIndex);
+      }
+      return false;
+    }));
+  }
+
+  function scheduleHoldingRefresh() {
+    if (!holdingRefreshNeeded || holdingReloadScheduled) return;
+    holdingReloadScheduled = true;
+    // Let a blur/click sequence open its next editor before checking for safety.
+    setTimeout(() => {
+      holdingReloadScheduled = false;
+      if (!holdingRefreshNeeded || holdingWritesPending || holdingHtmxRequests.size) return;
+      if (holdingReloadIsBlocked()) {
+        const container = document.getElementById('toast-container');
+        if (container) {
+          if (!holdingRefreshNotice) {
+            holdingRefreshNotice = document.createElement('div');
+            holdingRefreshNotice.className = 'toast info';
+            holdingRefreshNotice.setAttribute('role', 'status');
+            container.appendChild(holdingRefreshNotice);
+          }
+          holdingRefreshNotice.textContent = `${holdingDeleteSucceeded ? 'Holding deleted.' : 'Changes saved.'} Finish editing, then refresh to update totals and the holdings list.`;
+        }
+        return;
+      }
+      holdingRefreshNeeded = false;
+      window.location.reload();
+    }, 0);
+  }
+
   function makeEditable(td) {
+    if (inlineEditors.has(td)) return;
     const field = td.dataset.field;
     const row = td.closest('tr');
     const holdingId = row.dataset.id;
@@ -1198,18 +1298,21 @@ const PortfolioApp = (function() {
 
     td.innerHTML = '';
     td.appendChild(input);
+    inlineEditors.set(td, input);
     input.focus();
     input.select();
 
     let finished = false;
-    const restore = () => {
+    let reloadRequired = false;
+    const finish = (value = currentValue) => {
       const returnFocus = document.activeElement === input;
-      td.textContent = currentValue;
+      td.textContent = value;
       td.removeAttribute('aria-busy');
+      inlineEditors.delete(td);
       if (returnFocus) td.focus();
     };
     const save = () => {
-      if (finished) return;
+      if (finished || reloadRequired) return;
       if (!input.reportValidity()) return;
       finished = true;
       const newValue = input.value.trim();
@@ -1217,26 +1320,48 @@ const PortfolioApp = (function() {
         input.readOnly = true;
         input.setAttribute('aria-label', `Saving ${field.replace(/_/g, ' ')}…`);
         td.setAttribute('aria-busy', 'true');
+        holdingWritesPending++;
         const url = `/api/holdings/${holdingId}`;
         const data = { [field]: field === 'quantity' || field === 'est_price' ? parseFloat(newValue) : newValue };
         
         fetch(url, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
+          headers: portfolioHeaders({ 'Content-Type': 'application/json', 'HX-Request': 'true' }),
           body: JSON.stringify(data)
         }).then(response => {
-          if (!response.ok) throw new Error(`Holding update failed: HTTP ${response.status}`);
+          if (!response.ok) {
+            const error = new Error(portfolioErrorMessage(response, 'Unable to save this value. Please try again.'));
+            error.reloadRequired = response.status === 409 || response.status === 428;
+            throw error;
+          }
           // Display the new value only after the server accepts the update.
           if (numericField) td.dataset.sortValue = newValue;
           else td.dataset.editValue = newValue;
-          td.textContent = formatDisplayValue(newValue, field);
-          window.location.reload();
-        }).catch(() => {
-          restore();
-          showToast('Unable to save this value. Please try again.', 'error');
+          finish(formatDisplayValue(newValue, field));
+          holdingRefreshNeeded = true;
+        }).catch(error => {
+          if (error.reloadRequired) {
+            // A stale page cannot submit this draft safely. Leave it available
+            // to copy or edit, and only discard it on an explicit Escape.
+            reloadRequired = true;
+            finished = false;
+            input.readOnly = false;
+            input.setAttribute('aria-label', `Edit ${field.replace(/_/g, ' ')} (reload required)`);
+            td.removeAttribute('aria-busy');
+          } else {
+            finish();
+          }
+          // Do not immediately navigate away from a failed save's feedback if
+          // another save in the same editing session succeeded.
+          holdingWriteFailed = true;
+          showToast(error.reloadRequired ? error.message : 'Unable to save this value. Please try again.', 'error');
+        }).finally(() => {
+          holdingWritesPending--;
+          scheduleHoldingRefresh();
         });
       } else {
-        restore();
+        finish();
+        scheduleHoldingRefresh();
       }
     };
 
@@ -1246,7 +1371,8 @@ const PortfolioApp = (function() {
       if (e.key === 'Escape' && !finished) {
         e.preventDefault();
         finished = true;
-        restore();
+        finish();
+        scheduleHoldingRefresh();
       }
     });
   }
@@ -1262,11 +1388,15 @@ const PortfolioApp = (function() {
   // Modal handling
   function initModalHandling() {
     const container = document.getElementById('modal-container');
+    if (!container) return;
     let previousFocus;
-    const close = () => {
+    const close = (modal = container.querySelector('.modal-overlay')) => {
+      if (!modal || container.querySelector('.modal-overlay') !== modal) return;
+      const returnFocus = modal.contains(document.activeElement) || document.activeElement === document.body;
       container.replaceChildren();
       document.body.classList.remove('modal-open');
-      previousFocus?.focus();
+      if (returnFocus) previousFocus?.focus();
+      scheduleHoldingRefresh();
     };
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.detail.target !== container || !container.querySelector('.modal-overlay')) return;
@@ -1305,7 +1435,8 @@ const PortfolioApp = (function() {
     });
 
     async function saveForm(form, clear = false) {
-      if (form.dataset.saving) return;
+      if (form.dataset.saving || form.dataset.reloadRequired) return;
+      const modal = form.closest('.modal-overlay');
       const manual = form.hasAttribute('data-manual-price-form');
       const id = Number(form.dataset.id);
       const data = Object.fromEntries(new FormData(form));
@@ -1319,24 +1450,35 @@ const PortfolioApp = (function() {
       const error = form.querySelector('.form-error');
       error.hidden = true;
       form.dataset.saving = 'true';
-      form.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      const controls = [...form.elements].map(control => [control, control.disabled]);
+      controls.forEach(([control]) => { control.disabled = true; });
+      holdingWritesPending++;
       try {
         const url = manual ? `/api/holdings/${id}/manual-price` : `/api/holdings${id ? `/${id}` : ''}`;
         const response = await fetch(url, {
           method: clear ? 'DELETE' : manual ? 'PATCH' : id ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: portfolioHeaders({ 'Content-Type': 'application/json' }),
           ...(clear ? {} : { body: JSON.stringify(data) })
         });
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
-          throw new Error(body.error || `Save failed: HTTP ${response.status}`);
+          if (response.status === 409 || response.status === 428) form.dataset.reloadRequired = 'true';
+          throw new Error(portfolioErrorMessage(response, body.error || `Save failed: HTTP ${response.status}`));
         }
-        window.location.reload();
+        holdingRefreshNeeded = true;
+        // A dismissed form may have been replaced by an entirely new modal.
+        // Only retire the submitted form while it still owns the current modal.
+        if (modal && modal.contains(form)) close(modal);
       } catch (err) {
+        holdingWriteFailed = true;
         error.textContent = err.message;
         error.hidden = false;
+        if (!container.contains(form)) showToast(err.message, 'error');
+      } finally {
         delete form.dataset.saving;
-        form.querySelectorAll('button').forEach(button => { button.disabled = false; });
+        controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+        holdingWritesPending--;
+        scheduleHoldingRefresh();
       }
     }
   }
@@ -1353,7 +1495,7 @@ const PortfolioApp = (function() {
     };
     document.addEventListener('input', trackEdit);
     document.addEventListener('change', trackEdit);
-    const editing = () => document.body.classList.contains('modal-open') ||
+    const editing = () => holdingWritesPending || holdingHtmxRequests.size || inlineEditors.size || document.body.classList.contains('modal-open') ||
       document.querySelector('.modal-overlay, dialog[open], [aria-modal="true"], .inline-edit-input') ||
       [...document.querySelectorAll('form')].some(form => dirtyForms.has(form) ||
         [...form.elements].some(control => {
@@ -1401,8 +1543,8 @@ const PortfolioApp = (function() {
       if (delta <= 60 || refreshing || editing()) return;
       refreshing = true;
       showToast('Refreshing prices...', 'info');
-      fetch('/api/sources/refresh', { method: 'POST' }).then(response => {
-        if (!response.ok) throw new Error('Price refresh failed');
+      fetch('/api/sources/refresh', { method: 'POST', headers: portfolioHeaders() }).then(response => {
+        if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Price refresh failed'));
         // The user may have opened an editor while the refresh was in flight.
         if (!editing()) window.location.reload();
       }).catch(error => showToast(error.message, 'error'))
@@ -1505,10 +1647,10 @@ window.PortfolioApp = PortfolioApp;
     form.append('file', pendingFile);
     try {
       const response = await fetch('/api/settings/restore', {
-        method: 'POST', body: form, headers: { 'X-Restore-Confirm': 'restore' }
+        method: 'POST', body: form, headers: portfolioHeaders({ 'X-Restore-Confirm': 'restore' })
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Restore failed: HTTP ${response.status}`);
+      if (!response.ok) throw new Error(portfolioErrorMessage(response, body.error || `Restore failed: HTTP ${response.status}`));
       localPreferences.removeItem('theme');
         sessionPreferences.removeItem('portfolio-holding-filters');
       sessionPreferences.setItem('portfolio-restore-success', 'Backup restored successfully.');

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+
+	"github.com/zekihan/portfolio-tracker/internal/db"
 )
 
 const (
@@ -122,6 +124,10 @@ func (handler *Handler) renderPageStatus(writer http.ResponseWriter, request *ht
 				data["BuildInfo"] = setting.Value
 			}
 		}
+	}
+
+	if generation, ok := db.PortfolioGeneration(request.Context()); ok {
+		data["PortfolioGeneration"] = generation
 	}
 
 	data["ActivePage"] = strings.TrimSuffix(name, ".html")

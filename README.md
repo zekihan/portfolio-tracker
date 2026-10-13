@@ -95,6 +95,34 @@ proxy. The API includes destructive endpoints (clearing all data and
 restoring from a backup), so the server must not be reachable without the
 proxy in front of it.
 
+## API write preconditions
+
+Reads return `X-Portfolio-Generation`, captured before reading the displayed data.
+Every holdings write (including creation, prices, and provider mapping), snapshot
+deletion/history clear, settings write, full clear, restore, and explicit price
+refresh must send that value in the `X-Portfolio-Generation` request header.
+Missing headers return **428 Precondition Required**, malformed headers return
+**400**, and a generation changed by restore/clear returns **409 Conflict** without
+applying the stale mutation. Normal API clients first GET the relevant data, retain
+its response header, and send that same header with their intended write:
+
+```bash
+curl -sS -D read.headers https://portfolio.example/api/holdings/1 > holding.json
+# After reviewing holding.json, use its X-Portfolio-Generation value, e.g. 7:
+curl -X PATCH https://portfolio.example/api/holdings/1 \
+  -H 'Content-Type: application/json' -H 'X-Portfolio-Generation: 7' \
+  --data '{"quantity":12}'
+```
+
+These examples assume the reverse proxy's usual authentication is supplied.
+On 409/428, fetch and review the replacement data before rebuilding the intended
+write. Do not merely fetch a new token and automatically replay an old ID-based
+write: that ID may now identify a different holding or snapshot. Generation is a
+data-replacement fence, not per-row optimistic locking between ordinary edits.
+The browser retains its initially rendered token; it never adopts tokens from
+background GETs. Successful clear/restore actions reload the whole page. Other
+open tabs must reload before their next write, including after clearing history.
+
 ## Deployment
 
 ### Upgrading snapshot-lock ownership

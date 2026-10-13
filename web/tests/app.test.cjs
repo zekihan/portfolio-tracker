@@ -3,10 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function loadApp(elements = {}) {
+function loadApp(elements = {}, setTimer = callback => callback(), generation = '') {
   const source = fs.readFileSync('web/static/app.js', 'utf8').replace(
     '    init,\n    showToast,',
-    '    init,\n    safeStorage,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initDisclosureKeyboard,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
+    '    init,\n    safeStorage,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initModalHandling,\n    initHoldingMutationTracking,\n    initDisclosureKeyboard,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
   const pending = [];
   const listeners = {};
   const document = {
@@ -17,11 +17,12 @@ function loadApp(elements = {}) {
     createTextNode: text => ({ textContent: text }),
     createElement: () => element(),
     querySelectorAll: selector => selector === '.snapshot-delete' ? (elements['snapshots-tbody']?.children || []).flatMap(row => row.cells?.[5]?.children || []) : [],
-    documentElement: { getAttribute: () => 'light' }
+    documentElement: { getAttribute: () => 'light', dataset: { portfolioGeneration: generation } }
   };
-  const context = { document, setTimeout: callback => callback(), window: { scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
+  const context = { document, setTimeout: setTimer, window: { scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
     getComputedStyle: node => ({ overflowY: node.overflowY || 'visible', getPropertyValue: () => '#123456' }),
     Option: class { constructor(text, value) { this.text = text; this.value = value; } },
+    FormData: class { constructor(form) { return form.formData; } },
     Chart: class { constructor(canvas, config) { this.config = config; this.options = config.options; this.data = config.data; } destroy() {} update() {} },
     fetch: (url, options) => new Promise((resolve, reject) => pending.push({ url, options, resolve, reject })) };
   vm.runInNewContext(source, context);
@@ -601,4 +602,468 @@ test('storage adapter does not retry or duplicate persistence writes', () => {
   storage.removeItem('theme');
   assert.equal(storage.getItem('theme'), null);
   assert.equal(writes, 2);
+});
+
+// Keep reload timers explicit so request completion and the next interaction can
+// be interleaved deterministically rather than relying on wall-clock delays.
+function inlineRaceHarness() {
+  const timers = [];
+  const elements = {};
+  const h = loadApp(elements, callback => timers.push(callback));
+  const cells = [];
+  h.forms = [];
+  h.modal = false;
+  h.reloads = 0;
+  h.window.location.reload = () => { h.reloads++; };
+  h.runTimers = () => {
+    for (const callback of timers.splice(0)) callback();
+  };
+  h.document.body.classList.contains = () => h.modal;
+  h.document.querySelector = selector => selector.includes('.modal-overlay') ?
+    (h.modal ? {} : cells.flatMap(td => td.children).find(input => input.className === 'inline-edit-input') || null) : null;
+  h.document.querySelectorAll = selector => selector === 'form' ? h.forms : [];
+  h.document.createElement = tag => {
+    const node = element();
+    node.tagName = tag.toUpperCase();
+    node.style = {};
+    node.select = () => {};
+    node.reportValidity = () => true;
+    node.removeAttribute = key => { delete node.attrs[key]; };
+    node.focus = () => { h.document.activeElement = node; node.focused = true; };
+    node.matches = selector => selector.split(',').some(part => part.trim().toUpperCase() === node.tagName);
+    node.querySelector = () => element();
+    let text = '';
+    for (const property of ['textContent', 'innerHTML']) Object.defineProperty(node, property, {
+      get: () => text,
+      set(value) { text = value; node.children = []; }
+    });
+    return node;
+  };
+  h.notice = h.document.createElement('div');
+  elements['toast-container'] = h.notice;
+  h.edit = (field = 'quantity', value = '10', id = String(cells.length + 1)) => {
+    const td = h.document.createElement('td');
+    td.dataset = { field, sortValue: value, editValue: value };
+    td.textContent = value;
+    td.closest = () => ({ dataset: { id } });
+    cells.push(td);
+    h.app.makeEditable(td);
+    return { td, input: td.children[0] };
+  };
+  h.save = (edit, value) => {
+    edit.input.value = value;
+    edit.input.keydown({ key: 'Enter', preventDefault() {} });
+  };
+  return h;
+}
+
+test('inline happy path displays only the accepted value and schedules one safe reload', async () => {
+  const h = inlineRaceHarness();
+  const edit = h.edit();
+  h.save(edit, '20');
+  assert.equal(edit.td.dataset.sortValue, '10');
+  assert.equal(edit.td.attrs['aria-busy'], 'true');
+  h.pending[0].resolve({ ok: true }); await flush();
+  assert.equal(edit.td.dataset.sortValue, '20');
+  assert.equal(edit.td.textContent, Number(20).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }));
+  assert.equal(edit.td.attrs['aria-busy'], undefined);
+  assert.equal(h.document.activeElement, edit.td);
+  assert.equal(h.reloads, 0);
+  h.runTimers(); h.runTimers();
+  assert.equal(h.reloads, 1);
+});
+
+test('an older inline save cannot reload or steal focus from a newer unsaved editor', async () => {
+  for (const startBeforeResponse of [true, false]) {
+    const h = inlineRaceHarness();
+    const first = h.edit();
+    h.save(first, '20');
+    let next;
+    if (startBeforeResponse) next = h.edit('notes', 'Original note');
+    h.pending[0].resolve({ ok: true }); await flush();
+    if (!startBeforeResponse) next = h.edit('notes', 'Original note');
+    next.input.value = 'Important unsaved note';
+    h.runTimers();
+    assert.equal(h.reloads, 0);
+    assert.equal(h.document.activeElement, next.input);
+    assert.equal(next.input.value, 'Important unsaved note');
+    assert.equal(next.td.children[0], next.input);
+    assert.equal(h.pending.length, 1);
+    assert.match(h.notice.children[0].textContent, /refresh to update totals/);
+    assert.equal(h.notice.children[0].attrs.role, 'status');
+  }
+});
+
+test('inline reload waits for every pending save and coalesces either response order', async () => {
+  for (const order of [[0, 1], [1, 0]]) {
+    const h = inlineRaceHarness();
+    const first = h.edit(); h.save(first, '20');
+    const second = h.edit('notes', 'Before'); h.save(second, 'After');
+    h.pending[order[0]].resolve({ ok: true }); await flush(); h.runTimers();
+    assert.equal(h.reloads, 0);
+    assert.equal([first, second][order[1]].td.attrs['aria-busy'], 'true');
+    h.pending[order[1]].resolve({ ok: true }); await flush(); h.runTimers(); h.runTimers();
+    assert.equal(h.reloads, 1);
+    assert.equal(first.td.dataset.sortValue, '20');
+    assert.equal(second.td.dataset.editValue, 'After');
+    assert.equal(first.td.attrs['aria-busy'], undefined);
+    assert.equal(second.td.attrs['aria-busy'], undefined);
+  }
+});
+
+test('inline success never reloads over an active modal, focused form, or dirty form', async () => {
+  const cases = [
+    h => { h.modal = true; },
+    h => { h.document.activeElement = h.document.createElement('input'); },
+    h => { h.forms = [{ elements: [{ tagName: 'TEXTAREA', value: 'draft', defaultValue: '' }] }]; },
+    h => { h.forms = [{ elements: [{ type: 'checkbox', checked: true, defaultChecked: false }] }]; },
+    h => { h.forms = [{ elements: [{ type: 'file', files: [{}] }] }]; },
+    h => { h.forms = [{ elements: [{ tagName: 'SELECT', selectedIndex: 1, options: [{ defaultSelected: false }, { defaultSelected: false }] }] }]; },
+    h => { h.forms = [{ elements: [{ tagName: 'SELECT', multiple: true, options: [{ selected: true, defaultSelected: false }] }] }]; }
+  ];
+  for (const block of cases) {
+    const h = inlineRaceHarness();
+    const edit = h.edit(); h.save(edit, '20');
+    block(h);
+    h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+    assert.equal(h.reloads, 0);
+    assert.equal(edit.td.dataset.sortValue, '20');
+    assert.match(h.notice.children[0].textContent, /refresh/);
+  }
+});
+
+test('unchanged forms and implicit select defaults allow a safe inline reload', async () => {
+  const h = inlineRaceHarness();
+  h.forms = [{ elements: [
+    { tagName: 'INPUT', value: 'original', defaultValue: 'original' },
+    { tagName: 'SELECT', selectedIndex: 0, options: [{ defaultSelected: false }, { defaultSelected: false }] },
+    { tagName: 'SELECT', selectedIndex: 1, options: [{ defaultSelected: false }, { defaultSelected: true }] }
+  ] }];
+  const edit = h.edit(); h.save(edit, '20');
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 1);
+});
+
+test('a failed inline save preserves successful siblings and prevents a surprise reload', async () => {
+  for (const failureFirst of [true, false]) {
+    for (const networkFailure of [true, false]) {
+      const h = inlineRaceHarness();
+      const first = h.edit(); h.save(first, '20');
+      const second = h.edit('notes', 'Before'); h.save(second, 'After');
+      const fail = () => networkFailure ? h.pending[1].reject(new Error('offline')) : h.pending[1].resolve({ ok: false, status: 500 });
+      if (failureFirst) fail(); else h.pending[0].resolve({ ok: true });
+      await flush(); h.runTimers();
+      assert.equal(h.reloads, 0);
+      if (failureFirst) h.pending[0].resolve({ ok: true }); else fail();
+      await flush(); h.runTimers();
+      assert.equal(h.reloads, 0);
+      assert.equal(first.td.dataset.sortValue, '20');
+      assert.equal(second.td.dataset.editValue, 'Before');
+      assert.equal(second.td.textContent, 'Before');
+      assert.equal(second.td.attrs['aria-busy'], undefined);
+      assert.ok(h.notice.children.some(toast => /Unable to save/.test(toast.innerHTML)));
+      assert.ok(h.notice.children.some(toast => /refresh to update totals/.test(toast.textContent)));
+    }
+  }
+});
+
+test('Escape or an unchanged edit releases a deferred inline refresh without another request', async () => {
+  for (const key of ['Escape', 'Enter']) {
+    const h = inlineRaceHarness();
+    const first = h.edit(); h.save(first, '20');
+    const second = h.edit('notes', 'Original note');
+    h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+    assert.equal(h.reloads, 0);
+    if (key === 'Escape') second.input.value = 'Discard this draft';
+    second.input.keydown({ key, preventDefault() {} });
+    h.runTimers();
+    assert.equal(h.reloads, 1);
+    assert.equal(h.pending.length, 1);
+    assert.equal(second.td.textContent, 'Original note');
+  }
+});
+
+test('an invalid newer inline edit stays open and blocks an earlier successful save from reloading', async () => {
+  const h = inlineRaceHarness();
+  const first = h.edit(); h.save(first, '20');
+  const second = h.edit(); second.input.reportValidity = () => false;
+  h.save(second, '-1');
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0);
+  assert.equal(h.pending.length, 1);
+  assert.equal(second.td.children[0], second.input);
+  assert.equal(second.input.value, '-1');
+});
+
+test('a pending inline editor cannot be replaced by another editor for the same cell', async () => {
+  const h = inlineRaceHarness();
+  const edit = h.edit(); h.save(edit, '20');
+  h.app.makeEditable(edit.td);
+  assert.equal(edit.td.children[0], edit.input);
+  assert.equal(h.pending.length, 1);
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(edit.td.dataset.sortValue, '20');
+  assert.equal(h.reloads, 1);
+});
+
+test('409 and 428 inline failures preserve drafts and require an explicit reload before retry', async () => {
+  for (const status of [409, 428]) {
+    const h = inlineRaceHarness();
+    const accepted = h.edit(); h.save(accepted, '20');
+    const conflicted = h.edit('notes', 'Original note'); h.save(conflicted, 'Keep this failed draft');
+    const newest = h.edit('notes', 'Another note'); newest.input.value = 'Keep this unsaved draft too';
+    h.pending[0].resolve({ ok: true });
+    h.pending[1].resolve({ ok: false, status });
+    await flush(); h.runTimers();
+    assert.equal(h.reloads, 0);
+    assert.equal(conflicted.td.children[0], conflicted.input);
+    assert.equal(conflicted.input.value, 'Keep this failed draft');
+    assert.equal(conflicted.input.readOnly, false);
+    assert.match(conflicted.input.attrs['aria-label'], /reload required/);
+    assert.equal(conflicted.td.attrs['aria-busy'], undefined);
+    assert.equal(conflicted.td.dataset.editValue, 'Original note');
+    assert.equal(h.document.activeElement, newest.input);
+    assert.equal(newest.input.value, 'Keep this unsaved draft too');
+    assert.ok(h.notice.children.some(toast => /reload before trying again/i.test(toast.innerHTML)));
+    h.save(conflicted, 'Revised draft'); conflicted.input.blur();
+    assert.equal(h.pending.length, 2, 'a stale page must not keep submitting the retained draft');
+    assert.equal(conflicted.input.value, 'Revised draft');
+    conflicted.input.keydown({ key: 'Escape', preventDefault() {} }); h.runTimers();
+    assert.equal(conflicted.td.textContent, 'Original note');
+    assert.equal(h.document.activeElement, newest.input);
+    assert.equal(h.reloads, 0);
+  }
+});
+
+
+test('mutation headers retain the initial page generation across newer reads and DOM changes', async () => {
+  const h = loadApp({ 'portfolio-chart': {}, 'portfolio-chart-status': element() }, undefined, '7');
+  h.document.documentElement.dataset.portfolioGeneration = '8';
+  h.app.loadPortfolioChart('1y');
+  h.pending[0].resolve({ ok: true, headers: { get: () => '8' }, json: async () => [] });
+  await flush();
+  h.app.saveDisplayCurrency('USD');
+  assert.equal(h.pending[1].options.headers['X-Portfolio-Generation'], '7');
+});
+
+test('successful clear-history rebuilds the page with current filters and a fresh generation', async () => {
+  const h = historyApp();
+  h.window.location.href = 'https://portfolio.test/history';
+  let destination;
+  h.window.location.assign = value => { destination = value; };
+  h.elements['date-range'].value = '30';
+  respond(h.requests()[0], 2); await flush();
+  await confirmDelete(h, true);
+  deleteRequests(h)[0].resolve({ ok: true, status: 204 }); await flush();
+  assert.equal(destination, 'https://portfolio.test/history?days=30&currency=USD');
+});
+
+test('history conflicts preserve the page and explain how to reload safely', async () => {
+  for (const status of [409, 428]) {
+    const h = historyApp();
+    let navigated = false;
+    h.window.location.assign = () => { navigated = true; };
+    h.window.location.reload = () => { navigated = true; };
+    respond(h.requests()[0], 2); await flush();
+    await confirmDelete(h, false);
+    deleteRequests(h)[0].resolve({ ok: false, status }); await flush();
+    assert.match(h.elements['history-delete-status'].textContent, /Portfolio changed.*unsaved edits.*reload/);
+    assert.equal(navigated, false);
+  }
+});
+
+function holdingMutationHarness() {
+  const h = inlineRaceHarness();
+  const events = {};
+  h.document.body.addEventListener = (type, callback) => { (events[type] ||= []).push(callback); };
+  h.emit = (type, detail) => { for (const callback of events[type] || []) callback({ detail }); };
+  h.document.body.classList.add = () => { h.modal = true; };
+  h.document.body.classList.remove = () => { h.modal = false; };
+  h.document.body.focus = () => { h.document.activeElement = h.document.body; };
+  const container = h.document.createElement('div');
+  const get = h.document.getElementById;
+  h.document.getElementById = id => id === 'modal-container' ? container : get(id);
+  container.querySelector = selector => selector === '.modal-overlay' ? h.currentModal || null : h.currentModal?.form.elements[0] || null;
+  container.contains = node => Boolean(h.currentModal?.contains(node));
+  container.replaceChildren = () => {
+    if (container.contains(h.document.activeElement)) h.document.activeElement = h.document.body;
+    h.currentModal = null;
+    h.forms = [];
+  };
+  h.app.initModalHandling();
+  h.app.initHoldingMutationTracking();
+  h.openForm = (id = '1') => {
+    const modal = h.document.createElement('div');
+    const form = h.document.createElement('form');
+    const error = h.document.createElement('p');
+    form.dataset.id = id;
+    form.matches = () => true;
+    form.hasAttribute = () => false;
+    form.closest = () => modal;
+    form.querySelector = () => error;
+    form.error = error;
+    form.elements = ['name', 'quantity', 'est_price', 'notes', 'asset_type', 'submit', 'locked'].map(name => {
+      const control = h.document.createElement(name === 'notes' ? 'textarea' : name === 'asset_type' ? 'select' : name === 'submit' ? 'button' : 'input');
+      control.name = name;
+      control.value = control.defaultValue = name === 'quantity' ? '5' : name === 'est_price' ? '0' : `${name} value`;
+      control.disabled = name === 'locked';
+      if (name === 'asset_type') { control.selectedIndex = 0; control.options = [{ defaultSelected: true, selected: true }]; }
+      return control;
+    });
+    Object.defineProperty(form, 'formData', { get: () => form.elements.filter(control => !control.disabled && control.tagName !== 'BUTTON').map(control => [control.name, control.value]) });
+    form.querySelectorAll = selector => selector === 'button' ? form.elements.filter(control => control.tagName === 'BUTTON') : form.elements;
+    modal.form = form;
+    modal.contains = node => node === modal || node === form || form.elements.includes(node);
+    modal.querySelectorAll = () => form.elements;
+    h.currentModal = modal;
+    h.forms = [form];
+    h.emit('htmx:afterSwap', { target: container });
+    return form;
+  };
+  h.submit = form => h.dispatch('submit', { target: form, preventDefault() {} });
+  h.close = () => h.dispatch('keydown', { key: 'Escape', target: h.document.activeElement });
+  h.startDelete = (id = '1') => {
+    const detail = { xhr: {}, requestConfig: { verb: 'delete', path: `/api/holdings/${id}` }, target: {} };
+    h.emit('htmx:beforeRequest', detail);
+    h.emit('htmx:beforeSend', detail);
+    return detail;
+  };
+  h.endDelete = (detail, successful = true) => h.emit('htmx:afterRequest', { ...detail, successful });
+  return h;
+}
+
+test('HTMX delete suppresses its target swap and preserves a newer inline draft', () => {
+  const h = holdingMutationHarness();
+  const request = h.startDelete();
+  const edit = h.edit('notes', 'Original note', '1'); edit.input.value = 'Keep this same-row draft';
+  const swap = { ...request, shouldSwap: true };
+  h.emit('htmx:beforeSwap', swap);
+  assert.equal(swap.shouldSwap, false);
+  h.endDelete(request); h.runTimers();
+  assert.equal(h.reloads, 0);
+  assert.equal(edit.td.children[0], edit.input);
+  assert.equal(edit.input.value, 'Keep this same-row draft');
+  assert.equal(h.document.activeElement, edit.input);
+  assert.match(h.notice.children[0].textContent, /Holding deleted.*refresh.*holdings list/);
+  const partial = { xhr: {}, requestConfig: { verb: 'get', path: '/partials/holding-form/2' }, shouldSwap: true };
+  h.emit('htmx:beforeSwap', partial);
+  assert.equal(partial.shouldSwap, true);
+});
+
+test('holding reload waits for pending HTMX writes and refreshes once after all succeed', async () => {
+  for (const deleteFirst of [true, false]) {
+    const h = holdingMutationHarness();
+    const request = h.startDelete();
+    const edit = h.edit(); h.save(edit, '20');
+    if (deleteFirst) h.endDelete(request); else { h.pending[0].resolve({ ok: true }); await flush(); }
+    h.runTimers(); assert.equal(h.reloads, 0);
+    if (deleteFirst) { h.pending[0].resolve({ ok: true }); await flush(); } else h.endDelete(request);
+    h.runTimers(); h.runTimers();
+    assert.equal(h.reloads, 1);
+  }
+});
+
+test('HTMX failures prevent sibling successes from reloading away error feedback', async () => {
+  const h = holdingMutationHarness();
+  const request = h.startDelete();
+  const edit = h.edit(); h.save(edit, '20');
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0);
+  h.endDelete(request, false); h.runTimers();
+  assert.equal(h.reloads, 0);
+  assert.match(h.notice.children[0].textContent, /refresh/);
+});
+
+test('a current modal success freezes submitted controls, closes only its modal, and safely refreshes', async () => {
+  const h = holdingMutationHarness();
+  const trigger = h.document.createElement('button'); trigger.focus();
+  const form = h.openForm();
+  h.submit(form); h.submit(form);
+  assert.equal(h.pending.length, 1);
+  assert.ok(form.elements.every(control => control.disabled));
+  assert.equal(JSON.parse(h.pending[0].options.body).quantity, 5, 'data is captured before controls are disabled');
+  h.pending[0].resolve({ ok: true }); await flush();
+  assert.equal(h.currentModal, null);
+  assert.equal(h.modal, false);
+  assert.equal(h.document.activeElement, trigger);
+  assert.equal(h.reloads, 0);
+  h.runTimers(); assert.equal(h.reloads, 1);
+});
+
+test('a dismissed modal save cannot reload or steal focus from a newer inline draft', async () => {
+  const h = holdingMutationHarness();
+  const form = h.openForm(); h.submit(form); h.close();
+  const edit = h.edit('notes', 'Original'); edit.input.value = 'New unsaved draft';
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0);
+  assert.equal(h.document.activeElement, edit.input);
+  assert.equal(edit.input.value, 'New unsaved draft');
+  assert.equal(edit.td.children[0], edit.input);
+});
+
+test('an old modal response cannot close or refocus a replacement modal', async () => {
+  const h = holdingMutationHarness();
+  const first = h.openForm(); h.submit(first); h.close();
+  const second = h.openForm('2');
+  second.elements[0].value = 'New modal draft';
+  const current = h.currentModal;
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0);
+  assert.equal(h.currentModal, current);
+  assert.equal(h.modal, true);
+  assert.equal(h.document.activeElement, second.elements[0]);
+  assert.equal(second.elements[0].value, 'New modal draft');
+  assert.equal(second.elements[0].disabled, false);
+});
+
+test('a pending detached modal write blocks both inline and newer modal success reloads', async () => {
+  for (const nextKind of ['inline', 'modal']) {
+    const h = holdingMutationHarness();
+    const first = h.openForm(); h.submit(first); h.close();
+    if (nextKind === 'inline') { const edit = h.edit(); h.save(edit, '20'); }
+    else { const second = h.openForm('2'); h.submit(second); }
+    h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
+    assert.equal(h.reloads, 0);
+    h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+    assert.equal(h.reloads, 1);
+  }
+});
+
+test('failed modal writes preserve drafts and original disabled states; conflicts require reload', async () => {
+  for (const status of [409, 428, 500]) {
+    const h = holdingMutationHarness();
+    const form = h.openForm(); form.elements[0].value = 'Keep my draft'; h.submit(form);
+    const modal = h.currentModal;
+    h.pending[0].resolve({ ok: false, status, json: async () => ({ error: 'Save failed' }) }); await flush(); h.runTimers();
+    assert.equal(h.currentModal, modal);
+    assert.equal(form.elements[0].value, 'Keep my draft');
+    assert.ok(form.elements.slice(0, -1).every(control => !control.disabled));
+    assert.equal(form.elements.at(-1).disabled, true);
+    assert.equal(form.error.hidden, false);
+    assert.equal(form.dataset.saving, undefined);
+    assert.equal(h.reloads, 0);
+    if (status !== 500) {
+      assert.match(form.error.textContent, /unsaved edits.*reload before trying again/);
+      h.submit(form); assert.equal(h.pending.length, 1);
+    } else {
+      h.submit(form); assert.equal(h.pending.length, 2);
+      h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
+      assert.equal(h.reloads, 0, 'successful retry keeps failure feedback from causing surprise navigation');
+    }
+  }
+});
+
+test('pull refresh completion does not reload during a detached modal write', async () => {
+  const h = holdingMutationHarness();
+  h.app.initPullToRefresh();
+  const target = { closest: () => null, parentElement: h.document.body };
+  h.dispatch('touchstart', { target, touches: [{ clientY: 10 }] });
+  h.dispatch('touchmove', { target, touches: [{ clientY: 90 }], preventDefault() {} });
+  h.dispatch('touchend');
+  assert.equal(h.pending.length, 1);
+  const form = h.openForm(); h.submit(form); h.close();
+  h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 0);
+  h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
+  assert.equal(h.reloads, 1);
 });

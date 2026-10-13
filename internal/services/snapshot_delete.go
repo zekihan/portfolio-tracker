@@ -4,11 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/zekihan/portfolio-tracker/internal/db"
 )
 
 // DeleteSnapshot removes one historical valuation without changing current holdings.
 func (service *SnapshotService) DeleteSnapshot(ctx context.Context, id int) error {
-	result, err := service.db.ExecContext(ctx, "DELETE FROM snapshots WHERE id = ?", id)
+	result, err := db.ExecPortfolioMutation(
+		ctx,
+		service.db,
+		"DELETE FROM snapshots WHERE id = ?",
+		id,
+	)
 	if err != nil {
 		return fmt.Errorf("delete snapshot: %w", err)
 	}
@@ -37,6 +44,11 @@ func (service *SnapshotService) ClearHistory(ctx context.Context) error {
 		//nolint:errcheck // Rollback after a successful commit is harmless.
 		_ = tx.Rollback()
 	}()
+
+	err = db.CheckPortfolioGeneration(ctx, tx)
+	if err != nil {
+		return wrapOperationError("check portfolio generation", err)
+	}
 
 	for _, statement := range []string{
 		"UPDATE snapshot_state SET generation = generation + 1 WHERE id = 1",

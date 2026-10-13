@@ -53,6 +53,10 @@ grep -qi '^Content-Type: text/html' "$fixture/settings-page.txt"
 for marker in '<!DOCTYPE html>' 'class="settings-page"' '<h1>Settings</h1>' '</html>'; do
     grep -Fq "$marker" "$fixture/settings-page.txt"
 done
+generation=$(awk 'tolower($1) == "x-portfolio-generation:" { sub("\r$", "", $2); print $2 }' "$fixture/settings-page.txt")
+case "$generation" in
+    ''|*[!0-9]*) echo "Settings response has no valid portfolio generation" >&2; exit 1 ;;
+esac
 # A fresh, network-isolated database has no FX quote. Require the intentional
 # unavailable page, not a generic 503 or a misleading zero-valued dashboard.
 fetch_response / > "$fixture/dashboard-page.txt"
@@ -70,7 +74,7 @@ fi
 fetch /static/style.css > /dev/null
 fetch /static/app.js > /dev/null
 # Change durable state: comparing defaults alone cannot detect a reset database.
-http_request 'PATCH /api/settings/currency HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 18\r\nConnection: close\r\n\r\n{"currency":"USD"}' > "$fixture/update-response.txt"
+http_request 'PATCH /api/settings/currency HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nX-Portfolio-Generation: %s\r\nContent-Length: 18\r\nConnection: close\r\n\r\n{"currency":"USD"}' "$generation" > "$fixture/update-response.txt"
 grep -q '^HTTP/1.1 200 ' "$fixture/update-response.txt"
 fetch /api/settings > "$fixture/settings-before.json"
 grep -q '"display_currency":"USD"' "$fixture/settings-before.json"

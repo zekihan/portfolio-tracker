@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
@@ -13,8 +14,8 @@ func (service *HoldingService) Patch(
 	id int,
 	patch models.HoldingPatch,
 ) (bool, error) {
-	result, err := service.db.ExecContext(
-		ctx,
+	result, err := db.ExecPortfolioMutation(
+		ctx, service.db,
 		`UPDATE holdings SET
  name = COALESCE(?, name), ticker = COALESCE(?, ticker),
  basket = COALESCE(?, basket), location = COALESCE(?, location), notes = COALESCE(?, notes),

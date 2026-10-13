@@ -117,6 +117,7 @@ func TestHoldingPartialUpdates(t *testing.T) {
 				strings.NewReader(test.body),
 			)
 			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(portfolioGenerationHeader, "0")
 
 			response := httptest.NewRecorder()
 			New(holdings, nil, nil, nil).SetupRoutes().ServeHTTP(response, request)

@@ -67,7 +67,7 @@ const offlineDashboard = '<!DOCTYPE html><html><div class="dashboard"><section r
   '<h1>Portfolio valuation unavailable</h1><p>Values and allocations are unavailable.</p>' +
   '<a href="/?currency=TRY">Retry</a></section></div></html>';
 function htmlResponse(status, body) {
-  return `HTTP/1.0 ${status}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${body}`;
+  return `HTTP/1.0 ${status}\r\nContent-Type: text/html; charset=utf-8\r\nX-Portfolio-Generation: 37\r\n\r\n${body}`;
 }
 
 function containerSmoke(t, responses = {}) {
@@ -95,6 +95,7 @@ if (request.startsWith('GET /settings HTTP/1.0')) {
 } else if (request.startsWith('GET / HTTP/1.0')) {
   process.stdout.write(fs.readFileSync(path.join(process.env.MOCK_DIR, 'dashboard')));
 } else if (request.startsWith('PATCH /api/settings/currency HTTP/1.1')) {
+  assert.match(request, /\r\nX-Portfolio-Generation: 37\r\n/, 'mutation must use the generation read with the page');
   assert.equal(request.split('\r\n\r\n')[1], '{"currency":"USD"}');
   fs.writeFileSync(path.join(process.env.MOCK_DIR, 'updated'), '');
   process.stdout.write('HTTP/1.1 200 OK\r\n\r\n');
@@ -155,6 +156,8 @@ test('container smoke rejects unavailable, incomplete, or misleading page respon
     ['settings failure', { settings: htmlResponse('503 Service Unavailable', settingsPage) }],
     ['settings wrong page', { settings: htmlResponse('200 OK', offlineDashboard) }],
     ['settings truncated', { settings: htmlResponse('200 OK', settingsPage.replace('</html>', '')) }],
+    ['settings missing generation', { settings: htmlResponse('200 OK', settingsPage).replace('X-Portfolio-Generation: 37\r\n', '') }],
+    ['settings malformed generation', { settings: htmlResponse('200 OK', settingsPage).replace('X-Portfolio-Generation: 37', 'X-Portfolio-Generation: invalid') }],
     ['generic dashboard 503', { dashboard: htmlResponse('503 Service Unavailable', 'Service Unavailable') }],
     ['wrong dashboard status', { dashboard: htmlResponse('500 Internal Server Error', offlineDashboard) }],
     ['dashboard falsely succeeds', { dashboard: htmlResponse('200 OK', offlineDashboard) }],

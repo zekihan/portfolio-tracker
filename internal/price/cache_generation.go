@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
@@ -27,7 +28,10 @@ func (service *Service) withQuoteGeneration(ctx context.Context) (context.Contex
 		return ctx, fmt.Errorf("read price cache generation: %w", err)
 	}
 
-	if quoteGeneration(ctx) >= 0 {
+	expected, hasPrecondition := db.PortfolioGeneration(ctx)
+
+	bound := quoteGeneration(ctx)
+	if bound >= 0 && !hasPrecondition {
 		return ctx, nil
 	}
 
@@ -40,6 +44,10 @@ func (service *Service) withQuoteGeneration(ctx context.Context) (context.Contex
 	)
 	if err != nil {
 		return ctx, fmt.Errorf("read price cache generation: %w", err)
+	}
+
+	if hasPrecondition && (generation != expected || (bound >= 0 && bound != expected)) {
+		return ctx, fmt.Errorf("read price cache generation: %w", db.ErrPortfolioChanged)
 	}
 
 	service.observeGeneration(generation)
@@ -92,4 +100,24 @@ func holdingsNeedRefresh(holdings []models.Holding) bool {
 	}
 
 	return false
+}
+
+// A restore can interrupt admitted work after its initial epoch check. Preserve
+// the underlying error, but report a client conflict only if the epoch changed.
+// Caller cancellation and shutdown retain their original errors.
+func (service *Service) recheckClientQuoteGeneration(
+	ctx context.Context,
+	operationErr error,
+) error {
+	_, hasPrecondition := db.PortfolioGeneration(ctx)
+	if !hasPrecondition || ctx.Err() != nil {
+		return operationErr
+	}
+
+	_, generationErr := service.withQuoteGeneration(ctx)
+	if errors.Is(generationErr, db.ErrPortfolioChanged) {
+		return errors.Join(operationErr, generationErr)
+	}
+
+	return operationErr
 }

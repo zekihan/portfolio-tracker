@@ -13,6 +13,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
@@ -67,7 +68,8 @@ func (service *Service) GetUSDTTRYQuote(ctx context.Context) (models.Price, erro
 }
 
 func (service *Service) RefreshAll(ctx context.Context, holdings []models.Holding) error {
-	if !holdingsNeedRefresh(holdings) {
+	_, hasPrecondition := db.PortfolioGeneration(ctx)
+	if !holdingsNeedRefresh(holdings) && !hasPrecondition {
 		return wrapOperationError("RefreshAll", ctx.Err())
 	}
 
@@ -76,7 +78,9 @@ func (service *Service) RefreshAll(ctx context.Context, holdings []models.Holdin
 		return err
 	}
 
-	return service.refreshHoldings(ctx, holdings)
+	err = service.refreshHoldings(ctx, holdings)
+
+	return service.recheckClientQuoteGeneration(ctx, err)
 }
 
 func (service *Service) TestProvider(
@@ -233,7 +237,7 @@ func (service *Service) UpdateHoldingProviderContext(
 		return fmt.Errorf("%w: %s", ErrUnknownProvider, provider)
 	}
 
-	result, err := service.db.ExecContext(ctx, `
+	result, err := db.ExecPortfolioMutation(ctx, service.db, `
 		UPDATE holdings SET price_provider = ?, instrument_id = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`,
@@ -319,7 +323,12 @@ func (service *Service) getPrice(
 		return models.Price{}, err
 	}
 
-	return service.coalescedPrice(ctx, providerName, instrumentID, forceRefresh)
+	quote, err := service.coalescedPrice(ctx, providerName, instrumentID, forceRefresh, false)
+	if err != nil {
+		err = service.recheckClientQuoteGeneration(ctx, err)
+	}
+
+	return quote, err
 }
 
 func (service *Service) storeFetchedQuote(
@@ -514,11 +523,7 @@ func (service *Service) getUSDTTRYQuote(ctx context.Context, force bool) (models
 	}
 
 	if !force && usableFXQuote(&primary, primaryErr) {
-		if quote, ok := service.freshCachedFX(ctx); ok {
-			return quote, nil
-		}
-
-		return primary, nil
+		return service.recoverCachedFX(ctx, &primary)
 	}
 
 	fallback, fallbackErr := service.getPrice(ctx, "Yahoo Finance", "USDTRY=X", force)
@@ -540,17 +545,33 @@ func usableFXQuote(quote *models.Price, err error) bool {
 	return err == nil && quote.Value > 0 && !math.IsInf(quote.Value, 0) && !math.IsNaN(quote.Value)
 }
 
-func (service *Service) freshCachedFX(ctx context.Context) (models.Price, bool) {
-	cached, err := service.getCachedPriceContext(ctx, "Yahoo Finance", "USDTRY=X")
-	if err != nil || !canUseCachedQuote(cached, false) || cached.ErrorCount != 0 {
-		return models.Price{}, false
+func (service *Service) recoverCachedFX(
+	ctx context.Context,
+	primary *models.Price,
+) (models.Price, error) {
+	fallback, err := service.backgroundFXQuote(ctx)
+	if ctx.Err() != nil {
+		return models.Price{}, wrapOperationError("getUSDTTRYQuote", ctx.Err())
 	}
 
-	quote := cachedQuote(cached, false)
+	// Prefer a healthy fallback, or the newer cached sample while both refresh.
+	if usableFXQuote(&fallback, err) &&
+		((!fallback.IsFailed && !fallback.IsStale) || fallback.FetchedAt.After(primary.FetchedAt)) {
+		return fallback, nil
+	}
 
-	valid := usableFXQuote(&quote, nil)
+	return *primary, nil
+}
 
-	return quote, valid
+// Keep serving stale FX immediately, but recover through the same bounded,
+// coalesced fetch machinery even when the fallback cache has never been populated.
+func (service *Service) backgroundFXQuote(ctx context.Context) (models.Price, error) {
+	ctx, err := service.withQuoteGeneration(ctx)
+	if err != nil {
+		return models.Price{}, err
+	}
+
+	return service.coalescedPrice(ctx, "Yahoo Finance", "USDTRY=X", false, true)
 }
 
 // Quotes derived from cached metadata must not receive a new freshness window.

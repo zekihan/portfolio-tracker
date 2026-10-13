@@ -300,7 +300,7 @@ func SetSetting(db *sqlx.DB, key, value string) error {
 }
 
 func SetSettingContext(ctx context.Context, db *sqlx.DB, key, value string) error {
-	_, err := db.ExecContext(ctx,
+	_, err := ExecPortfolioMutation(ctx, db,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
 		key,

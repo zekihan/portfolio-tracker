@@ -166,30 +166,33 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.Handle("HEAD /static/{path...}", static)
 	router.Handle("GET /api/holdings", requireJSONBody()(http.HandlerFunc(handler.getHoldings)))
 	router.Handle("GET /api/holdings/{id}", requireJSONBody()(http.HandlerFunc(handler.getHolding)))
-	router.Handle("POST /api/holdings", requireJSONBody()(http.HandlerFunc(handler.createHolding)))
+	router.Handle(
+		"POST /api/holdings",
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.createHolding))),
+	)
 	router.Handle(
 		"PUT /api/holdings/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.updateHolding)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateHolding))),
 	)
 	router.Handle(
 		"PATCH /api/holdings/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.patchHolding)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.patchHolding))),
 	)
 	router.Handle(
 		"PATCH /api/holdings/{id}/est-price",
-		requireJSONBody()(http.HandlerFunc(handler.updateEstPrice)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateEstPrice))),
 	)
 	router.Handle(
 		"PATCH /api/holdings/{id}/manual-price",
-		requireJSONBody()(http.HandlerFunc(handler.updateManualPrice)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateManualPrice))),
 	)
 	router.Handle(
 		"DELETE /api/holdings/{id}/manual-price",
-		requireJSONBody()(http.HandlerFunc(handler.clearManualPrice)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearManualPrice))),
 	)
 	router.Handle(
 		"DELETE /api/holdings/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.deleteHolding)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.deleteHolding))),
 	)
 	router.Handle("GET /api/dashboard", requireJSONBody()(http.HandlerFunc(handler.getDashboard)))
 	router.Handle(
@@ -202,11 +205,11 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	)
 	router.Handle(
 		"DELETE /api/history/snapshots/{id}",
-		requireJSONBody()(http.HandlerFunc(handler.deleteSnapshot)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.deleteSnapshot))),
 	)
 	router.Handle(
 		"DELETE /api/history/snapshots",
-		requireJSONBody()(http.HandlerFunc(handler.clearHistory)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearHistory))),
 	)
 	router.Handle(
 		"GET /api/history/chart",
@@ -230,28 +233,32 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	)
 	router.Handle(
 		"POST /api/sources/refresh",
-		requireJSONBody()(http.HandlerFunc(handler.refreshPrices)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.refreshPrices))),
 	)
 	router.Handle(
 		"PUT /api/holdings/{id}/provider",
-		requireJSONBody()(http.HandlerFunc(handler.updateHoldingProvider)),
+		requireJSONBody()(
+			requirePortfolioGeneration(http.HandlerFunc(handler.updateHoldingProvider)),
+		),
 	)
 	router.Handle("GET /api/settings", requireJSONBody()(http.HandlerFunc(handler.getSettings)))
 	router.Handle(
 		"PATCH /api/settings/currency",
-		requireJSONBody()(http.HandlerFunc(handler.updateCurrency)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateCurrency))),
 	)
 	router.Handle(
 		"PATCH /api/settings/dark-mode",
-		requireJSONBody()(http.HandlerFunc(handler.updateDarkMode)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.updateDarkMode))),
 	)
 	router.Handle(
 		"PATCH /api/settings/refresh-interval",
-		requireJSONBody()(http.HandlerFunc(handler.updateRefreshInterval)),
+		requireJSONBody()(
+			requirePortfolioGeneration(http.HandlerFunc(handler.updateRefreshInterval)),
+		),
 	)
 	router.Handle(
 		"DELETE /api/settings/clear-all",
-		requireJSONBody()(http.HandlerFunc(handler.clearAllData)),
+		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearAllData))),
 	)
 	router.Handle(
 		"GET /api/settings/backup",
@@ -259,7 +266,9 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	)
 	router.Handle(
 		"POST /api/settings/restore",
-		requireRestoreConfirmation()(http.HandlerFunc(handler.restoreBackup)),
+		requireRestoreConfirmation()(
+			requirePortfolioGeneration(http.HandlerFunc(handler.restoreBackup)),
+		),
 	)
 	router.Handle("GET /partials/holding-form", http.HandlerFunc(handler.holdingForm))
 	router.Handle("GET /partials/holding-form/{id}", http.HandlerFunc(handler.holdingForm))
@@ -272,7 +281,9 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.HandleFunc("GET /settings", handler.pageSettings)
 	router.HandleFunc("/", notFound)
 
-	return logRequests(recoverRequests(compatibleRoutes(router, static)))
+	return logRequests(
+		recoverRequests(handler.capturePortfolioGeneration(compatibleRoutes(router, static))),
+	)
 }
 
 // Holdings API.

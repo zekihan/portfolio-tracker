@@ -100,6 +100,8 @@ func TestSnapshotDeletionRoutes(t *testing.T) {
 				request.Header.Set("Origin", "https://attacker.example")
 			}
 
+			request.Header.Set(portfolioGenerationHeader, "0")
+
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request)
 

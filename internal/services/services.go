@@ -88,7 +88,7 @@ func (service *HoldingService) Create(ctx context.Context, holding *models.Holdi
 	holding.CreatedAt = now
 	holding.UpdatedAt = now
 
-	result, err := service.db.ExecContext(ctx, `
+	result, err := db.ExecPortfolioMutation(ctx, service.db, `
                 INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider,
 instrument_id, base_currency, basket, location, notes, est_price, manual_price, manual_price_at,
 created_at, updated_at)
@@ -131,7 +131,7 @@ func (service *HoldingService) Update(ctx context.Context, holding *models.Holdi
 	}
 
 	holding.UpdatedAt = time.Now().UTC()
-	result, err := service.db.ExecContext(ctx, `
+	result, err := db.ExecPortfolioMutation(ctx, service.db, `
                 UPDATE holdings SET name = ?, ticker = ?, asset_type = ?, quantity = ?,
 price_provider = ?, instrument_id = ?, base_currency = ?, basket = ?, location = ?, notes = ?,
 est_price = ?, updated_at = ?
@@ -156,7 +156,7 @@ est_price = ?, updated_at = ?
 }
 
 func (service *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPrice float64) error {
-	result, err := service.db.ExecContext(ctx,
+	result, err := db.ExecPortfolioMutation(ctx, service.db,
 		"UPDATE holdings SET est_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		estPrice,
 		id,
@@ -166,8 +166,8 @@ func (service *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPr
 }
 
 func (service *HoldingService) UpdateManualPrice(ctx context.Context, id int, quote float64) error {
-	result, err := service.db.ExecContext(
-		ctx,
+	result, err := db.ExecPortfolioMutation(
+		ctx, service.db,
 		`UPDATE holdings SET manual_price = ?, manual_price_at = CURRENT_TIMESTAMP,
 updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		quote,
@@ -178,8 +178,9 @@ updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 }
 
 func (service *HoldingService) ClearManualPrice(ctx context.Context, id int) error {
-	result, err := service.db.ExecContext(
+	result, err := db.ExecPortfolioMutation(
 		ctx,
+		service.db,
 		"UPDATE holdings SET manual_price = 0, manual_price_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		id,
 	)
@@ -188,7 +189,12 @@ func (service *HoldingService) ClearManualPrice(ctx context.Context, id int) err
 }
 
 func (service *HoldingService) Delete(ctx context.Context, id int) error {
-	result, err := service.db.ExecContext(ctx, "DELETE FROM holdings WHERE id = ?", id)
+	result, err := db.ExecPortfolioMutation(
+		ctx,
+		service.db,
+		"DELETE FROM holdings WHERE id = ?",
+		id,
+	)
 
 	return holdingMutationResult("Delete", result, err)
 }
