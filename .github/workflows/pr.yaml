@@ -35,7 +35,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@v7.3.0
         with:
           install-only: true
-          version: v2.18.3
+          version: v2.19.0
       - run: make release-check build/release/all
       - run: git diff --exit-code
   container:
@@ -50,7 +50,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@v7.3.0
         with:
           install-only: true
-          version: v2.18.3
+          version: v2.19.0
       - run: make container-test
   native-tests:
     strategy:
