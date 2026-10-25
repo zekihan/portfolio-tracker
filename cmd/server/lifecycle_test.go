@@ -27,15 +27,15 @@ func TestRunStartupFailures(t *testing.T) {
 	err = run(
 		t.Context(),
 		filepath.Join(t.TempDir(), "absent", "db.sqlite"),
-		"0",
+		"127.0.0.1", "0",
 	)
 	if err == nil ||
 		!strings.Contains(err.Error(), "open database") {
 		t.Fatalf("expected database startup error, got %v", err)
 	}
 
-	// Match run's wildcard bind so the occupied port conflicts on every platform.
-	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", ":0")
+	// Occupy the same loopback listener used by native deployments.
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestRunStartupFailures(t *testing.T) {
 	err = run(
 		ctx,
 		filepath.Join(t.TempDir(), "db.sqlite"),
-		portString,
+		"127.0.0.1", portString,
 	)
 	if err == nil ||
 		!strings.Contains(err.Error(), "listen") {

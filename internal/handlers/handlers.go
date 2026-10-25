@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zekihan/portfolio-tracker/internal/models"
@@ -119,6 +120,7 @@ type Handler struct {
 	settingsSvc *services.SettingsService
 	priceSvc    *price.Service
 	renderer    *pageRenderer
+	backupMu    sync.Mutex
 }
 
 func New(
@@ -233,11 +235,13 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	)
 	router.Handle(
 		"POST /api/sources/test",
-		requireJSONBody()(http.HandlerFunc(handler.testProvider)),
+		requireActionHeader(requireJSONBody()(http.HandlerFunc(handler.testProvider))),
 	)
 	router.Handle(
 		"POST /api/sources/refresh",
-		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.refreshPrices))),
+		requireActionHeader(
+			requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.refreshPrices))),
+		),
 	)
 	router.Handle(
 		"PUT /api/holdings/{id}/provider",
@@ -265,8 +269,8 @@ func (handler *Handler) SetupRoutes() http.Handler {
 		requireJSONBody()(requirePortfolioGeneration(http.HandlerFunc(handler.clearAllData))),
 	)
 	router.Handle(
-		"GET /api/settings/backup",
-		requireJSONBody()(http.HandlerFunc(handler.downloadBackup)),
+		"POST /api/settings/backup",
+		requireActionHeader(requireJSONBody()(http.HandlerFunc(handler.downloadBackup))),
 	)
 	router.Handle(
 		"POST /api/settings/restore",
@@ -286,7 +290,9 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.HandleFunc("/", notFound)
 
 	return logRequests(
-		recoverRequests(handler.capturePortfolioGeneration(compatibleRoutes(router, static))),
+		recoverRequests(
+			handler.capturePortfolioGeneration(cachedPriceReads(compatibleRoutes(router, static))),
+		),
 	)
 }
 
@@ -554,6 +560,18 @@ func (handler *Handler) getHoldingHistory(writer http.ResponseWriter, request *h
 // downloadBackup sends a consistent SQLite copy of the database as a file download.
 func (handler *Handler) downloadBackup(writer http.ResponseWriter, request *http.Request,
 ) {
+	if !handler.backupMu.TryLock() {
+		writer.Header().Set("Retry-After", "5")
+		writeJSON(
+			writer,
+			http.StatusTooManyRequests,
+			map[string]any{errorKey: "backup already in progress"},
+		)
+
+		return
+	}
+	defer handler.backupMu.Unlock()
+
 	dir, err := os.MkdirTemp("", "portfolio-backup-")
 	if err != nil {
 		respondInternalError(writer, request, err)

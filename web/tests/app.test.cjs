@@ -1841,3 +1841,48 @@ test('EUR currency save preserves URL filters and fragment', async () => {
   await flush();
   assert.equal(destination, 'https://portfolio.test/holdings?basket=one&currency=EUR#cash');
 });
+
+test('backup download uses protected POST and suppresses concurrent clicks', async () => {
+  const button = element();
+  const status = element();
+  const timers = [];
+  const h = loadApp({ 'download-backup': button, 'backup-status': status }, callback => timers.push(callback));
+  const link = { click() { this.clicked = true; }, remove() { this.removed = true; } };
+  h.document.createElement = () => link;
+  h.document.body.appendChild = () => {};
+  let revoked;
+  h.window.URL = { createObjectURL: () => 'blob:fixture', revokeObjectURL: value => { revoked = value; } };
+  const event = { target: { closest: selector => selector === '#download-backup' ? button : null } };
+  h.dispatch('click', event);
+  h.dispatch('click', event);
+  assert.equal(h.pending.length, 1);
+  assert.equal(h.pending[0].url, '/api/settings/backup');
+  assert.equal(h.pending[0].options.method, 'POST');
+  assert.equal(h.pending[0].options.headers['X-Portfolio-Action'], '1');
+  assert.equal(button.disabled, true);
+  h.pending[0].resolve({ ok: true, blob: async () => ({}), headers: { get: () => 'attachment; filename="portfolio-backup-20261025-120000.db"' } });
+  await flush();
+  assert.equal(link.download, 'portfolio-backup-20261025-120000.db');
+  assert.equal(link.clicked, true);
+  assert.equal(link.removed, true);
+  assert.equal(button.disabled, false);
+  timers.forEach(callback => callback());
+  assert.equal(revoked, 'blob:fixture');
+});
+
+test('failed backup POST displays error and permits retry', async () => {
+  const button = element();
+  const status = element();
+  const h = loadApp({ 'download-backup': button, 'backup-status': status });
+  const event = { target: { closest: selector => selector === '#download-backup' ? button : null } };
+  h.dispatch('click', event);
+  h.pending[0].resolve({ ok: false, status: 429 });
+  await flush();
+  assert.match(status.textContent, /429/);
+  assert.equal(button.disabled, false);
+  h.dispatch('click', event);
+  assert.equal(h.pending.length, 2);
+  h.pending[1].reject(new Error('Offline'));
+  await flush();
+  assert.equal(status.textContent, 'Offline');
+});

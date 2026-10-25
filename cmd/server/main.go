@@ -56,7 +56,12 @@ func main() {
 		Msg("Starting portfolio tracker")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	err := run(ctx, getEnv("DB_PATH", "/data/portfolio.db"), getEnv("PORT", "8080"))
+	err := run(
+		ctx,
+		getEnv("DB_PATH", "/data/portfolio.db"),
+		getEnv("BIND_ADDRESS", defaultBindAddress),
+		getEnv("PORT", "8080"),
+	)
 
 	stop()
 
@@ -69,7 +74,7 @@ func main() {
 // run owns every resource and returns only after its users have stopped.
 //
 //nolint:contextcheck // Database migration API predates context-aware startup.
-func run(ctx context.Context, dbPath, port string) error {
+func run(ctx context.Context, dbPath, bindAddress, port string) error {
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
@@ -106,9 +111,7 @@ func run(ctx context.Context, dbPath, port string) error {
 		return fmt.Errorf("add snapshot job: %w", err)
 	}
 
-	listenConfig := new(net.ListenConfig)
-
-	listener, err := listenConfig.Listen(ctx, "tcp", ":"+port)
+	listener, err := listenBackend(ctx, bindAddress, port)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
@@ -129,7 +132,7 @@ func run(ctx context.Context, dbPath, port string) error {
 	}
 
 	cronScheduler.Start()
-	log.Info().Str("port", port).Msg("starting server")
+	log.Info().Str("address", listener.Addr().String()).Msg("starting server")
 
 	return serve(ctx, server, listener, tracked, cancelRequests,
 		cronScheduler, cancelSnapshots, shutdownTimeout)
@@ -396,4 +399,25 @@ func releaseSnapshotSlot(parent context.Context, database *sqlx.DB, slot int64, 
 	if err != nil {
 		log.Error().Err(err).Msg("failed to release snapshot slot")
 	}
+}
+
+const defaultBindAddress = "127.0.0.1"
+
+var errInvalidBindAddress = errors.New("bind address must be a literal IP address")
+
+func listenBackend(ctx context.Context, bindAddress, port string) (net.Listener, error) {
+	if bindAddress == "" {
+		bindAddress = defaultBindAddress
+	}
+
+	if net.ParseIP(bindAddress) == nil {
+		return nil, fmt.Errorf("%w: %q", errInvalidBindAddress, bindAddress)
+	}
+
+	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", net.JoinHostPort(bindAddress, port))
+	if err != nil {
+		return nil, fmt.Errorf("bind backend: %w", err)
+	}
+
+	return listener, nil
 }

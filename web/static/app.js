@@ -26,7 +26,7 @@ let settingsWritesPending = 0;
 // it from asynchronous reads: their IDs may refer to a restored portfolio.
 const portfolioGeneration = document.documentElement.dataset?.portfolioGeneration || '';
 function portfolioHeaders(headers = {}) {
-  return { ...headers, 'X-Portfolio-Generation': portfolioGeneration };
+  return { ...headers, 'X-Portfolio-Generation': portfolioGeneration, 'X-Portfolio-Action': '1' };
 }
 function portfolioErrorMessage(response, fallback) {
   return response.status === 409 || response.status === 428 ?
@@ -1780,6 +1780,42 @@ window.PortfolioApp = PortfolioApp;
       controls.forEach(control => { control.disabled = false; });
       review.removeAttribute('aria-busy');
       button.textContent = 'Restore backup';
+    }
+  });
+})();
+
+// Backup generation is an explicit, same-origin action, never a navigation GET.
+(() => {
+  let downloading = false;
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('#download-backup');
+    if (!button || downloading) return;
+    downloading = true;
+    button.disabled = true;
+    const status = document.getElementById('backup-status');
+    status.textContent = 'Preparing backup…';
+    let downloadURL;
+    let link;
+    try {
+      const response = await fetch('/api/settings/backup', {
+        method: 'POST', headers: portfolioHeaders()
+      });
+      if (!response.ok) throw new Error(`Backup failed: HTTP ${response.status}`);
+      downloadURL = window.URL.createObjectURL(await response.blob());
+      link = document.createElement('a');
+      link.href = downloadURL;
+      const disposition = response.headers.get('Content-Disposition') || '';
+      link.download = /filename="(portfolio-backup-[0-9-]+\.db)"/.exec(disposition)?.[1] || 'portfolio-backup.db';
+      document.body.appendChild(link);
+      link.click();
+      status.textContent = 'Backup downloaded.';
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      link?.remove();
+      if (downloadURL) setTimeout(() => window.URL.revokeObjectURL(downloadURL), 60000);
+      downloading = false;
+      button.disabled = false;
     }
   });
 })();
