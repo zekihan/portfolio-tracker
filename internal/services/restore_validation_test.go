@@ -139,8 +139,8 @@ func TestRestoreValidLegacyData(t *testing.T) {
 	useLegacyRestoreSchema(t, source, 9)
 
 	statements := []string{
-		`DROP TABLE snapshot_runs`,
-		`DROP TABLE snapshot_state`,
+		`DROP TABLE IF EXISTS snapshot_runs`,
+		`DROP TABLE IF EXISTS snapshot_state`,
 		`UPDATE holdings SET manual_price = NULL, manual_price_at = NULL`,
 		`UPDATE snapshots SET holdings_json = 'null'`,
 		`UPDATE settings SET value = '' WHERE key = 'dark_mode'`,
@@ -186,7 +186,49 @@ func TestRestoreValidLegacyData(t *testing.T) {
 // Match legacy user-table columns rather than merely relabeling a v12 backup.
 func useLegacyRestoreSchema(t *testing.T, service *SettingsService, version int) {
 	t.Helper()
+
+	approved, err := approvedRestoreDDL(t.Context(), version)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sequence := countRows(
+		t,
+		service,
+		"SELECT COALESCE(MAX(seq), 0) FROM sqlite_sequence WHERE name = 'holdings'",
+	)
+	execRestoreFixture(t, service, `ALTER TABLE holdings RENAME TO old_holdings;
+ DROP INDEX idx_holdings_asset_type;
+ DROP INDEX idx_holdings_basket;
+ DROP INDEX idx_holdings_location;`+approved["holdings"].SQL.String+`;
+ INSERT INTO holdings SELECT id, name, ticker, asset_type, quantity, price_provider,
+ instrument_id, base_currency, basket, location, notes, est_price, manual_price,
+ manual_price_at, created_at, updated_at FROM old_holdings;
+ DROP TABLE old_holdings;`)
+
+	for _, name := range []string{"idx_holdings_asset_type", "idx_holdings_basket", "idx_holdings_location"} {
+		execRestoreFixture(t, service, approved[name].SQL.String)
+	}
+
+	execRestoreFixture(
+		t,
+		service,
+		"UPDATE sqlite_sequence SET seq = "+strconv.Itoa(sequence)+" WHERE name = 'holdings'",
+	)
+
+	if version < 10 {
+		execRestoreFixture(
+			t,
+			service,
+			"DROP TABLE IF EXISTS snapshot_runs; DROP TABLE IF EXISTS snapshot_state",
+		)
+	}
+
+	if version < 11 {
+		execRestoreFixture(t, service, "DROP TABLE IF EXISTS holding_create_receipts")
+	}
+
 	execRestoreFixture(t, service, `ALTER TABLE snapshots DROP COLUMN total_value_eur;
-ALTER TABLE snapshots DROP COLUMN eur_try_rate;
-PRAGMA user_version = `+strconv.Itoa(version))
+ ALTER TABLE snapshots DROP COLUMN eur_try_rate;
+ PRAGMA user_version = `+strconv.Itoa(version))
 }

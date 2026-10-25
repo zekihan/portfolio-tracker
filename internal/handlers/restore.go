@@ -129,10 +129,12 @@ func (handler *Handler) restoreBackup(writer http.ResponseWriter, request *http.
 		return
 	}
 
-	//nolint:contextcheck // The reset callback intentionally closes over this request context.
-	err = handler.withPriceCacheReset(request.Context(), func() error {
-		return handler.settingsSvc.RestoreFrom(request.Context(), uploadPath)
-	})
+	err = handler.settingsSvc.RestoreFromWithGuard(
+		request.Context(),
+		uploadPath,
+		handler.withPriceCacheReset,
+	)
+
 	if errors.Is(err, services.ErrIncompatibleBackup) {
 		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
 
