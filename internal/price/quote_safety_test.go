@@ -152,6 +152,8 @@ func TestUnsafeQuotePreservesCacheAndHealth(t *testing.T) {
 
 			assertRejectedQuoteCache(t, before, after)
 
+			assertRejectedQuoteCacheOnlyRead(t, service, test.provider, instrument, after)
+
 			if service.failures[test.provider] != 2 || canUseCachedQuote(after, false) {
 				t.Fatalf("unsafe candidate reset health or retained fresh status: %+v", after)
 			}
@@ -281,4 +283,23 @@ func assertRejectedQuoteCache(t *testing.T, before, after *models.PriceCacheEntr
 	if after.ErrorCount != 2 || after.LastError != errUnsafeProviderQuote.Error() {
 		t.Fatalf("cache lost failure metadata: %+v", after)
 	}
+}
+
+func assertRejectedQuoteCacheOnlyRead(t *testing.T, service *Service,
+	provider, instrument string, before *models.PriceCacheEntry,
+) {
+	t.Helper()
+
+	read, err := service.GetPrice(WithCachedQuotesOnly(t.Context()), provider, instrument)
+	if err != nil || read.Value != before.Price || !read.IsFailed || !read.IsStale ||
+		read.Error == nil {
+		t.Fatalf("cache-only read lost rejected refresh state: %+v, %v", read, err)
+	}
+
+	after, err := service.getCachedPrice(provider, before.InstrumentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertRejectedQuoteCache(t, before, after)
 }

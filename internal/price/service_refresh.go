@@ -39,6 +39,7 @@ type refreshState struct {
 	ctx        context.Context //nolint:containedctx // Service owns and cancels this refresh generation.
 	cancel     context.CancelFunc
 	flights    map[refreshKey]*priceFlight
+	negatives  map[refreshKey]negativeQuote
 	providers  map[string]chan struct{}
 	slots      chan struct{}
 	gate       sync.RWMutex
@@ -53,6 +54,7 @@ func (service *Service) initRefresh() {
 	ctx, cancel := context.WithCancel(context.Background())
 	service.refresh.ctx, service.refresh.cancel = ctx, cancel //nolint:fatcontext // Install the service-owned lifetime.
 	service.refresh.flights = make(map[refreshKey]*priceFlight)
+	service.refresh.negatives = make(map[refreshKey]negativeQuote)
 	service.refresh.providers = make(map[string]chan struct{})
 	service.refresh.slots = make(chan struct{}, maxConcurrentFetches)
 }
@@ -96,6 +98,10 @@ func (service *Service) WithCacheReset(ctx context.Context, reset func() error) 
 	}
 
 	if err == nil {
+		state.mu.Lock()
+		clear(state.negatives)
+		state.mu.Unlock()
+
 		for _, getter := range service.registry.All() {
 			if resetter, ok := getter.(interface{ resetMetadata() }); ok {
 				resetter.resetMetadata()
@@ -168,26 +174,23 @@ func (service *Service) coalescedPrice(
 		return models.Price{}, wrapOperationError("getPrice", contextErr)
 	}
 
+	if cachedQuotesOnly(ctx) {
+		state.gate.RUnlock()
+
+		return readOnlyCachedQuote(cached, cacheErr)
+	}
+
 	if canUseCachedQuote(cached, force) {
 		state.gate.RUnlock()
 
 		return cachedQuote(cached, false), nil
 	}
 
-	if service.breakerBlocksRequest(provider) {
+	failure := service.cachedLookupFailure(provider, instrument, force)
+	if failure != nil {
 		state.gate.RUnlock()
 
-		err := fmt.Errorf("%w %s", errCircuitBreakerOpenFor, provider)
-
-		if cached != nil {
-			quote := cachedQuote(cached, true)
-			quote.IsFailed = true
-			quote.Error = err
-
-			return quote, nil
-		}
-
-		return models.Price{}, err
+		return failedCachedQuote(cached, failure)
 	}
 
 	background := backgroundOnly || (cached != nil && !force)
@@ -406,6 +409,7 @@ func (service *Service) runFlight(
 		}
 
 		if flight.err == nil {
+			service.forgetNegativeQuote(key)
 			flight.err = service.storeFetchedQuote(
 				flight.ctx,
 				getter,
@@ -417,6 +421,7 @@ func (service *Service) runFlight(
 			return
 		}
 
+		service.rememberNegativeQuote(key, flight.err)
 		service.recordFailureContext(flight.ctx, key.provider, key.instrument, flight.err)
 	}
 

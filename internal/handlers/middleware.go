@@ -8,6 +8,8 @@ import (
 	"mime"
 	"net/http"
 	"time"
+
+	"github.com/zekihan/portfolio-tracker/internal/price"
 )
 
 const maxRequestBodyBytes = 1 << 20
@@ -154,5 +156,33 @@ func logRequests(next http.Handler) http.Handler {
 			slog.String("path", request.URL.Path),
 			slog.Int("status", status),
 			slog.Duration("duration", time.Since(started)))
+	})
+}
+
+// A custom header cannot be sent by cross-site forms or subresource loads.
+// The browser origin middleware must also accept the request before work starts.
+func requireActionHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Portfolio-Action") != "1" {
+			writeJSON(
+				writer,
+				http.StatusForbidden,
+				map[string]any{errorKey: "X-Portfolio-Action: 1 is required"},
+			)
+
+			return
+		}
+
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func cachedPriceReads(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet || request.Method == http.MethodHead {
+			request = request.WithContext(price.WithCachedQuotesOnly(request.Context()))
+		}
+
+		next.ServeHTTP(writer, request)
 	})
 }

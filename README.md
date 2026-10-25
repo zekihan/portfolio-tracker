@@ -33,6 +33,7 @@ Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite us
 |----------|---------|-------------|
 | `DB_PATH` | `/data/portfolio.db` | SQLite database path |
 | `PORT` | `8080` | HTTP server port |
+| `BIND_ADDRESS` | `127.0.0.1` | Literal listener IP; use `::1` for IPv6 loopback. Wildcard `0.0.0.0` or `::` requires explicit opt-in and proxy-only networking. |
 | `ALPHA_VANTAGE_KEY` | - | Alpha Vantage API key |
 | `TWELVE_DATA_KEY` | - | Twelve Data API key |
 | `FINNHUB_KEY` | - | Finnhub API key |
@@ -66,12 +67,18 @@ stale without changing its price, fetch time, or expiry. Existing downstream
 valuation checks still protect manual holdings and later portfolio edits.
 
 Network-provider prices are cached for 15 minutes, including FX rates.
-Expired cached prices return immediately with stale status while a background
-refresh runs. Cold lookups and explicit refreshes share in-flight work, with at
+Page and JSON GET requests serve cached quotes only, including FX. Expired
+quotes retain stale status; missing quotes remain unavailable until Refresh Prices,
+pull to refresh, or the hourly snapshot job populates the cache. Page visits never
+initiate provider requests. Internal snapshot lookups and explicit refreshes share
+in-flight work, with at
 most four upstream requests globally and one per provider. Valuation uses four
 workers and a shared 20-second budget. Pusula fund lists and Garanti shared
 metadata use coalesced 15-minute caches. Explicit refresh bypasses quote-bearing
 metadata caches, refreshes the USD/TRY and EUR/TRY dependencies, and waits for results.
+Instrument-specific failures are negatively cached for 30 seconds for ordinary
+internal lookups, with bounded memory. Explicit refresh can retry immediately.
+Provider-wide failures retain the circuit breaker policy.
 Twelve Data quotes carry their actual currency. Alpha Vantage resolves exact-symbol
 currency metadata and caches it for 24 hours to avoid repeated metadata API
 credits; unknown or ambiguous currencies are rejected instead of assumed USD.
@@ -107,6 +114,36 @@ OAuth2 Proxy, Authelia, or HTTP basic auth over TLS) and only expose the
 proxy. The API includes destructive endpoints (clearing all data and
 restoring from a backup), so the server must not be reachable without the
 proxy in front of it.
+
+The backend defaults to IPv4 loopback. Set `BIND_ADDRESS=::1` for IPv6 loopback.
+Container/service networks must explicitly set `BIND_ADDRESS=0.0.0.0` or `::`.
+Before using a non-loopback address, allow backend access only from the authenticated
+proxy: publish Docker ports on host loopback or use an isolated service network
+with network policy allowing only the proxy. Wildcard binding adds no authentication.
+
+Deployment acceptance requires verifying from outside the proxy network that the
+backend port cannot be reached, and that unauthenticated proxy access is rejected.
+These checks depend on operator-owned routing, firewall, and authentication policy;
+local tests cannot establish them. No live network or trust configuration is changed.
+
+### Backup and provider actions
+
+Backup generation uses `POST /api/settings/backup`; GET and HEAD never generate a
+backup. Backup, `POST /api/sources/refresh`, and `POST /api/sources/test` require
+`X-Portfolio-Action: 1`, alongside the Origin/Sec-Fetch-Site checks. The browser
+sends this header automatically; authenticated non-browser clients must send it
+too. It is an anti-CSRF requirement, not an authentication secret. Explicit refresh
+also requires the portfolio generation header described below.
+
+```bash
+curl -X POST https://portfolio.example/api/settings/backup \
+  -H 'X-Portfolio-Action: 1' --output portfolio-backup.db
+```
+
+Only one backup download runs at a time per process. Concurrent requests receive
+429 and Retry-After. For multiple replicas or repeated intentional actions, review
+proxy-level request throttling and provider quotas separately. Keep CORS restrictive;
+proxy trust, authentication, and request limits remain operator decisions.
 
 ## API write preconditions
 
@@ -248,7 +285,7 @@ does not increase validation budgets.
 ```bash
 make build/docker
 docker build -t portfolio-tracker .
-docker run --rm -p 127.0.0.1:8080:8080 -v portfolio-data:/data portfolio-tracker
+docker run --rm -e BIND_ADDRESS=0.0.0.0 -p 127.0.0.1:8080:8080 -v portfolio-data:/data portfolio-tracker
 ```
 
 GoReleaser builds the Linux binaries before Docker runs. The Dockerfile selects
