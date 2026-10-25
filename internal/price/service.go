@@ -52,7 +52,8 @@ func (service *Service) GetPrice(
 }
 
 func canUseCachedQuote(cached *models.PriceCacheEntry, forceRefresh bool) bool {
-	return !forceRefresh && cached != nil && !cached.ExpiresAt.Before(time.Now())
+	return !forceRefresh && cached != nil && cached.ErrorCount == 0 &&
+		!cached.ExpiresAt.Before(time.Now())
 }
 
 func (service *Service) GetUSDTTRYRate(ctx context.Context) (float64, error) {
