@@ -400,6 +400,15 @@ func (service *Service) runFlight(
 		}
 
 		if flight.err == nil {
+			flight.err = service.validateFetchedQuote(
+				flight.ctx,
+				key.provider,
+				key.instrument,
+				&flight.quote,
+			)
+		}
+
+		if flight.err == nil {
 			service.forgetNegativeQuote(key)
 			flight.err = service.storeFetchedQuote(
 				flight.ctx,

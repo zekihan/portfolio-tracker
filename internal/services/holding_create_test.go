@@ -296,7 +296,7 @@ func restoreReceiptFixture(t *testing.T, target *SettingsService, operation stri
 	if version < 11 {
 		_, err = source.db.ExecContext(
 			t.Context(),
-			"DROP TABLE holding_create_receipts",
+			"DROP TABLE IF EXISTS holding_create_receipts",
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -306,7 +306,7 @@ func restoreReceiptFixture(t *testing.T, target *SettingsService, operation stri
 	if version < 10 {
 		_, err = source.db.ExecContext(
 			t.Context(),
-			"DROP TABLE snapshot_runs; DROP TABLE snapshot_state",
+			"DROP TABLE IF EXISTS snapshot_runs; DROP TABLE IF EXISTS snapshot_state",
 		)
 		if err != nil {
 			t.Fatal(err)

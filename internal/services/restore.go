@@ -31,7 +31,39 @@ const restoreLegacyVersion, restoreEURVersion = 9, 12
 // RestoreFrom replaces holdings, snapshots, cached prices, and settings with the
 // contents of the SQLite database at path. The file is validated first and the
 // replacement runs in one transaction, so a failure leaves the live data unchanged.
-func (service *SettingsService) RestoreFrom(ctx context.Context, path string) (result error) {
+func (service *SettingsService) RestoreFrom(ctx context.Context, path string) error {
+	return service.RestoreFromWithGuard(ctx, path, nil)
+}
+
+// RestoreFromWithGuard validates outside the caller's mutation guard. Cache
+// refreshes and ordinary queries continue while the untrusted worker runs.
+// The guard only surrounds applying the already sanitized database.
+func (service *SettingsService) RestoreFromWithGuard(ctx context.Context, path string,
+	guard func(context.Context, func() error) error,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, restoreWorkerTimeout)
+	defer cancel()
+
+	clean, cleanup, err := prepareRestore(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	apply := func() error { return service.restoreValidatedFile(ctx, restoreReadOnlyURI(clean)) }
+	if guard != nil {
+		return guard(ctx, apply)
+	}
+
+	return apply()
+}
+
+// Only the isolated worker attaches an untrusted upload. The server attaches
+// the worker's private, canonical database after all validation has succeeded.
+func (service *SettingsService) restoreValidatedFile(
+	ctx context.Context,
+	path string,
+) (result error) {
 	conn, err := service.db.Connx(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
@@ -40,6 +72,13 @@ func (service *SettingsService) RestoreFrom(ctx context.Context, path string) (r
 	defer func() {
 		_ = conn.Close()
 	}()
+
+	if isRestoreWorkerProcess() {
+		err = limitRestoreSQLite(conn)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Install cleanup before ATTACH: cancellation can report an error after SQLite
 	// has attached the source. Never return an attached connection to the pool.
@@ -112,6 +151,11 @@ func validateRestoreSource(ctx context.Context, conn sqlx.QueryerContext) (int, 
 	}
 
 	err = validateRestoreStructures(ctx, conn, sourceVersion)
+	if err != nil {
+		return 0, err
+	}
+
+	err = validateRestoreBudgets(ctx, conn)
 	if err != nil {
 		return 0, err
 	}

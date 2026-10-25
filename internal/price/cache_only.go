@@ -3,7 +3,6 @@ package price
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
@@ -31,7 +30,7 @@ func readOnlyCachedQuote(cached *models.PriceCacheEntry, err error) (models.Pric
 		return models.Price{}, errQuoteNotCached
 	}
 
-	return cachedQuote(cached, cached.ExpiresAt.Before(time.Now())), nil
+	return cachedQuote(cached, !canUseCachedQuote(cached, false)), nil
 }
 
 func failedCachedQuote(cached *models.PriceCacheEntry, failure error) (models.Price, error) {
