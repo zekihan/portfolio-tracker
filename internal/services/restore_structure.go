@@ -26,9 +26,14 @@ func validateRestoreStructures(
 	conn sqlx.QueryerContext,
 	sourceVersion int,
 ) error {
+	err := validateRestoreDDL(ctx, conn, sourceVersion)
+	if err != nil {
+		return err
+	}
+
 	var unsupported int
 
-	err := sqlx.GetContext(ctx, conn, &unsupported, `SELECT
+	err = sqlx.GetContext(ctx, conn, &unsupported, `SELECT
 (SELECT COUNT(*) FROM restore_src.sqlite_schema WHERE type NOT IN ('table', 'index')) +
 (SELECT COUNT(*) FROM pragma_table_list WHERE schema = ? AND type != 'table') +
 (SELECT COUNT(*) FROM main.sqlite_schema WHERE type = 'trigger'

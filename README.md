@@ -213,6 +213,36 @@ Backups from schemas v9–v11 remain restorable. Older binaries reject schema v1
 databases. To roll back, restore a pre-upgrade backup using the corresponding
 older binary; do not lower `user_version` on an upgraded database.
 
+### Restore resource budgets
+
+Uploaded SQLite databases are untrusted, even when submitted by the portfolio
+owner behind the authenticating proxy. Restore validation runs in a child of
+the current executable before acquiring the live SQLite connection. The child
+receives a private copy of the upload, no provider credentials, and no server
+configuration. It opens the copy read-only and writes a new database using only
+application migrations and validated user data. Only this clean database reaches
+the live connection; cancellation or rejection leaves live data unchanged.
+
+Restores have a 20-second wall-clock deadline, one validation worker per server,
+and a 5-second worker CPU budget. Linux additionally enforces a 256 MiB additional data
+allocation limit and 2 GiB additional virtual-address limit, measured before any
+upload is opened; Windows uses a 256 MiB process
+memory limit and CPU limit through a Job Object. macOS enforces CPU/file limits,
+but does not provide the same hard process-memory bound: it uses the common
+SQLite 64 MiB hard heap limit, bounded Go values, and a 128 MiB Go memory target.
+The Go target is advisory. These limits are local to the worker.
+
+The private input and clean output are each capped at 256 MiB (512 MiB combined).
+SQLite scratch storage stays in memory; the clean output uses a fixed page budget
+and no rollback journal or WAL. Validation accepts only approved table/index DDL
+for schema v9–v12, with no additional schema objects. Restore data is limited to
+100,000 total rows, 64 MiB cumulative snapshot JSON, 1 MiB per snapshot JSON value,
+4 KiB per other stored value or JSON string, 4,096 holdings per snapshot, 64 KiB
+per holding object, and the 11 exact supported holding keys. Unknown, duplicate,
+and nested holding fields are rejected. Backups exceeding these limits require
+an offline migration reviewed separately; increasing the HTTP upload limit alone
+does not increase validation budgets.
+
 ### Docker
 
 ```bash

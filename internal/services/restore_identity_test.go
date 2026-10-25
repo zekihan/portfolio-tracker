@@ -196,9 +196,7 @@ DELETE FROM sqlite_sequence WHERE name = 'holdings';
 UPDATE snapshots SET holdings_json = '[{"id":9007199254740993},{"id":2}]';
 INSERT INTO snapshots (total_value_try, total_value_usd, usd_try_rate, holdings_json)
 VALUES (1, 1, 1, '[{"id":3}]')`, wantID: 9007199254740994},
-		{name: "case alias cannot conceal identity", source: `DELETE FROM holdings;
-DELETE FROM sqlite_sequence WHERE name = 'holdings';
-UPDATE snapshots SET holdings_json = '[{"id":55,"ID":1}]'`, wantID: 56},
+
 		{
 			name:   "source sequence",
 			source: `UPDATE sqlite_sequence SET seq = 50 WHERE name = 'holdings'`,

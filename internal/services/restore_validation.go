@@ -195,6 +195,11 @@ func restoreValidID(id int64) bool {
 func validateRestoreSnapshotJSON(ctx context.Context, raw string) (int64, error) {
 	var historicalID int64
 
+	err := preflightRestoreJSON(ctx, raw)
+	if err != nil {
+		return 0, err
+	}
+
 	decoder := json.NewDecoder(strings.NewReader(raw))
 
 	token, err := decoder.Token()
@@ -235,11 +240,9 @@ func validateRestoreSnapshotJSON(ctx context.Context, raw string) (int64, error)
 // Match the history reader's exact JSON keys. Case-insensitive struct decoding
 // could otherwise let an alias hide a historical ID or an invalid value.
 func decodeRestoreSnapshotHolding(decoder *json.Decoder) (int64, error) {
-	var holding map[string]json.RawMessage
-
-	err := decoder.Decode(&holding)
+	holding, err := decodeRestoreFields(decoder)
 	if err != nil {
-		return 0, fmt.Errorf("decode snapshot holding: %w", err)
+		return 0, err
 	}
 
 	var id int64
