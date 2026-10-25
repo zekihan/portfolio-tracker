@@ -54,6 +54,17 @@ Dashboard totals and allocations are explicitly marked partial until every holdi
 can be valued; incomplete valuations are not saved as complete snapshots. Known
 unreliable historical points are shown as gaps rather than apparent losses.
 
+Provider requests reject all redirects, including same-host redirects, so upstream
+responses cannot retarget requests or forward API credentials. Provider quotes
+must be positive and at most 1e12 currency units per asset (Manual also permits
+zero); USD/TRY and EUR/TRY FX rates must be between 1e-12 and 1e12. These generous
+anomaly limits reject candidates rather than clamp them. Before promoting a quote,
+the service also checks affected holding quantities for finite normalized totals
+across that entire FX range, so a parallel FX refresh cannot invalidate the check.
+A rejected refresh records a provider failure and serves the previous quote as
+stale without changing its price, fetch time, or expiry. Existing downstream
+valuation checks still protect manual holdings and later portfolio edits.
+
 Network-provider prices are cached for 15 minutes, including FX rates.
 Expired cached prices return immediately with stale status while a background
 refresh runs. Cold lookups and explicit refreshes share in-flight work, with at

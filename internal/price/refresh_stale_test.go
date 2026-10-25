@@ -70,8 +70,8 @@ func checkRefreshFallback(t *testing.T, age time.Duration) {
 		t.Fatal(err)
 	}
 
-	wantStale := age < 0
-	if cached.Value != 10 || cached.IsStale != wantStale || !cached.IsFailed {
+	// A failed explicit refresh invalidates freshness even before the old TTL expires.
+	if cached.Value != 10 || !cached.IsStale || !cached.IsFailed {
 		t.Fatalf("stale fallback was not preserved: %+v", cached)
 	}
 }

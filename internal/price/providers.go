@@ -151,7 +151,7 @@ func NewYahooFinance() *YahooFinance {
 			name:         "Yahoo Finance",
 			providerType: stockETFType,
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -237,12 +237,7 @@ func (getter *YahooFinance) GetPrice(
 		currency = currencyUSD
 	}
 
-	return models.Price{
-		Value:     quote,
-		Currency:  currency,
-		Source:    getter.name,
-		FetchedAt: time.Now().UTC(),
-	}, nil
+	return checkedInstrumentQuote(quote, currency, getter.name, instrumentID)
 }
 
 //nolint:embeddedstructfieldcheck // Keep the bounded metadata map with its lock.
@@ -257,7 +252,7 @@ func NewAlphaVantage() *AlphaVantage {
 		name:         "Alpha Vantage",
 		providerType: stockETFType,
 		ttl:          providerTTL,
-		client:       &http.Client{Timeout: providerTimeout},
+		client:       newProviderClient(),
 	}
 }
 
@@ -332,12 +327,7 @@ func (getter *AlphaVantage) GetPrice(
 		}
 	}
 
-	return models.Price{
-		Value:     quote,
-		Currency:  currency,
-		Source:    getter.name,
-		FetchedAt: time.Now().UTC(),
-	}, nil
+	return checkedQuote(quote, currency, getter.name)
 }
 
 type TwelveData struct{ baseGetter }
@@ -348,7 +338,7 @@ func NewTwelveData() *TwelveData {
 			name:         "Twelve Data",
 			providerType: stockETFType,
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -417,12 +407,7 @@ func (getter *TwelveData) GetPrice(ctx context.Context, instrumentID string) (mo
 		return models.Price{}, instrumentFailure(errUnknownQuoteCurrency)
 	}
 
-	return models.Price{
-		Value:     quote,
-		Currency:  currency,
-		Source:    getter.name,
-		FetchedAt: time.Now().UTC(),
-	}, nil
+	return checkedQuote(quote, currency, getter.name)
 }
 
 type Finnhub struct{ baseGetter }
@@ -433,7 +418,7 @@ func NewFinnhub() *Finnhub {
 			name:         "Finnhub",
 			providerType: stockETFType,
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -483,12 +468,7 @@ func (getter *Finnhub) GetPrice(ctx context.Context, instrumentID string) (model
 		return models.Price{}, fmt.Errorf("%w %s", errNoPriceDataFor, instrumentID)
 	}
 
-	return models.Price{
-		Value:     *result.C,
-		Currency:  currencyUSD,
-		Source:    getter.name,
-		FetchedAt: time.Now().UTC(),
-	}, nil
+	return checkedQuote(*result.C, currencyUSD, getter.name)
 }
 
 //nolint:embeddedstructfieldcheck // Keep pointer-bearing cache fields first for compact layout.
@@ -513,7 +493,7 @@ func NewPusulaPortfoy() *PusulaPortfoy {
 		name:         "Pusula Portföy",
 		providerType: "TR Fund",
 		ttl:          providerTTL,
-		client:       &http.Client{Timeout: providerTimeout},
+		client:       newProviderClient(),
 	}
 
 	return &PusulaPortfoy{baseGetter: base}
@@ -583,7 +563,7 @@ func NewGarantiBBVA() *GarantiBBVA {
 		name:         "Garanti BBVA",
 		providerType: "TR Fund",
 		ttl:          providerTTL,
-		client:       &http.Client{Timeout: providerTimeout},
+		client:       newProviderClient(),
 	}
 
 	return &GarantiBBVA{baseGetter: base}
@@ -729,7 +709,7 @@ func NewIZKOGold() *IZKOGold {
 			name:         "İZKO Gold",
 			providerType: "Gold",
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -798,7 +778,7 @@ func NewTradingViewBIST() *TradingViewBIST {
 			name:         "TradingView BIST",
 			providerType: "Gold",
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -820,7 +800,7 @@ func NewTradingViewCrypto() *TradingViewCrypto {
 			name:         "TradingView Crypto",
 			providerType: "Crypto",
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -933,6 +913,10 @@ func tradingViewQuote(
 }
 
 func checkedQuote(value float64, currency, source string) (models.Price, error) {
+	if value > maxProviderQuote {
+		return models.Price{}, errUnsafeProviderQuote
+	}
+
 	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 		return models.Price{}, errProviderReturnedAnInvalidPrice
 	}
@@ -1003,7 +987,7 @@ func NewCoinGecko() *CoinGecko {
 			name:         "CoinGecko",
 			providerType: "Crypto",
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -1063,12 +1047,7 @@ func (getter *CoinGecko) GetPrice(ctx context.Context, instrumentID string) (mod
 			return models.Price{}, fmt.Errorf("%w %s", errInvalidUSDPriceFor, instrumentID)
 		}
 
-		return models.Price{
-			Value:     data.USD,
-			Currency:  currencyUSD,
-			Source:    getter.name,
-			FetchedAt: time.Now().UTC(),
-		}, nil
+		return checkedQuote(data.USD, currencyUSD, getter.name)
 	}
 
 	return models.Price{}, fmt.Errorf("%w %s not found", errInstrument, instrumentID)
@@ -1082,7 +1061,7 @@ func NewFrankfurter() *Frankfurter {
 			name:         "Frankfurter",
 			providerType: "FX",
 			ttl:          providerTTL,
-			client:       &http.Client{Timeout: providerTimeout},
+			client:       newProviderClient(),
 		},
 	}
 }
@@ -1130,12 +1109,11 @@ func (getter *Frankfurter) GetPrice(
 			return models.Price{}, fmt.Errorf("%w %s", errInvalidTRYRateFor, instrumentID)
 		}
 
-		return models.Price{
-			Value:     rate,
-			Currency:  "TRY",
-			Source:    getter.name,
-			FetchedAt: time.Now().UTC(),
-		}, nil
+		if rate < minFXRate {
+			return models.Price{}, errUnsafeProviderQuote
+		}
+
+		return checkedQuote(rate, "TRY", getter.name)
 	}
 
 	return models.Price{}, fmt.Errorf("%w %s", errNoRateFor, instrumentID)
@@ -1158,6 +1136,10 @@ func (getter *Manual) GetPrice(ctx context.Context, instrumentID string) (models
 	quote, err := strconv.ParseFloat(instrumentID, 64)
 	if err != nil {
 		return models.Price{}, instrumentFailure(fmt.Errorf("parse manual price: %w", err))
+	}
+
+	if quote > maxProviderQuote {
+		return models.Price{}, errUnsafeProviderQuote
 	}
 
 	if quote < 0 || math.IsNaN(quote) || math.IsInf(quote, 0) {
@@ -1222,6 +1204,10 @@ func parseProviderQuote(raw string, invalidPrice error) (float64, error) {
 	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse provider quote: %w", err)
+	}
+
+	if value > maxProviderQuote {
+		return 0, errUnsafeProviderQuote
 	}
 
 	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
