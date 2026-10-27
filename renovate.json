@@ -7,12 +7,25 @@
   "packageRules": [
     {
       "description": "Docker digest updates must open PRs and pass CI before manual merge",
-      "matchDatasources": ["docker"],
-      "matchUpdateTypes": ["digest", "pinDigest"],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pinDigest"
+      ],
       "automerge": false,
       "automergeType": "pr",
       "ignoreTests": false,
       "prCreation": "immediate"
+    },
+    {
+      "description": "Review immutable GitHub Action pins; keep release comments",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true,
+      "automerge": false
     }
   ]
 }
