@@ -95,8 +95,16 @@ func TestClearHistoryRollsBackDeletionAndGeneration(t *testing.T) {
 	t.Parallel()
 
 	database := openSnapshotDatabase(t, filepath.Join(t.TempDir(), "portfolio.db"))
+	holding := createReceiptHolding()
 
-	_, err := database.ExecContext(t.Context(), `
+	err := NewHoldingService(database, nil).CreateWithIdempotencyKey(
+		t.Context(), &holding, "rollback-key",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = database.ExecContext(t.Context(), `
   INSERT INTO snapshots (total_value_try, total_value_usd, usd_try_rate, holdings_json)
    VALUES (1, 1, 1, '[]'), (2, 2, 1, '[]');
   CREATE TRIGGER reject_history_delete BEFORE DELETE ON snapshots WHEN OLD.id = 2
@@ -124,5 +132,13 @@ func TestClearHistoryRollsBackDeletionAndGeneration(t *testing.T) {
 		"SELECT generation FROM snapshot_state WHERE id = 1",
 	); got != 0 {
 		t.Errorf("generation = %d, want 0", got)
+	}
+
+	if got := countRows(
+		t,
+		NewSettingsService(database),
+		"SELECT generation FROM holding_create_receipts WHERE idempotency_key = 'rollback-key'",
+	); got != 0 {
+		t.Errorf("receipt generation = %d, want 0", got)
 	}
 }
