@@ -52,6 +52,12 @@ func (service *SnapshotService) ClearHistory(ctx context.Context) error {
 
 	for _, statement := range []string{
 		"UPDATE snapshot_state SET generation = generation + 1 WHERE id = 1",
+		// Holdings survive a history clear, so their Add receipts must remain
+		// reachable in the new generation too. Restore and ClearAllData instead
+		// discard receipts because they replace the current portfolio.
+		`UPDATE holding_create_receipts
+		 SET generation = (SELECT generation FROM snapshot_state WHERE id = 1)
+		 WHERE generation = (SELECT generation - 1 FROM snapshot_state WHERE id = 1)`,
 		"DELETE FROM snapshots",
 	} {
 		_, err = tx.ExecContext(ctx, statement)

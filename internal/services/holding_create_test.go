@@ -20,6 +20,94 @@ func createReceiptHolding() models.Holding {
 	}
 }
 
+func TestCreateReceiptSurvivesHistoryClear(t *testing.T) {
+	t.Parallel()
+	settings := openTestDB(t, "portfolio.db")
+	service := NewHoldingService(settings.db, nil)
+	snapshots := NewSnapshotService(settings.db, nil, nil)
+	original := createReceiptHolding()
+	ctx := db.WithPortfolioGeneration(t.Context(), 0)
+
+	err := service.CreateWithIdempotencyKey(ctx, &original, "history-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for generation := range int64(3) {
+		err = snapshots.ClearHistory(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		retry := createReceiptHolding()
+
+		err = service.CreateWithIdempotencyKey(ctx, &retry, "history-key")
+		if !errors.Is(err, db.ErrPortfolioChanged) {
+			t.Fatalf("stale generation retry = %v", err)
+		}
+
+		ctx = db.WithPortfolioGeneration(t.Context(), generation+1)
+
+		err = service.CreateWithIdempotencyKey(ctx, &retry, "history-key")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !reflect.DeepEqual(original, retry) {
+			t.Fatalf("history clear lost receipt: original=%+v retry=%+v", original, retry)
+		}
+
+		retry.Quantity++
+
+		err = service.CreateWithIdempotencyKey(ctx, &retry, "history-key")
+		if !errors.Is(err, ErrHoldingIdempotencyConflict) {
+			t.Fatalf("changed payload after history clear = %v", err)
+		}
+	}
+
+	if got := countRows(t, settings, "SELECT COUNT(*) FROM holdings"); got != 1 {
+		t.Fatalf("history clear allowed duplicate holdings: %d", got)
+	}
+}
+
+func TestHistoryClearKeepsObsoleteReceiptsUnreachable(t *testing.T) {
+	t.Parallel()
+	settings := openTestDB(t, "portfolio.db")
+	service := NewHoldingService(settings.db, nil)
+	original := createReceiptHolding()
+
+	err := service.CreateWithIdempotencyKey(t.Context(), &original, "old-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Model a history clear performed before receipts were carried forward.
+	_, err = settings.db.ExecContext(t.Context(),
+		"UPDATE snapshot_state SET generation = 1 WHERE id = 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current := createReceiptHolding()
+
+	err = service.CreateWithIdempotencyKey(t.Context(), &current, "old-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = NewSnapshotService(settings.db, nil, nil).ClearHistory(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	retry := createReceiptHolding()
+
+	err = service.CreateWithIdempotencyKey(t.Context(), &retry, "old-key")
+	if err != nil || !reflect.DeepEqual(current, retry) {
+		t.Fatalf("current receipt was lost or replaced by obsolete receipt: %+v, %v", retry, err)
+	}
+}
+
 func TestCreateReceiptSurvivesRestartAndDeletion(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "portfolio.db")
