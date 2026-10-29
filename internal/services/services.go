@@ -428,16 +428,19 @@ func (service *SnapshotService) CreateSnapshot(ctx context.Context) error {
 }
 
 // SQLite parses ISO timestamps directly; older drivers wrote Go time.String values.
+// Normalize comma fractional seconds accepted by Go before SQLite date parsing.
 // The fallback extracts their numeric offset and ignores the redundant zone label.
 const snapshotTimeCTE = `WITH snapshot_times AS (
  SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
  usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count,
+ replace(timestamp, ',', '.') AS normalized_timestamp,
  instr(substr(timestamp, 12), ' ') + 11 AS zone_at FROM snapshots
 ), ordered_snapshots AS (
  SELECT id, timestamp, created_at, holdings_json, total_value_try, total_value_usd,
- usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count, COALESCE(julianday(timestamp), julianday(
-  substr(timestamp, 1, zone_at - 1) || substr(timestamp, zone_at + 1, 3) || ':' ||
-  substr(timestamp, zone_at + 4, 2))) AS instant FROM snapshot_times
+ usd_try_rate, total_value_eur, eur_try_rate, stale_count, failed_count,
+ COALESCE(julianday(normalized_timestamp), julianday(
+  substr(normalized_timestamp, 1, zone_at - 1) || substr(normalized_timestamp, zone_at + 1, 3) || ':' ||
+  substr(normalized_timestamp, zone_at + 4, 2))) AS instant FROM snapshot_times
 ) `
 
 func (service *SnapshotService) GetSnapshots(
