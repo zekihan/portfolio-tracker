@@ -142,6 +142,12 @@ func validateRestoreHolding(rows *sqlx.Rows) error {
 		return fmt.Errorf("%w: manual price", ErrIncompatibleBackup)
 	}
 
+	// Finite inputs can still overflow when the portfolio values the position.
+	if !restoreNonnegative(holding.Quantity*holding.EstPrice) ||
+		(holding.ManualPrice.Valid && !restoreNonnegative(holding.Quantity*holding.ManualPrice.Float64)) {
+		return fmt.Errorf("%w: holding valuation overflow", ErrIncompatibleBackup)
+	}
+
 	return nil
 }
 
