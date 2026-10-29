@@ -20,7 +20,7 @@ func (handler *Handler) patchHolding(writer http.ResponseWriter, request *http.R
 
 	err = decodeJSON(request, &patch)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}

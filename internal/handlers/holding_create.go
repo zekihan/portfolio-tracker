@@ -42,7 +42,7 @@ func (handler *Handler) createHolding(writer http.ResponseWriter, request *http.
 
 	err := decodeJSON(request, &holding)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}
