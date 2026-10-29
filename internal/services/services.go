@@ -35,11 +35,7 @@ func (service *HoldingService) GetAll(ctx context.Context) ([]models.Holding, er
 	err := service.db.SelectContext(
 		ctx,
 		&holdings,
-		`SELECT updated_at, created_at, manual_price_at,
-COALESCE(price_provider, '') AS price_provider, COALESCE(instrument_id, '') AS instrument_id,
-base_currency, COALESCE(basket, '') AS basket, COALESCE(location, '') AS location,
-COALESCE(notes, '') AS notes, name, asset_type, COALESCE(ticker, '') AS ticker,
-manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings ORDER BY created_at DESC`,
+		"SELECT "+holdingColumns+" FROM holdings ORDER BY created_at DESC",
 	)
 
 	return holdings, wrapOperationError("GetAll", err)
@@ -51,11 +47,7 @@ func (service *HoldingService) GetByID(ctx context.Context, id int) (*models.Hol
 	err := service.db.GetContext(
 		ctx,
 		&holding,
-		`SELECT updated_at, created_at, manual_price_at,
-COALESCE(price_provider, '') AS price_provider, COALESCE(instrument_id, '') AS instrument_id,
-base_currency, COALESCE(basket, '') AS basket, COALESCE(location, '') AS location,
-COALESCE(notes, '') AS notes, name, asset_type, COALESCE(ticker, '') AS ticker,
-manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings WHERE id = ?`,
+		"SELECT "+holdingColumns+" FROM holdings WHERE id = ?",
 		id,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -63,37 +55,6 @@ manual_price, id, quantity, COALESCE(est_price, 0) AS est_price FROM holdings WH
 	}
 
 	return &holding, wrapOperationError("GetByID", err)
-}
-
-func (service *HoldingService) Update(ctx context.Context, holding *models.Holding) error {
-	if service.priceSvc != nil && holding.PriceProvider != "" &&
-		!service.priceSvc.HasProvider(holding.PriceProvider) {
-		return price.ErrUnknownProvider
-	}
-
-	holding.UpdatedAt = time.Now().UTC()
-	result, err := db.ExecPortfolioMutation(ctx, service.db, `
-                UPDATE holdings SET name = ?, ticker = ?, asset_type = ?, quantity = ?,
-price_provider = ?, instrument_id = ?, base_currency = ?, basket = ?, location = ?, notes = ?,
-est_price = ?, updated_at = ?
-		WHERE id = ?
-	`,
-		holding.Name,
-		holding.Ticker,
-		holding.AssetType,
-		holding.Quantity,
-		holding.PriceProvider,
-		holding.InstrumentID,
-		holding.BaseCurrency,
-		holding.Basket,
-		holding.Location,
-		holding.Notes,
-		holding.EstPrice,
-		holding.UpdatedAt,
-		holding.ID,
-	)
-
-	return holdingMutationResult("Update", result, err)
 }
 
 func (service *HoldingService) UpdateEstPrice(ctx context.Context, id int, estPrice float64) error {
