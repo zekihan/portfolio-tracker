@@ -358,7 +358,7 @@ func (handler *Handler) updateHolding(writer http.ResponseWriter, request *http.
 
 	err = decodeJSON(request, &holding)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}
@@ -649,7 +649,7 @@ func (handler *Handler) testProvider(writer http.ResponseWriter, request *http.R
 
 	err := decodeJSON(request, &req)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}
@@ -710,7 +710,7 @@ func (handler *Handler) updateHoldingProvider(writer http.ResponseWriter, reques
 
 	err = decodeJSON(request, &req)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}
@@ -765,7 +765,7 @@ func (handler *Handler) updateCurrency(writer http.ResponseWriter, request *http
 
 	err := decodeJSON(request, &req)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}
@@ -796,7 +796,7 @@ func (handler *Handler) updateDarkMode(writer http.ResponseWriter, request *http
 
 	err := decodeJSON(request, &req)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}
@@ -827,7 +827,7 @@ func (handler *Handler) updateRefreshInterval(writer http.ResponseWriter, reques
 
 	err := decodeJSON(request, &req)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}

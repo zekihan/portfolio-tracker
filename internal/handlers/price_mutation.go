@@ -21,7 +21,7 @@ func updateHoldingPrice(writer http.ResponseWriter, request *http.Request,
 
 	err = decodeJSON(request, &fields)
 	if err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+		respondJSONDecodeError(writer, err)
 
 		return
 	}

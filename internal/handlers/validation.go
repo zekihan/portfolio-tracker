@@ -132,3 +132,15 @@ func validationMessage(typeName, fieldName, rule string) string {
 	return fmt.Sprintf("Key: '%s' Error:Field validation for '%s' failed on the '%s' tag",
 		key, fieldName, rule)
 }
+
+// Preserve the size-limit status for streaming bodies as well as declared lengths.
+func respondJSONDecodeError(writer http.ResponseWriter, err error) {
+	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+		writeJSON(writer, http.StatusRequestEntityTooLarge,
+			map[string]any{errorKey: "request body too large"})
+
+		return
+	}
+
+	writeJSON(writer, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+}
