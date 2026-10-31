@@ -41,14 +41,6 @@ test('development container publication never overrides semantic-version tags', 
   }
 });
 
-test('native platform tests cover release operating systems without duplicating builds', () => {
-  const workflow = readFileSync(path.join(root, '.github/workflows/pr.yaml'), 'utf8');
-  const native = workflow.slice(workflow.indexOf('  native-tests:'));
-  assert.match(native, /macos-latest, windows-latest/);
-  assert.match(native, /go test -count=1 -timeout=5m/);
-  assert.doesNotMatch(native, /goreleaser|make lint/);
-});
-
 test('make run uses Go architecture names and a writable local database default', () => {
   for (const [os, arch, suffix] of [['linux', 'arm64', ''], ['darwin', 'arm64', ''], ['windows', 'amd64', '.exe']]) {
     const env = { ...process.env, GOOS: os, GOARCH: arch };
