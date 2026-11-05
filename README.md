@@ -353,3 +353,5 @@ workflow's `GITHUB_TOKEN`. README changes on `main` update the Docker Hub descri
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE).
+
+Publishing and manual recovery: [Publishing](docs/publishing.md).

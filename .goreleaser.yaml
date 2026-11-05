@@ -62,7 +62,7 @@ checksum:
 
 changelog:
   disable: false
-  use: github
+  use: git
   sort: asc
   groups:
     - title: Features
@@ -89,14 +89,14 @@ release:
   disable: false
   draft: false
   replace_existing_draft: true
-  prerelease: auto
+  prerelease: false
   make_latest: true
   mode: keep-existing
   footer: |
     Docker images
     ---
-    - `docker pull docker.io/zekihan/{{ .ProjectName }}:v{{.Version}}`
-    - `docker pull ghcr.io/zekihan/{{ .ProjectName }}:v{{.Version}}`
+    - `docker pull docker.io/zekihan/{{ .ProjectName }}:{{.Version}}`
+    - `docker pull ghcr.io/zekihan/{{ .ProjectName }}:{{.Version}}`
 
 metadata:
   mod_timestamp: "{{ .CommitTimestamp }}"

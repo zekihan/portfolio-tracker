@@ -68,7 +68,7 @@ build/release/docker:
 	GORELEASER_CURRENT_TAG=v$(RELEASE_VERSION) goreleaser build --clean --id docker --skip=validate
 
 release:
-	goreleaser release --clean
+	goreleaser release --clean --skip=publish,announce
 
 container-test: build/docker
 	./scripts/container_smoke.sh

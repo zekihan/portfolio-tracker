@@ -5,7 +5,7 @@ COPY dist/portfolio-tracker_${TARGETOS}_${TARGETARCH}/portfolio-tracker /portfol
 
 RUN mkdir -p /data /tmp && chmod 755 /data && chmod 1777 /tmp
 
-FROM ghcr.io/zekihan/distroless:v1.0.0@sha256:86ec8fd90f9ce70e7ff520e4052f9f611bfe135b86e7e6855940a1e3849422cb AS final
+FROM ghcr.io/zekihan/distroless:1.0.0-r1@sha256:af9aab3cd99d1f40bca0b21ec21fe4da082422a5bc148b152c35a45802c69a2a AS final
 COPY --from=build --chown=25110:25110 /data /data
 COPY --from=build --chmod=1777 /tmp /tmp
 WORKDIR /app
