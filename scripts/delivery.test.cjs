@@ -30,15 +30,15 @@ test('release tags must exactly match VERSION', () => {
   }
 });
 
-test('development container publication never overrides semantic-version tags', () => {
-  const workflow = readFileSync(path.join(root, '.github/workflows/docker_release.yaml'), 'utf8');
-  assert.match(workflow, /tags: \['v\*\.\*\.\*'\]/);
-  assert.match(workflow, /check_release_tag\.sh/);
-  assert.match(workflow, /type=sha,format=long/);
-  assert.doesNotMatch(workflow, /value=\$\{\{ steps\.version/);
-  for (const line of workflow.split('\n').filter(line => line.includes('type=semver'))) {
-    assert.ok(!line.includes('value='), 'semver tags must derive only from Git tags');
-  }
+test('development and stable publication use the same pinned guarded publisher', () => {
+  const workflow = readFileSync(path.join(root, '.github/workflows/release.yaml'), 'utf8');
+  const refs = [...workflow.matchAll(/uses: zekihan\/release-workflows\/\.github\/workflows\/(decide|image|release)\.yaml@([0-9a-f]{40})/g)];
+  assert.equal(refs.length, 3);
+  assert.equal(new Set(refs.map(match => match[2])).size, 1);
+  assert.match(workflow, /startsWith\(github.ref, 'refs\/tags\/'\) && 'release' \|\| 'edge'/);
+  assert.match(workflow, /publishing: true/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.doesNotMatch(workflow, /type=semver|type=sha|push: true/);
 });
 
 test('make run uses Go architecture names and a writable local database default', () => {
