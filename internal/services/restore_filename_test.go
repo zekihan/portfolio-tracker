@@ -22,7 +22,7 @@ func TestBackupRestorePreservesNativeFilename(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	err = target.restoreForTest(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ VALUES (50, 'Deleted', 'Cash'); DELETE FROM holdings WHERE id = 50`)
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -95,7 +95,7 @@ holdings_json = '[{"id":1,"value_eur":`+value+`}]'`)
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}

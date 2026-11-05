@@ -28,7 +28,7 @@ func TestNullableLegacyHoldingsRemainReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	err = target.restoreForTest(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ INSERT INTO snapshots (total_value_try,total_value_usd,usd_try_rate,holdings_jso
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,7 +187,7 @@ UPDATE sqlite_sequence SET seq = 'bad' WHERE name = 'holdings'`,
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	err = target.restoreForTest(t.Context(), path)
 	if !errors.Is(err, ErrIncompatibleBackup) {
 		t.Fatalf("RestoreFrom = %v", err)
 	}

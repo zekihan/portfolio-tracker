@@ -87,7 +87,7 @@ func TestRestoreRecoversIdentitiesAfterLegacyRestoreChain(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), secondPath)
+			err = target.restoreForTest(t.Context(), secondPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -242,7 +242,7 @@ UPDATE sqlite_sequence SET seq = 1 WHERE name = 'holdings'`, wantID: 126},
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -284,7 +284,7 @@ UPDATE price_cache SET id = 75`)
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}

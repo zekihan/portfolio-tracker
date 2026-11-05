@@ -71,7 +71,7 @@ func TestRestoreReplacesLiveData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), backupPath)
+	err = target.restoreForTest(t.Context(), backupPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestRestoreRejectsIncompatibleBackupWithoutChangingData(t *testing.T) {
 	}
 
 	for _, path := range []string{wrongVersion, notSQLite} {
-		restoreErr := target.RestoreFrom(t.Context(), path)
+		restoreErr := target.restoreForTest(t.Context(), path)
 		if restoreErr == nil {
 			t.Fatalf("RestoreFrom(%s) error = nil, want error", filepath.Base(path))
 		}

@@ -408,7 +408,7 @@ func restoreReceiptFixture(t *testing.T, target *SettingsService, operation stri
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(db.WithPortfolioGeneration(t.Context(), 0), backup)
+	err = target.restoreForTest(db.WithPortfolioGeneration(t.Context(), 0), backup)
 	if err != nil {
 		t.Fatal(err)
 	}

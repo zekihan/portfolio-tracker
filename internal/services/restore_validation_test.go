@@ -67,7 +67,7 @@ func TestRestoreRejectsInvalidDataAtomically(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if !errors.Is(err, ErrIncompatibleBackup) {
 				t.Fatalf("RestoreFrom error = %v; want ErrIncompatibleBackup", err)
 			}
@@ -160,7 +160,7 @@ func TestRestoreValidLegacyData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	err = target.restoreForTest(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

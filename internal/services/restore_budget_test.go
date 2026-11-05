@@ -3,9 +3,18 @@ package services
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+var restoreRowCountFixture struct {
+	err  error
+	data []byte
+	once sync.Once
+}
 
 func TestRestoreRejectsJSONResourceAmplification(t *testing.T) {
 	t.Parallel()
@@ -130,6 +139,36 @@ func TestRestoreRejectsSQLiteValueBeforeStructScan(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+
+			if name == "row count" {
+				restoreRowCountFixture.once.Do(func() {
+					source := openTestDB(t, "source.db")
+					seedRestoreValidationData(t, source, "Backup")
+					execRestoreFixture(t, source, query)
+					path := filepath.Join(t.TempDir(), "fixture.db")
+
+					restoreRowCountFixture.err = source.Backup(t.Context(), path)
+					if restoreRowCountFixture.err == nil {
+						restoreRowCountFixture.data, restoreRowCountFixture.err = os.ReadFile(path)
+					}
+				})
+
+				if restoreRowCountFixture.err != nil {
+					t.Fatal(restoreRowCountFixture.err)
+				}
+
+				path := filepath.Join(t.TempDir(), "fixture.db")
+
+				err := os.WriteFile(path, restoreRowCountFixture.data, 0o600)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				assertBackupPathRejectedAtomically(t, path)
+
+				return
+			}
+
 			source := openTestDB(t, "source.db")
 			seedRestoreValidationData(t, source, "Backup")
 			execRestoreFixture(t, source, query)

@@ -51,7 +51,7 @@ func TestCanceledRestoreAllowsRetryAndPreservesConnection(t *testing.T) {
 
 			target := NewSettingsService(database)
 
-			restoreErr := target.RestoreFrom(t.Context(), backup)
+			restoreErr := target.restoreForTest(t.Context(), backup)
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}
@@ -149,13 +149,27 @@ func checkCanceledRestoreRetries(t *testing.T, target *SettingsService, backup s
 	canceled := 0
 
 	for attempt := range 12 {
-		ctx, cancel := context.WithTimeout(
-			t.Context(),
-			time.Duration(attempt)*100*time.Microsecond,
-		)
-		restoreErr := target.RestoreFrom(ctx, backup)
+		restoreErr := func() error {
+			restoreTestSlot.Lock()
+			defer restoreTestSlot.Unlock()
 
-		cancel()
+			ctx, cancel := context.WithTimeout(
+				t.Context(),
+				time.Duration(attempt)*100*time.Microsecond,
+			)
+			defer cancel()
+
+			err := target.RestoreFrom(ctx, backup)
+
+			select {
+			case restoreWorkerSlot <- struct{}{}:
+				<-restoreWorkerSlot
+			default:
+				t.Fatal("canceled restore leaked worker slot")
+			}
+
+			return err
+		}()
 
 		if errors.Is(restoreErr, context.DeadlineExceeded) {
 			canceled++
@@ -174,14 +188,18 @@ func checkCanceledRestoreRetries(t *testing.T, target *SettingsService, backup s
 		); count != 0 {
 			t.Fatal("canceled restore leaked attached source")
 		}
-
-		restoreErr = target.RestoreFrom(t.Context(), backup)
-		if restoreErr != nil {
-			t.Fatalf("retry %d: %v", attempt, restoreErr)
-		}
 	}
 
 	if canceled == 0 {
 		t.Fatal("no cancellation exercised")
+	}
+
+	err := target.restoreForTest(t.Context(), backup)
+	if err != nil {
+		t.Fatalf("retry after cancellations: %v", err)
+	}
+
+	if count := countRows(t, target, "SELECT COUNT(*) FROM holdings"); count != 1000 {
+		t.Fatalf("retry restored %d holdings; want 1000", count)
 	}
 }

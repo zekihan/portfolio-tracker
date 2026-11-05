@@ -117,7 +117,7 @@ func runSnapshotReplacement(t *testing.T, operation string) {
 	case "history":
 		err = NewSnapshotService(second, nil, nil).ClearHistory(t.Context())
 	case "restore":
-		err = settings.RestoreFrom(t.Context(), backupPath)
+		err = settings.restoreForTest(t.Context(), backupPath)
 	case "stolen lease":
 		_, err = second.ExecContext(
 			t.Context(),
