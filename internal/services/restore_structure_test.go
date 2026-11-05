@@ -113,8 +113,6 @@ func TestRestoreRejectsExhaustedOrInvalidIdentities(t *testing.T) {
 
 func assertBackupRejectedAtomically(t *testing.T, source *SettingsService) {
 	t.Helper()
-	target := openTestDB(t, "target.db")
-	seedRestoreValidationData(t, target, "Live")
 	path := filepath.Join(t.TempDir(), "backup.db")
 
 	err := source.Backup(t.Context(), path)
@@ -122,7 +120,15 @@ func assertBackupRejectedAtomically(t *testing.T, source *SettingsService) {
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	assertBackupPathRejectedAtomically(t, path)
+}
+
+func assertBackupPathRejectedAtomically(t *testing.T, path string) {
+	t.Helper()
+	target := openTestDB(t, "target.db")
+	seedRestoreValidationData(t, target, "Live")
+
+	err := target.restoreForTest(t.Context(), path)
 	if !errors.Is(err, ErrIncompatibleBackup) {
 		t.Fatalf("RestoreFrom error = %v; want ErrIncompatibleBackup", err)
 	}
@@ -168,7 +174,7 @@ BEGIN UPDATE holdings SET quantity = -1 WHERE id = NEW.id; END`)
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	err = target.restoreForTest(t.Context(), path)
 	if !errors.Is(err, ErrIncompatibleBackup) {
 		t.Fatalf("RestoreFrom error = %v; want ErrIncompatibleBackup", err)
 	}
@@ -195,7 +201,7 @@ func TestRestoreRollsBackLateCopyFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = target.RestoreFrom(t.Context(), path)
+	err = target.restoreForTest(t.Context(), path)
 	if !errors.Is(err, ErrIncompatibleBackup) {
 		t.Fatalf("RestoreFrom error = %v; want ErrIncompatibleBackup", err)
 	}
@@ -218,7 +224,7 @@ func TestRestoreCancellationLeavesLiveDataUnchanged(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err = target.RestoreFrom(ctx, path)
+	err = target.restoreForTest(ctx, path)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RestoreFrom error = %v; want context.Canceled", err)
 	}

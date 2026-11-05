@@ -48,7 +48,7 @@ VALUES ('Frankfurter', 'USD', 40, 'TRY', 'test', ?, '')`, time.Now().UTC().Add(t
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if !errors.Is(err, ErrIncompatibleBackup) {
 				t.Fatalf(
 					"RestoreFrom error = %v; want ErrIncompatibleBackup for unvaluatable holding",
@@ -80,7 +80,7 @@ func TestRestoreAcceptsFiniteHoldingProducts(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err = target.RestoreFrom(t.Context(), path)
+			err = target.restoreForTest(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}

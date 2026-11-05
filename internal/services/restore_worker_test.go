@@ -30,6 +30,9 @@ func TestRestoreUntrustedValidationDoesNotAcquireLiveConnection(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	// Keep the only live connection in use while the real worker rejects the
 	// upload. Validation in the server would block here until the timeout.
+	restoreTestSlot.Lock()
+	defer restoreTestSlot.Unlock()
+
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
