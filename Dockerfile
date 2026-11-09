@@ -22,6 +22,6 @@ LABEL org.opencontainers.image.authors="zekihan@noqer.com" \
       org.opencontainers.image.documentation="https://github.com/zekihan/portfolio-tracker#readme" \
       org.opencontainers.image.vendor="Zekihan AZMAN" \
       org.opencontainers.image.source="https://github.com/zekihan/portfolio-tracker" \
-      org.opencontainers.image.licenses="AGPL-3.0" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.title="portfolio-tracker" \
       org.opencontainers.image.description="Self-hosted personal portfolio tracker"
