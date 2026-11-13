@@ -1,6 +1,6 @@
 module github.com/zekihan/portfolio-tracker
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/jmoiron/sqlx v1.4.0
