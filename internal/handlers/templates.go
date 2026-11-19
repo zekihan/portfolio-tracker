@@ -116,7 +116,10 @@ func (handler *Handler) renderPageStatus(writer http.ResponseWriter, request *ht
 		data["Settings"] = settings
 	}
 
-	data["DisplayCurrency"] = handler.pageCurrency(request)
+	if _, selected := data["DisplayCurrency"]; !selected {
+		data["DisplayCurrency"] = handler.pageCurrency(request)
+	}
+
 	data["BuildInfo"] = "Development build"
 
 	if build, ok := debug.ReadBuildInfo(); ok {
