@@ -44,7 +44,14 @@
                 <header class="card-header">
                     <h3>{{if .Data.EstimatedValuationComplete}}Estimated Value{{else}}Partial Estimated Value{{end}}</h3>
                     <span class="badge badge-info" id="coverage-badge">
-                        Estimated prices: {{if .Data.TotalHoldings}}{{coveragePercent .Data.CoverageCount .Data.TotalHoldings | printf "%.0f"}}% ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}}){{else}}N/A{{end}}
+                        Estimated prices:
+                        {{if .Data.TotalHoldings}}
+                            {{- $coverage := coveragePercent .Data.CoverageCount .Data.TotalHoldings}}
+                            {{if and .Data.CoverageCount (lt $coverage 1)}}&lt;1%
+                            {{- else if and (ne .Data.CoverageCount .Data.TotalHoldings) (gt $coverage 99)}}&gt;99%
+                            {{- else}}{{printf "%.0f" $coverage}}%
+                            {{- end}} ({{.Data.CoverageCount}}/{{.Data.TotalHoldings}})
+                        {{else}}N/A{{end}}
                     </span>
                 </header>
                 <div class="value-main">

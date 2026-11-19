@@ -15,6 +15,50 @@ import (
 	"github.com/zekihan/portfolio-tracker/internal/services"
 )
 
+func TestDashboardEstimateCoverageDistinguishesPartialFromEndpoints(t *testing.T) {
+	t.Chdir("../..")
+
+	handler := New(nil, nil, nil, nil)
+	_ = handler.SetupRoutes()
+
+	for _, test := range []struct {
+		name    string
+		want    string
+		covered int
+		total   int
+	}{
+		{name: "no holdings", want: "N/A"},
+		{name: "none covered", want: "0% (0/200)", total: 200},
+		{name: "below one percent", want: "&lt;1% (1/200)", covered: 1, total: 200},
+		{name: "half covered", want: "50% (100/200)", covered: 100, total: 200},
+		{name: "above 99 percent", want: "&gt;99% (199/200)", covered: 199, total: 200},
+		{name: "all covered", want: "100% (200/200)", covered: 200, total: 200},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.renderer.render(response, http.StatusOK, "dashboard.html", map[string]any{
+				"DisplayCurrency": "TRY",
+				"Data": models.DashboardData{
+					CoverageCount: test.covered, TotalHoldings: test.total,
+					ValuationComplete: true, EstimatedValuationComplete: true,
+				},
+			})
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("dashboard status = %d, want 200", response.Code)
+			}
+
+			body := strings.Join(strings.Fields(response.Body.String()), " ")
+			_, badge, _ := strings.Cut(body, `id="coverage-badge"> `)
+
+			got, _, _ := strings.Cut(badge, " </span>")
+			if want := "Estimated prices: " + test.want; got != want {
+				t.Errorf("coverage badge = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestEstimatedTotalPagesAndAPIUseCurrentPriceFallback(t *testing.T) {
 	t.Chdir("../..")
 

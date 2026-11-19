@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
+
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/models"
 	"github.com/zekihan/portfolio-tracker/internal/price"
@@ -32,6 +35,7 @@ func TestHoldingDialogs(t *testing.T) {
 	holding.AssetType = models.AssetTypeStock
 	holding.BaseCurrency = "USD"
 	holding.PriceProvider = "Yahoo Finance"
+	holding.Notes = "\n\nFirst line\n<example> & second line"
 
 	holding.Quantity = 0.000001
 
@@ -78,6 +82,36 @@ func TestHoldingDialogs(t *testing.T) {
 			if test.status == http.StatusOK && !strings.Contains(body, "</form>") {
 				t.Error("incomplete dialog")
 			}
+
+			if test.path == "/partials/holding-form/1" ||
+				test.path == "/partials/holding-duplicate/1" {
+				checkHoldingDialogNotes(t, body, holding.Notes)
+			}
 		})
 	}
+}
+
+func checkHoldingDialogNotes(t *testing.T, body, want string) {
+	t.Helper()
+
+	root, err := html.Parse(strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for node := range root.Descendants() {
+		if node.DataAtom == atom.Textarea {
+			if node.FirstChild == nil {
+				t.Fatal("holding notes textarea is empty")
+			}
+
+			if got := node.FirstChild.Data; got != want {
+				t.Errorf("holding notes textarea = %q, want %q", got, want)
+			}
+
+			return
+		}
+	}
+
+	t.Fatal("holding notes textarea is missing")
 }
