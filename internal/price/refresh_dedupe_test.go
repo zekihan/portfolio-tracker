@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -120,4 +121,39 @@ func TestRefreshAllDeduplicatesProviderInstruments(t *testing.T) {
 	if calls := getter.calls.Load(); calls != 4 {
 		t.Errorf("second refresh fetched %d total times, want 4", calls)
 	}
+}
+
+func TestRefreshAllDeduplicatesTradingViewAliases(t *testing.T) {
+	t.Parallel()
+
+	getter, _, calls := tradingViewCacheGetter(t)
+	other := &countingRefreshGetter{Getter: NewManual()}
+	service := newRefreshTestService(t, getter, other)
+	holdings := []models.Holding{{PriceProvider: getter.Name(), InstrumentID: "TUSD-USD"}}
+
+	// Place both aliases on the same worker so their refreshes cannot overlap.
+	for index := 1; index < maxConcurrentFetches; index++ {
+		holdings = append(holdings, models.Holding{
+			PriceProvider: other.Name(), InstrumentID: strconv.Itoa(index),
+		})
+	}
+
+	holdings = append(holdings, models.Holding{
+		PriceProvider: getter.Name(), InstrumentID: "CRYPTO:TUSDUSD",
+	})
+
+	err := service.RefreshAll(t.Context(), holdings)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if count := calls.Load(); count != 1 {
+		t.Errorf("TrueUSD aliases fetched %d times, want 1", count)
+	}
+
+	if count := other.calls.Load(); count != maxConcurrentFetches-1 {
+		t.Errorf("other instruments fetched %d times, want %d", count, maxConcurrentFetches-1)
+	}
+
+	assertTradingViewCachedAliases(t, service)
 }
