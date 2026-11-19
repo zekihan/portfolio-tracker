@@ -68,3 +68,26 @@ func TestPusulaValidatesQuotes(t *testing.T) {
 		})
 	}
 }
+
+func TestPusulaMalformedFundPriceDoesNotBlockOtherFunds(t *testing.T) {
+	t.Parallel()
+
+	getter := NewPusulaPortfoy()
+	getter.client.Transport = failureBodyTransport{body: `{"items":[
+		{"abbreviation":"BAD","fundPrice":""},
+		{"abbreviation":"GOOD","fundPrice":"25.5"}
+	]}`}
+	service := newRefreshTestService(t, getter)
+
+	for range breakerFailureThreshold {
+		_, err := service.getPrice(t.Context(), getter.Name(), "BAD", true)
+		if err == nil {
+			t.Fatal("refresh accepted a fund with a missing price")
+		}
+	}
+
+	quote, err := service.getPrice(t.Context(), getter.Name(), "GOOD", true)
+	if err != nil || quote.Value != 25.5 || quote.Currency != "TRY" {
+		t.Fatalf("refresh of valid fund = %+v, %v", quote, err)
+	}
+}

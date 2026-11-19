@@ -441,7 +441,10 @@ func (service *Service) refreshHoldings(ctx context.Context, holdings []models.H
 	for index := range holdings {
 		holding := &holdings[index]
 
-		key := refreshKey{provider: holding.PriceProvider, instrument: holding.InstrumentID}
+		key := refreshKey{
+			provider:   holding.PriceProvider,
+			instrument: safeQuoteInstrument(holding.PriceProvider, holding.InstrumentID),
+		}
 		if key.provider == "" || key.provider == manualProviderName || key.instrument == "" ||
 			seen[key] {
 			continue
