@@ -654,9 +654,9 @@ function inlineRaceHarness() {
   };
   h.notice = h.document.createElement('div');
   elements['toast-container'] = h.notice;
-  h.edit = (field = 'quantity', value = '10', id = String(cells.length + 1)) => {
+  h.edit = (field = 'quantity', value = '10', id = String(cells.length + 1), baseCurrency = 'TRY') => {
     const td = h.document.createElement('td');
-    td.dataset = { field, sortValue: value, editValue: value };
+    td.dataset = { field, sortValue: value, editValue: value, baseCurrency };
     td.textContent = value;
     td.closest = () => ({ dataset: { id } });
     cells.push(td);
@@ -752,12 +752,35 @@ test('inline happy path displays only the accepted value and schedules one safe 
   assert.equal(edit.td.attrs['aria-busy'], 'true');
   h.pending[0].resolve({ ok: true }); await flush();
   assert.equal(edit.td.dataset.sortValue, '20');
-  assert.equal(edit.td.textContent, Number(20).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }));
+  assert.equal(edit.td.textContent, '20');
   assert.equal(edit.td.attrs['aria-busy'], undefined);
   assert.equal(h.document.activeElement, edit.td);
   assert.equal(h.reloads, 0);
   h.runTimers(); h.runTimers();
   assert.equal(h.reloads, 1);
+});
+
+test('saved inline numbers retain their holding cell format while a draft defers reload', async t => {
+  for (const [name, field, entered, saved, display] of [
+    ['fractional quantity', 'quantity', '1e-9', 1e-9, '0.000000001'],
+    ['estimate in base currency', 'est_price', '1234.5', 1234.5, '€ 1,234.50'],
+    ['cleared estimate', 'est_price', '', 0, '—']
+  ]) {
+    await t.test(name, async () => {
+      const h = inlineRaceHarness();
+      h.app.state().displayCurrency = 'USD';
+      const edit = h.edit(field, '10', '42', 'EUR');
+      h.save(edit, entered);
+      const draft = h.edit('notes', 'Before');
+      draft.input.value = 'Unsaved note';
+      assert.deepEqual(JSON.parse(h.pending[0].options.body), { [field]: saved });
+      h.pending[0].resolve({ ok: true });
+      await flush();
+      h.runTimers();
+      assert.equal(h.reloads, 0);
+      assert.equal(edit.td.textContent, display);
+    });
+  }
 });
 
 test('blank, whitespace and zero inline estimates clear with one PATCH on Enter or blur', async () => {
@@ -782,7 +805,7 @@ test('blank, whitespace and zero inline estimates clear with one PATCH on Enter 
       assert.equal(h.reloads, 0);
       h.pending[0].resolve({ ok: true }); await flush();
       assert.equal(edit.td.dataset.sortValue, '0');
-      assert.equal(edit.td.textContent, Number(0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }));
+      assert.equal(edit.td.textContent, '—');
       assert.equal(edit.td.attrs['aria-busy'], undefined);
       edit.input.blur();
       h.runTimers(); h.runTimers();
