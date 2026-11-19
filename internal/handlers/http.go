@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -41,10 +44,35 @@ func sendAttachment(
 	request *http.Request,
 	filename, downloadName string,
 ) {
+	file, err := os.Open(filename)
+	if err != nil {
+		respondInternalError(writer, request, err)
+
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		respondInternalError(writer, request, err)
+
+		return
+	}
+
 	filenameEscaper := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
-	writer.Header().
-		Set("Content-Disposition", `attachment; filename="`+filenameEscaper.Replace(downloadName)+`"`)
-	http.ServeFile(writer, request, filename)
+	headers := writer.Header()
+	headers.Set(
+		"Content-Disposition",
+		`attachment; filename="`+filenameEscaper.Replace(downloadName)+`"`,
+	)
+	headers.Set("Content-Type", "application/octet-stream")
+	headers.Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+
+	// Each backup request creates a fresh SQLite file, so it cannot resume a download.
+	_, err = io.CopyN(writer, file, info.Size())
+	if err != nil {
+		slog.ErrorContext(request.Context(), "Attachment transfer failed", slog.Any("error", err))
+	}
 }
 
 func notFound(writer http.ResponseWriter, request *http.Request) {
