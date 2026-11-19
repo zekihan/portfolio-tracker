@@ -57,17 +57,25 @@ func (service *HoldingService) CreateWithIdempotencyKey(
 		return wrapOperationError("check Create generation", err)
 	}
 
+	response := *holding
 	if key == "" {
-		err = insertHolding(ctx, tx, holding)
+		err = insertHolding(ctx, tx, &response)
 	} else {
-		err = createHoldingWithReceipt(ctx, tx, holding, key)
+		err = createHoldingWithReceipt(ctx, tx, &response, key)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	return wrapOperationError("commit Create", tx.Commit())
+	err = tx.Commit()
+	if err != nil {
+		return wrapOperationError("commit Create", err)
+	}
+
+	*holding = response
+
+	return nil
 }
 
 func (service *HoldingService) validateHoldingCreate(holding *models.Holding, key string) error {
@@ -190,9 +198,16 @@ func replayHoldingCreate(
 		return false, ErrHoldingIdempotencyConflict
 	}
 
-	err = json.Unmarshal([]byte(receipt.ResponseJSON), holding)
+	var response models.Holding
 
-	return true, wrapOperationError("decode Create receipt", err)
+	err = json.Unmarshal([]byte(receipt.ResponseJSON), &response)
+	if err != nil {
+		return false, wrapOperationError("decode Create receipt", err)
+	}
+
+	*holding = response
+
+	return true, nil
 }
 
 func insertHolding(ctx context.Context, tx *sqlx.Tx, holding *models.Holding) error {
@@ -203,27 +218,27 @@ func insertHolding(ctx context.Context, tx *sqlx.Tx, holding *models.Holding) er
 		manualPrice = holding.ManualPrice.Float64
 	}
 
-	holding.ManualPriceAt = sql.NullTime{Time: now, Valid: manualPrice > 0}
-	holding.CreatedAt = now
-	holding.UpdatedAt = now
+	manualPriceAt := sql.NullTime{Time: now, Valid: manualPrice > 0}
 
-	result, err := tx.ExecContext(ctx, `
+	var stored models.Holding
+
+	err := tx.GetContext(ctx, &stored, `
 		INSERT INTO holdings (name, ticker, asset_type, quantity, price_provider,
 		instrument_id, base_currency, basket, location, notes, est_price, manual_price, manual_price_at,
-		created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING `+holdingColumns,
 		holding.Name, holding.Ticker, holding.AssetType, holding.Quantity, holding.PriceProvider,
 		holding.InstrumentID, holding.BaseCurrency, holding.Basket, holding.Location, holding.Notes,
-		holding.EstPrice, manualPrice, holding.ManualPriceAt, holding.CreatedAt, holding.UpdatedAt)
+		holding.EstPrice, manualPrice, manualPriceAt, now, now)
 	if err != nil {
 		return wrapOperationError("Create", err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return wrapOperationError("Create", err)
-	}
-
-	holding.ID = int(id)
+	// SQLite scans a fixed-offset location while receipt JSON decodes Z as UTC.
+	stored.CreatedAt = stored.CreatedAt.UTC()
+	stored.UpdatedAt = stored.UpdatedAt.UTC()
+	stored.ManualPriceAt.Time = stored.ManualPriceAt.Time.UTC()
+	*holding = stored
 
 	return nil
 }

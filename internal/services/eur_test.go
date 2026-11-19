@@ -23,6 +23,68 @@ VALUES ('Frankfurter', 'EUR', 50, 'TRY', 'test', ?, '')`, time.Now().UTC().Add(t
 	}
 }
 
+func TestEURValuationPreservesNativeQuoteAndEstimate(t *testing.T) {
+	t.Parallel()
+	database := valuationDatabase(t)
+
+	const (
+		euroPrice    = 6.375
+		euroEstimate = 29.625
+		eurTRYRate   = 43.27
+	)
+
+	_, err := database.ExecContext(t.Context(), `
+UPDATE price_cache SET price = ? WHERE provider = 'Frankfurter' AND instrument_id = 'EUR'`, eurTRYRate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = database.ExecContext(t.Context(), `
+INSERT INTO holdings (name, asset_type, quantity, base_currency, manual_price, est_price)
+VALUES ('Euro holding', 'Stock', 1, 'EUR', ?, ?)`, euroPrice, euroEstimate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry := price.NewRegistry()
+	registry.Register(unavailableEURGetter{})
+	prices := price.NewService(database, registry)
+
+	t.Cleanup(func() { _ = prices.Close() })
+
+	service := NewHoldingService(database, prices)
+	ctx := price.WithCachedQuotesOnly(t.Context())
+
+	rows, err := service.GetWithPrices(ctx, "EUR")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("valued holdings = %+v, %v", rows, err)
+	}
+
+	row := rows[0]
+	if row.NormPriceEUR != euroPrice || row.NormTotalEUR != euroPrice ||
+		row.NormEstTotalEUR != euroEstimate {
+		t.Errorf(
+			"native EUR quote, total, estimate = %.17g, %.17g, %.17g, want %.3f, %.3f, %.3f",
+			row.NormPriceEUR,
+			row.NormTotalEUR,
+			row.NormEstTotalEUR,
+			euroPrice,
+			euroPrice,
+			euroEstimate,
+		)
+	}
+
+	data, err := service.GetDashboardData(ctx, "EUR")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if data.CurrentValueEUR != euroPrice || data.EstimatedValueEUR != euroEstimate {
+		t.Errorf("EUR dashboard rounds to %.2f current and %.2f estimated, want %.2f and %.2f",
+			data.CurrentValueEUR, data.EstimatedValueEUR, euroPrice, euroEstimate)
+	}
+}
+
 //nolint:gocyclo // End-to-end three-currency totals and persisted history contract.
 func TestEURValuationAndHistory(t *testing.T) {
 	t.Parallel()
