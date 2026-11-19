@@ -18,7 +18,7 @@ func TestFrankfurterRejectsHTTPFailures(t *testing.T) {
 				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(status)
-					_, _ = w.Write([]byte(`{"rates":{"TRY":40},"date":"2026-10-11"}`))
+					_, _ = w.Write([]byte(`{"base":"USD","rates":{"TRY":40},"date":"2026-10-11"}`))
 				}),
 			)
 			t.Cleanup(server.Close)

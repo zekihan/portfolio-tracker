@@ -1070,9 +1070,10 @@ func (getter *Frankfurter) GetPrice(
 	ctx context.Context,
 	instrumentID string,
 ) (models.Price, error) {
+	base := strings.ToUpper(strings.TrimSpace(instrumentID))
 	requestURL := fmt.Sprintf(
-		"https://api.frankfurter.dev/v1/latest?from=%s&to=TRY",
-		url.QueryEscape(instrumentID),
+		"https://api.frankfurter.dev/v1/latest?base=%s&symbols=TRY",
+		url.QueryEscape(base),
 	)
 
 	resp, err := doGet(ctx, getter.client, requestURL, nil)
@@ -1092,7 +1093,7 @@ func (getter *Frankfurter) GetPrice(
 
 	var result struct {
 		Rates map[string]float64 `json:"rates"`
-		Date  string             `json:"date"`
+		Base  string             `json:"base"`
 	}
 
 	decodeErr := json.Unmarshal(body, &result)
@@ -1105,6 +1106,14 @@ func (getter *Frankfurter) GetPrice(
 	}
 
 	if rate, ok := result.Rates["TRY"]; ok {
+		if result.Base == "" || result.Base != base {
+			return models.Price{}, fmt.Errorf(
+				"%w: expected FX base %q",
+				errMalformedProviderResponse,
+				base,
+			)
+		}
+
 		if rate <= 0 {
 			return models.Price{}, fmt.Errorf("%w %s", errInvalidTRYRateFor, instrumentID)
 		}
