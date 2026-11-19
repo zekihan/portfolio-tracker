@@ -29,6 +29,36 @@ func TestSnapshotScheduleHourly(t *testing.T) {
 	}
 }
 
+func TestSnapshotScheduleDoesNotSkipUTCHourDuringDST(t *testing.T) {
+	t.Parallel()
+
+	location, err := time.LoadLocation("Australia/Lord_Howe")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scheduler := cron.New(cron.WithLocation(location), cron.WithSeconds())
+
+	id, err := scheduler.AddFunc(snapshotSchedule, func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schedule := scheduler.Entry(id).Schedule
+	// Lord Howe advances from 02:00 to 02:30 local time at 15:30 UTC.
+	now := time.Date(2026, time.October, 3, 14, 30, 0, 0, time.UTC).In(location)
+	firstHour := now.UTC().Truncate(time.Hour).Add(time.Hour)
+
+	for _, want := range []time.Time{firstHour, firstHour.Add(time.Hour)} {
+		next := schedule.Next(now)
+		if !next.Equal(want) {
+			t.Fatalf("next snapshot after %v = %v, want %v", now.UTC(), next.UTC(), want)
+		}
+
+		now = next
+	}
+}
+
 func TestSnapshotLockEmptyPortfolio(t *testing.T) {
 	t.Parallel()
 
