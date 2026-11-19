@@ -1,10 +1,14 @@
 package price
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
+
+	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
 func TestFrankfurterRejectsInvalidRates(t *testing.T) {
@@ -15,11 +19,11 @@ func TestFrankfurterRejectsInvalidRates(t *testing.T) {
 		body    string
 		wantErr bool
 	}{
-		{name: "null", body: `{"rates":{"TRY":null}}`, wantErr: true},
-		{name: "zero", body: `{"rates":{"TRY":0}}`, wantErr: true},
-		{name: "negative", body: `{"rates":{"TRY":-40}}`, wantErr: true},
-		{name: "missing", body: `{"rates":{}}`, wantErr: true},
-		{name: "valid", body: `{"rates":{"TRY":40}}`, wantErr: false},
+		{name: "null", body: `{"base":"USD","rates":{"TRY":null}}`, wantErr: true},
+		{name: "zero", body: `{"base":"USD","rates":{"TRY":0}}`, wantErr: true},
+		{name: "negative", body: `{"base":"USD","rates":{"TRY":-40}}`, wantErr: true},
+		{name: "missing", body: `{"base":"USD","rates":{}}`, wantErr: true},
+		{name: "valid", body: `{"base":"USD","rates":{"TRY":40}}`, wantErr: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -48,6 +52,43 @@ func TestFrankfurterRejectsInvalidRates(t *testing.T) {
 
 			if !test.wantErr && (quote.Value != 40 || quote.Currency != "TRY") {
 				t.Errorf("unexpected rate: %+v", quote)
+			}
+		})
+	}
+}
+
+func TestFrankfurterRefreshPreservesRateWhenBaseIsUnverified(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct{ name, body string }{
+		{name: "wrong base", body: `{"base":"EUR","rates":{"TRY":50}}`},
+		{name: "missing base", body: `{"rates":{"TRY":50}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			getter := NewFrankfurter()
+			getter.client.Transport = failureBodyTransport{body: test.body}
+			service := newRefreshTestService(t, getter)
+			seedRecoveryFX(t, service, getter.Name(), "USD", 40, 10*time.Second)
+
+			readCtx := WithCachedQuotesOnly(t.Context())
+			before, err := service.GetUSDTTRYQuote(readCtx)
+			checkFreshFXQuote(t, &before, err, 40)
+
+			err = service.RefreshAll(t.Context(), []models.Holding{{BaseCurrency: "USD"}})
+			if !errors.Is(err, errMalformedProviderResponse) {
+				t.Errorf("refresh error = %v, want malformed response", err)
+			}
+
+			cached, err := service.GetUSDTTRYQuote(readCtx)
+			if err != nil || cached.Value != before.Value || cached.Currency != before.Currency ||
+				!cached.FetchedAt.Equal(before.FetchedAt) || !cached.IsStale || !cached.IsFailed {
+				t.Errorf(
+					"cached USD/TRY = %+v, %v; want prior rate marked stale and failed",
+					cached,
+					err,
+				)
 			}
 		})
 	}

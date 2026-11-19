@@ -1390,7 +1390,7 @@ const PortfolioApp = (function() {
         td.setAttribute('aria-busy', 'true');
         holdingWritesPending++;
         const url = `/api/holdings/${holdingId}`;
-        const data = { [field]: field === 'quantity' || field === 'est_price' ? parseFloat(newValue) : newValue };
+        const data = { [field]: numericField ? Number(newValue) : newValue };
         
         fetch(url, {
           method: 'PATCH',
@@ -1405,7 +1405,7 @@ const PortfolioApp = (function() {
           // Display the new value only after the server accepts the update.
           if (numericField) td.dataset.sortValue = newValue;
           else td.dataset.editValue = newValue;
-          finish(formatDisplayValue(newValue, field));
+          finish(formatDisplayValue(data[field], field, td.dataset.baseCurrency));
           holdingRefreshNeeded = true;
         }).catch(error => {
           if (error.reloadRequired) {
@@ -1446,10 +1446,13 @@ const PortfolioApp = (function() {
     });
   }
 
-  function formatDisplayValue(value, field) {
-    if (field === 'quantity' || field === 'est_price') {
-      const num = parseFloat(value);
-      return isNaN(num) ? '—' : num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+  function formatDisplayValue(value, field, baseCurrency) {
+    if (field === 'quantity') {
+      if (!Number.isFinite(value)) return '—';
+      return (value || 0).toLocaleString('en-US', { useGrouping: false, maximumSignificantDigits: 17 });
+    }
+    if (field === 'est_price') {
+      return value > 0 ? formatCurrency(value, baseCurrency, 'en-US') : '—';
     }
     return value || '—';
   }
@@ -1691,10 +1694,10 @@ const PortfolioApp = (function() {
     return div.innerHTML;
   }
 
-  function formatCurrency(value, currency) {
+  function formatCurrency(value, currency, locale) {
     if (value === null || value === undefined || isNaN(value)) return '—';
     const symbol = { TRY: '₺', USD: '$', EUR: '€' }[currency] || currency;
-    return `${symbol} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `${symbol} ${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   function formatCurrencyCompact(value, currency) {

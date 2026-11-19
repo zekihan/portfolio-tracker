@@ -23,17 +23,17 @@ func TestEURTRYQuoteUsesIndependentFifteenMinuteCache(t *testing.T) {
 		http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 			calls.Add(1)
 
-			if request.URL.Query().Get("to") != "TRY" {
+			if request.URL.Query().Get("symbols") != "TRY" {
 				t.Errorf("unexpected FX target: %s", request.URL)
 			}
 
 			w.Header().Set("Content-Type", "application/json")
 
-			switch request.URL.Query().Get("from") {
+			switch request.URL.Query().Get("base") {
 			case "EUR":
-				_, _ = w.Write([]byte(`{"rates":{"TRY":50}}`))
+				_, _ = w.Write([]byte(`{"base":"EUR","rates":{"TRY":50}}`))
 			case "USD":
-				_, _ = w.Write([]byte(`{"rates":{"TRY":40}}`))
+				_, _ = w.Write([]byte(`{"base":"USD","rates":{"TRY":40}}`))
 			default:
 				t.Errorf("unexpected FX base: %s", request.URL)
 				w.WriteHeader(http.StatusBadRequest)

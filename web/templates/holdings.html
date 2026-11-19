@@ -86,7 +86,7 @@
                         {{if .IsStale}}<span class="badge badge-warning">Stale price or FX</span>{{end}}
                         {{if and .ValuationAvailable (not .PriceFetchedAt.IsZero)}}<small>Quote as of {{formatTime .PriceFetchedAt}}</small>{{end}}
                     </td>
-                    <td class="numeric editable-cell" tabindex="0" data-field="est_price" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
+                    <td class="numeric editable-cell" tabindex="0" data-field="est_price" data-base-currency="{{.BaseCurrency}}" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
                     <td>{{.BaseCurrency}}</td>
                     <td class="numeric calculated-cell">{{if .ValuationAvailable}}{{formatCurrency $total $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>
                     <td class="numeric calculated-cell">{{if and (not $.ValuationUnavailable) .EstimatedValuationAvailable}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}Unavailable{{end}}</td>

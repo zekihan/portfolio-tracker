@@ -135,6 +135,10 @@ func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
 				t.Error("missing coverage counts")
 			}
 
+			if !strings.Contains(body, `data-field="est_price" data-base-currency="TRY"`) {
+				t.Error("inline estimate is missing the holding's base currency")
+			}
+
 			if strings.Contains(body, "$ 200.00") || strings.Contains(body, "$ 400.00") ||
 				strings.Contains(body, "€ 200.00") ||
 				strings.Contains(body, "€ 400.00") {

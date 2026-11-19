@@ -36,7 +36,7 @@ func TestEveryProviderRejectsLargestFiniteQuote(t *testing.T) {
 		{NewTradingViewBIST(), "TEST", `{"data":[{"s":"BIST:TEST","d":[` + extreme + `,"TRY"]}]}`},
 		{NewTradingViewCrypto(), "TEST-USD", `{"data":[{"s":"CRYPTO:TESTUSD","d":[` + extreme + `,"USD"]}]}`},
 		{NewCoinGecko(), "TEST", `{"TEST":{"usd":` + extreme + `}}`},
-		{NewFrankfurter(), "USD", `{"rates":{"TRY":` + extreme + `}}`},
+		{NewFrankfurter(), "USD", `{"base":"USD","rates":{"TRY":` + extreme + `}}`},
 		{NewManual(), extreme, ""},
 	} {
 		t.Run(test.getter.Name(), func(t *testing.T) {
