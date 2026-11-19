@@ -18,8 +18,9 @@ func configureHealthReadFailure(t *testing.T, service *Service, scenario string)
 		_, err = service.db.ExecContext(t.Context(), "DROP TABLE price_cache")
 	case "nullable error metadata":
 		_, err = service.db.ExecContext(t.Context(), `INSERT INTO price_cache
-		(provider, instrument_id, price, currency, source, error_count, last_error, expires_at)
-		VALUES ('Frankfurter', 'USD', 40, 'TRY', 'test', 1, NULL, '2000-01-01 00:00:00')`)
+		(provider, instrument_id, price, currency, source, error_count, last_error, fetched_at, expires_at)
+		VALUES ('Frankfurter', 'USD', 40, 'TRY', 'test', 1, NULL,
+		    '2000-01-01 00:00:00', '2000-01-01 00:15:00')`)
 		service.failures["Frankfurter"] = 1
 	default:
 	}
@@ -77,9 +78,16 @@ func checkLegacyHealth(t *testing.T, health []models.ProviderHealth, scenario st
 	t.Helper()
 
 	for _, provider := range health {
-		if scenario == "nullable error metadata" && provider.Name == "Frankfurter" &&
-			provider.ErrorMsg != "Provider request failed" {
-			t.Errorf("nullable diagnostic = %q", provider.ErrorMsg)
+		if scenario == "nullable error metadata" && provider.Name == "Frankfurter" {
+			if provider.ErrorMsg != "Provider request failed" {
+				t.Errorf("nullable diagnostic = %q", provider.ErrorMsg)
+			}
+
+			if provider.LastOK.IsZero() {
+				t.Error("failed refresh hid the last successful fetch")
+			}
+
+			continue
 		}
 
 		if !provider.LastOK.IsZero() {

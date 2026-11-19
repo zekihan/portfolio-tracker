@@ -130,12 +130,12 @@ key_required FROM provider_registry WHERE enabled = 1 ORDER BY name`,
 		lastFailure := service.lastErrors[provider.Name]
 		service.mu.RUnlock()
 
-		// Get last successful fetch from cache.
+		// A failed refresh can mark the cached quote without replacing its fetch time.
 		var lastOK sql.NullTime
 
 		err = service.db.GetContext(ctx, &lastOK, `
 			SELECT fetched_at FROM price_cache
-			WHERE provider = ? AND error_count = 0
+			WHERE provider = ?
 			ORDER BY fetched_at DESC LIMIT 1
 		`,
 			provider.Name,
