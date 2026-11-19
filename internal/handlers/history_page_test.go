@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zekihan/portfolio-tracker/internal/db"
@@ -68,6 +69,53 @@ func TestHistoryPageValidatesDayRange(t *testing.T) {
 					response.Body.String(),
 					test.body,
 				)
+			}
+		})
+	}
+}
+
+func TestHistoryPageSelectsRequestedDayRange(t *testing.T) {
+	t.Chdir("../..")
+
+	database, err := db.Open(filepath.Join(t.TempDir(), "portfolio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = database.Close() })
+
+	router := New(
+		services.NewHoldingService(database, nil),
+		services.NewSnapshotService(database, nil, nil),
+		services.NewSettingsService(database),
+		nil,
+	).SetupRoutes()
+
+	for _, test := range []struct {
+		query, days string
+	}{
+		{query: "", days: "365"},
+		{query: "?days=30", days: "30"},
+		{query: "?days=14", days: "14"},
+		{query: "?days=1", days: "1"},
+		{query: "?days=36500", days: "36500"},
+	} {
+		t.Run(test.days, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(
+				t.Context(), http.MethodGet, "/history"+test.query, http.NoBody,
+			)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", response.Code)
+			}
+
+			if !strings.Contains(
+				response.Body.String(),
+				`<option value="`+test.days+`" selected>`,
+			) {
+				t.Errorf("date range option %s is not selected", test.days)
 			}
 		})
 	}

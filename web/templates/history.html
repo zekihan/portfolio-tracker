@@ -16,6 +16,9 @@
                     <option value="90" {{if eq .Days 90}}selected{{end}}>3 Months</option>
                     <option value="30" {{if eq .Days 30}}selected{{end}}>1 Month</option>
                     <option value="7" {{if eq .Days 7}}selected{{end}}>1 Week</option>
+                    {{if not (eq .Days 365 180 90 30 7)}}
+                    <option value="{{.Days}}" selected>{{.Days}} Day{{if ne .Days 1}}s{{end}}</option>
+                    {{end}}
                 </select>
             </div>
             <div class="filter-group">
