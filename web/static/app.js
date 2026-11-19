@@ -648,7 +648,8 @@ const PortfolioApp = (function() {
           borderWidth: 2,
           fill: false,
           tension: 0.1,
-          pointRadius: 0,
+          pointRadius: values.map((value, index) =>
+            value !== null && values[index - 1] == null && values[index + 1] == null ? 3 : 0),
           pointHoverRadius: 4,
           spanGaps: false
         }]
