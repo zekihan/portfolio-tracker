@@ -674,19 +674,15 @@ func (service *HoldingService) normalizeCurrentHolding(
 
 	holding.EURValuationAvailable = holding.ValuationAvailable && eurRate > 0
 	if holding.ValuationAvailable {
-		holding.NormPriceTRY, holding.NormPriceUSD = service.normalizePrice(
+		holding.NormPriceTRY, holding.NormPriceUSD, holding.NormPriceEUR = service.normalizePrice(
 			holding.CurrentPrice,
 			holding.CurrentCurrency,
 			rate,
 			eurRate,
 		)
 		holding.NormTotalTRY = holding.Quantity * holding.NormPriceTRY
-
 		holding.NormTotalUSD = holding.Quantity * holding.NormPriceUSD
-		if eurRate > 0 {
-			holding.NormPriceEUR = holding.NormPriceTRY / eurRate
-			holding.NormTotalEUR = holding.Quantity * holding.NormPriceEUR
-		}
+		holding.NormTotalEUR = holding.Quantity * holding.NormPriceEUR
 	}
 
 	if !areFiniteValues(
@@ -724,18 +720,15 @@ func (service *HoldingService) normalizeHolding(
 	if holding.EstPrice > 0 {
 		holding.EstimatedValuationAvailable = holding.Quantity == 0 ||
 			holding.BaseCurrency != restoreCurrencyEUR || eurRate > 0
-		estTRY, estUSD := service.normalizePrice(
+		estTRY, estUSD, estEUR := service.normalizePrice(
 			holding.EstPrice,
 			holding.BaseCurrency,
 			rate,
 			eurRate,
 		)
 		holding.NormEstTotalTRY = holding.Quantity * estTRY
-
 		holding.NormEstTotalUSD = holding.Quantity * estUSD
-		if eurRate > 0 {
-			holding.NormEstTotalEUR = holding.Quantity * (estTRY / eurRate)
-		}
+		holding.NormEstTotalEUR = holding.Quantity * estEUR
 	}
 
 	if !areFiniteValues(holding.NormEstTotalTRY, holding.NormEstTotalUSD, holding.NormEstTotalEUR) {
@@ -748,10 +741,9 @@ func (service *HoldingService) normalizeHolding(
 func (service *HoldingService) normalizePrice(
 	quote float64,
 	currency string,
-	usdTryRate float64,
-	eurRates ...float64,
-) (float64, float64) {
-	var try, usd float64
+	usdTryRate, eurTryRate float64,
+) (float64, float64, float64) {
+	var try, usd, eur float64
 
 	switch currency {
 	case "TRY":
@@ -760,8 +752,10 @@ func (service *HoldingService) normalizePrice(
 			usd = quote / usdTryRate
 		}
 	case restoreCurrencyEUR:
-		if len(eurRates) > 0 && eurRates[0] > 0 {
-			try = quote * eurRates[0]
+		if eurTryRate > 0 {
+			eur = quote
+
+			try = quote * eurTryRate
 			if usdTryRate > 0 {
 				usd = try / usdTryRate
 			}
@@ -773,5 +767,9 @@ func (service *HoldingService) normalizePrice(
 		}
 	}
 
-	return try, usd
+	if eurTryRate > 0 && currency != restoreCurrencyEUR {
+		eur = try / eurTryRate
+	}
+
+	return try, usd, eur
 }
