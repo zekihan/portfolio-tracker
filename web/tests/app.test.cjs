@@ -79,20 +79,26 @@ test('chart errors have retry controls and ignore obsolete responses', async () 
 });
 
 
-test('rendered portfolio chart does not connect failed snapshot gaps', async () => {
+test('rendered portfolio chart shows isolated values without connecting failed snapshot gaps', async () => {
   const status = { replaceChildren(...children) { this.children = children; } };
   const { app, pending } = loadApp({ 'portfolio-chart': {}, 'portfolio-chart-status': status });
   app.loadPortfolioChart('1m');
   pending[0].resolve({ ok: true, json: async () => [
-    { timestamp: '2026-10-01', value_try: 100, failed_count: 0 },
+    { timestamp: '2026-10-01', value_try: 0, failed_count: 0 },
     { timestamp: '2026-10-02', value_try: 5, failed_count: 1 },
-    { timestamp: '2026-10-03', value_try: 110, failed_count: 0 }
+    { timestamp: '2026-10-03', value_try: 110, failed_count: 0 },
+    { timestamp: '2026-10-04', value_try: 120, failed_count: 0 }
   ] });
   await new Promise(resolve => setImmediate(resolve));
   const dataset = app.state().charts.portfolio.config.data.datasets[0];
-  assert.deepEqual(Array.from(dataset.data), [100, null, 110]);
+  assert.deepEqual(Array.from(dataset.data), [0, null, 110, 120]);
   assert.equal(dataset.spanGaps, false);
   assert.match(status.children[0].textContent, /may be incomplete/);
+  const radiusAt = index => dataset.pointRadius[index] ?? dataset.pointRadius;
+  assert.ok(radiusAt(0) > 0, 'the isolated zero must have a visible marker');
+  assert.equal(radiusAt(1), 0, 'the unavailable point remains a gap');
+  assert.equal(radiusAt(2), 0, 'connected values are drawn as a line');
+  assert.equal(radiusAt(3), 0, 'connected values are drawn as a line');
 });
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
