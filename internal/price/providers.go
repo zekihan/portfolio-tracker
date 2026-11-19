@@ -232,9 +232,9 @@ func (getter *YahooFinance) GetPrice(
 		return models.Price{}, fmt.Errorf("%w %s", errInvalidMarketPriceFor, instrumentID)
 	}
 
-	currency := result.Chart.Result[0].Meta.Currency
+	currency := strings.TrimSpace(result.Chart.Result[0].Meta.Currency)
 	if currency == "" {
-		currency = currencyUSD
+		return models.Price{}, instrumentFailure(errUnknownQuoteCurrency)
 	}
 
 	return checkedInstrumentQuote(quote, currency, getter.name, instrumentID)
