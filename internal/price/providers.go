@@ -515,7 +515,7 @@ func (getter *PusulaPortfoy) GetPrice(
 
 		value, err := strconv.ParseFloat(fund.Price, 64)
 		if err != nil {
-			return models.Price{}, fmt.Errorf("invalid fund price: %w", err)
+			return models.Price{}, instrumentFailure(fmt.Errorf("invalid fund price: %w", err))
 		}
 
 		quote, err := checkedQuote(value, "TRY", getter.name)
