@@ -102,7 +102,12 @@ func prepareRestore(ctx context.Context, source string) (string, func(), error) 
 
 	defer func() { <-restoreWorkerSlot }()
 
-	dir, err := os.MkdirTemp("", "portfolio-restore-worker-")
+	tempDir, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve restore workspace root: %w", err)
+	}
+
+	dir, err := os.MkdirTemp(tempDir, "portfolio-restore-worker-")
 	if err != nil {
 		return "", nil, fmt.Errorf("create restore workspace: %w", err)
 	}
