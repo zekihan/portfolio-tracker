@@ -186,7 +186,11 @@ func (service *Service) coalescedPrice(
 		return cachedQuote(cached, false), nil
 	}
 
-	failure := service.cachedLookupFailure(provider, instrument, force)
+	failure := service.cachedLookupFailure(
+		ctx,
+		refreshKey{provider: provider, instrument: instrument},
+		force,
+	)
 	if failure != nil {
 		state.gate.RUnlock()
 
@@ -409,7 +413,7 @@ func (service *Service) runFlight(
 		}
 
 		if flight.err == nil {
-			service.forgetNegativeQuote(key)
+			service.forgetNegativeQuote(flight.ctx, key)
 			flight.err = service.storeFetchedQuote(
 				flight.ctx,
 				getter,
@@ -421,7 +425,7 @@ func (service *Service) runFlight(
 			return
 		}
 
-		service.rememberNegativeQuote(key, flight.err)
+		service.rememberNegativeQuote(flight.ctx, key, flight.err)
 		service.recordFailureContext(flight.ctx, key.provider, key.instrument, flight.err)
 	}
 

@@ -1,12 +1,14 @@
 package price
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/zekihan/portfolio-tracker/internal/db"
+	"github.com/zekihan/portfolio-tracker/internal/models"
 )
 
 func TestFailedInstrumentNegativeCache(t *testing.T) {
@@ -73,5 +75,60 @@ func TestFailedInstrumentNegativeCache(t *testing.T) {
 	_, _ = service.GetPrice(t.Context(), getter.Name(), "BAD")
 	if getter.calls != 5 {
 		t.Fatalf("reset retained negative cache: %d", getter.calls)
+	}
+}
+
+type recoveringInstrumentGetter struct {
+	baseGetter
+
+	calls int
+}
+
+func (getter *recoveringInstrumentGetter) GetPrice(context.Context, string) (models.Price, error) {
+	getter.calls++
+	if getter.calls == 1 {
+		return models.Price{}, instrumentFailure(errInstrument)
+	}
+
+	return models.Price{Value: 25, Currency: "USD", Source: getter.Name()}, nil
+}
+
+func TestNegativeCacheDoesNotSurvivePortfolioReplacement(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "portfolio.db")
+	getter := &recoveringInstrumentGetter{
+		name: "Synthetic", ttl: time.Minute,
+	}
+	service := newRefreshTestServiceAt(t, path, getter)
+	other := newRefreshTestServiceAt(t, path)
+
+	for range 2 {
+		_, err := service.GetPrice(t.Context(), getter.Name(), "TEST")
+		if !errors.Is(err, errInstrument) || getter.calls != 1 {
+			t.Fatalf(
+				"same generation: calls=%d, error=%v; want one cached failure",
+				getter.calls,
+				err,
+			)
+		}
+	}
+
+	_, err := other.db.ExecContext(
+		t.Context(),
+		"UPDATE snapshot_state SET generation = generation + 1 WHERE id = 1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	quote, err := service.GetPrice(t.Context(), getter.Name(), "TEST")
+	if err != nil || quote.Value != 25 || getter.calls != 2 {
+		t.Fatalf(
+			"replacement generation: quote=%+v, calls=%d, error=%v; want a fresh quote",
+			quote,
+			getter.calls,
+			err,
+		)
 	}
 }
