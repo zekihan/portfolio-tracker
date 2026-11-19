@@ -452,6 +452,50 @@ test('restricted storage falls back locally and the early theme script still app
   assert.equal(root['data-theme'], 'dark');
 });
 
+test('system theme changes affect only the effective system preference', () => {
+  for (const [serverTheme, localTheme, expected] of [
+    ['dark', null, ['dark', 'dark']],
+    ['light', null, ['light', 'light']],
+    ['system', null, ['light', 'dark']],
+    ['dark', 'system', ['light', 'dark']],
+    ['system', 'light', ['light', 'light']]
+  ]) {
+    const toggle = element();
+    const h = loadApp({ themeToggle: toggle });
+    const root = h.document.documentElement;
+    root.dataset.themePreference = serverTheme;
+    root.setAttribute = (key, value) => { root[key] = value; };
+    root.getAttribute = key => root[key];
+    h.document.body.addEventListener = () => {};
+    h.window.addEventListener = () => {};
+    h.window.localStorage = { getItem: () => localTheme };
+    const media = { matches: true, addEventListener(type, listener) { this[type] = listener; } };
+    h.window.matchMedia = () => media;
+    h.app.init();
+
+    for (const [index, matches] of [false, true].entries()) {
+      media.matches = matches;
+      media.change({ matches });
+      assert.equal(root['data-theme'], expected[index], `server=${serverTheme}, local=${localTheme}, dark=${matches}`);
+      assert.equal(toggle.attrs['aria-pressed'], expected[index] === 'dark');
+    }
+  }
+});
+
+test('rejected theme saves restore the server preference without a local override', async () => {
+  const theme = element();
+  const h = loadApp({ 'dark-mode': theme });
+  h.document.documentElement.dataset.themePreference = 'dark';
+  h.app.initDisplaySettings();
+  assert.equal(theme.value, 'dark');
+
+  theme.value = 'light';
+  theme.change();
+  h.pending[0].reject(new Error('offline'));
+  await flush();
+  assert.equal(theme.value, 'dark');
+});
+
 test('currency updates share one lock across controls and failures recover without navigation', async () => {
   const select = element('USD'), first = element(), second = element();
   const h = loadApp({ 'display-currency': select });

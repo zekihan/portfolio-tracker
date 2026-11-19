@@ -89,9 +89,8 @@ const PortfolioApp = (function() {
   // Initialize app
   function init(options = {}) {
     state.displayCurrency = options.displayCurrency || document.documentElement.dataset.currency || 'TRY';
-    state.theme = localPreferences.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
     
-    applyTheme(state.theme);
+    applyTheme(getThemePreference());
     initThemeToggle();
     initCurrencySwitcher();
     initDisplaySettings();
@@ -126,6 +125,10 @@ const PortfolioApp = (function() {
   }
 
   // Theme handling
+  function getThemePreference() {
+    return localPreferences.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
+  }
+
   function applyTheme(theme) {
     const root = document.documentElement;
     if (theme === 'system') {
@@ -158,8 +161,8 @@ const PortfolioApp = (function() {
     updateToggle();
 
     // Listen for system theme changes
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      if (localPreferences.getItem('theme') === 'system' || !localPreferences.getItem('theme')) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (getThemePreference() === 'system') {
         applyTheme('system');
         updateToggle();
       }
@@ -204,7 +207,7 @@ const PortfolioApp = (function() {
     const currency = document.getElementById('display-currency');
     currency?.addEventListener('change', () => saveDisplayCurrency(currency.value));
     const theme = document.getElementById('dark-mode');
-    if (theme) theme.value = localPreferences.getItem('theme') || document.documentElement.dataset.themePreference || 'system';
+    if (theme) theme.value = getThemePreference();
     theme?.addEventListener('change', async () => {
       theme.disabled = true;
       settingsWritesPending++;
@@ -219,7 +222,7 @@ const PortfolioApp = (function() {
         document.getElementById('themeToggle')?.setAttribute('aria-pressed', document.documentElement.dataset.theme === 'dark');
         showToast('Theme saved', 'success');
       } catch (error) {
-        theme.value = localPreferences.getItem('theme') || 'system';
+        theme.value = getThemePreference();
         showToast(error.message, 'error');
       } finally { theme.disabled = false; settingsWritesPending--; }
     });

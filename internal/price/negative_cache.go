@@ -10,21 +10,19 @@ import (
 const negativeQuoteTTL = 30 * time.Second
 
 type negativeQuote struct {
-	err       error
-	expiresAt time.Time
+	err        error
+	expiresAt  time.Time
+	generation int64
 }
 
-// Ordinary lookups briefly reuse failures per instrument. Explicit refreshes
-// may retry immediately; existing single-flight and admission bounds still apply.
-func (service *Service) negativeQuoteError(provider, instrument string) error {
+// Ordinary lookups briefly reuse instrument failures from their own portfolio generation.
+func (service *Service) negativeQuoteError(ctx context.Context, key refreshKey) error {
 	state := &service.refresh
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	key := refreshKey{provider: provider, instrument: instrument}
-
 	failure, ok := state.negatives[key]
-	if !ok {
+	if !ok || failure.generation != quoteGeneration(ctx) {
 		return nil
 	}
 
@@ -37,7 +35,7 @@ func (service *Service) negativeQuoteError(provider, instrument string) error {
 	return failure.err
 }
 
-func (service *Service) rememberNegativeQuote(key refreshKey, err error) {
+func (service *Service) rememberNegativeQuote(ctx context.Context, key refreshKey, err error) {
 	if !isInstrumentFailure(err) || errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) {
 		return
@@ -47,10 +45,15 @@ func (service *Service) rememberNegativeQuote(key refreshKey, err error) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
+	generation := quoteGeneration(ctx)
+	if existing, ok := state.negatives[key]; ok && existing.generation > generation {
+		return
+	}
+
 	now := time.Now()
 	// Bound memory even when callers cycle through arbitrary failed symbols.
 	for candidate, failure := range state.negatives {
-		if !now.Before(failure.expiresAt) {
+		if failure.generation < generation || !now.Before(failure.expiresAt) {
 			delete(state.negatives, candidate)
 		}
 	}
@@ -69,24 +72,29 @@ func (service *Service) rememberNegativeQuote(key refreshKey, err error) {
 		delete(state.negatives, oldest)
 	}
 
-	state.negatives[key] = negativeQuote{err: err, expiresAt: now.Add(negativeQuoteTTL)}
+	state.negatives[key] = negativeQuote{
+		err: err, expiresAt: now.Add(negativeQuoteTTL), generation: generation,
+	}
 }
 
-func (service *Service) forgetNegativeQuote(key refreshKey) {
+func (service *Service) forgetNegativeQuote(ctx context.Context, key refreshKey) {
 	state := &service.refresh
 	state.mu.Lock()
-	delete(state.negatives, key)
-	state.mu.Unlock()
+	defer state.mu.Unlock()
+
+	if failure, ok := state.negatives[key]; ok && failure.generation <= quoteGeneration(ctx) {
+		delete(state.negatives, key)
+	}
 }
 
-func (service *Service) cachedLookupFailure(provider, instrument string, force bool) error {
-	if service.breakerBlocksRequest(provider) {
-		return fmt.Errorf("%w %s", errCircuitBreakerOpenFor, provider)
+func (service *Service) cachedLookupFailure(ctx context.Context, key refreshKey, force bool) error {
+	if service.breakerBlocksRequest(key.provider) {
+		return fmt.Errorf("%w %s", errCircuitBreakerOpenFor, key.provider)
 	}
 
 	if force {
 		return nil
 	}
 
-	return service.negativeQuoteError(provider, instrument)
+	return service.negativeQuoteError(ctx, key)
 }
