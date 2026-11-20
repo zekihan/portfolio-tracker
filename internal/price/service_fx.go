@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/zekihan/portfolio-tracker/internal/models"
 )
@@ -44,7 +43,7 @@ func (service *Service) getFXTRYQuote(
 
 func usableFXQuote(quote *models.Price, err error) bool {
 	return err == nil && quote.Currency == "TRY" &&
-		quote.Value > 0 && !math.IsInf(quote.Value, 0) && !math.IsNaN(quote.Value)
+		quote.Value >= minFXRate && quote.Value <= maxProviderQuote
 }
 
 func (service *Service) recoverCachedFX(
