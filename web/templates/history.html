@@ -46,12 +46,15 @@
     <!-- Holding History Chart -->
     <section class="card chart-card" aria-labelledby="holding-chart-heading">
         <h2 id="holding-chart-heading">Holding History</h2>
+        {{if .HoldingsUnavailable}}<p role="alert">Unable to load saved holdings. Reload the page to try again.</p>{{end}}
         <div class="filter-grid" style="margin-bottom: 1rem;">
             <div class="filter-group">
                 <label for="holding-select">Holding</label>
                 <select id="holding-select" class="form-select">
                     <option value="">Select a holding...</option>
-                    <!-- Populated from holdings. -->
+                    {{range .Holdings}}
+                    <option value="{{.ID}}" data-basket="{{.Basket}}" data-location="{{.Location}}">{{.Name}}</option>
+                    {{end}}
                 </select>
             </div>
             <div class="filter-group">
