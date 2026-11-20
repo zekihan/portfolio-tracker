@@ -188,13 +188,20 @@ func (service *HoldingService) GetDashboardData(
 
 		if val > 0 {
 			allocType[string(holding.AssetType)] += val
-			if holding.Basket != "" {
-				allocBasket[holding.Basket] += val
+
+			basket := holding.Basket
+			if basket == "" {
+				basket = "Unassigned"
 			}
 
-			if holding.Location != "" {
-				allocLoc[holding.Location] += val
+			allocBasket[basket] += val
+
+			location := holding.Location
+			if location == "" {
+				location = "Unassigned"
 			}
+
+			allocLoc[location] += val
 
 			allocCurr[holding.BaseCurrency] += val
 		}

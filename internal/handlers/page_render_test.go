@@ -131,7 +131,7 @@ func checkPopulatedHoldingCurrency(t *testing.T, router http.Handler) {
 				}
 			}
 
-			if !strings.Contains(body, "Estimated total covers 1 of 1 holdings") {
+			if !strings.Contains(body, "Estimated prices set for 1 of 1 holdings") {
 				t.Error("missing coverage counts")
 			}
 

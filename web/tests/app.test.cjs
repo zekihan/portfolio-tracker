@@ -90,7 +90,9 @@ test('rendered portfolio chart shows isolated values without connecting failed s
   ] });
   await new Promise(resolve => setImmediate(resolve));
   const dataset = app.state().charts.portfolio.config.data.datasets[0];
-  assert.deepEqual(Array.from(dataset.data), [0, null, 110, 120]);
+  assert.deepEqual(Array.from(dataset.data, point => point.y), [0, null, 110, 120]);
+  assert.deepEqual(Array.from(dataset.data, point => point.x),
+    ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'].map(day => Date.parse(day)));
   assert.equal(dataset.spanGaps, false);
   assert.match(status.children[0].textContent, /may be incomplete/);
   const radiusAt = index => dataset.pointRadius[index] ?? dataset.pointRadius;
@@ -140,7 +142,7 @@ test('holding dropdown filters match the exact saved basket and location', () =>
   basket.input();
   assert.deepEqual(rows.map(row => row.hidden), [false, true]);
   assert.deepEqual(cards.map(card => card.hidden), [false, true]);
-  assert.equal(status.textContent, '1 matching holdings');
+  assert.equal(status.textContent, '1 matching holding');
 
   basket.value = '';
   location.value = ' Broker';
@@ -1237,6 +1239,15 @@ function holdingMutationHarness() {
   };
   h.app.initModalHandling();
   h.app.initHoldingMutationTracking();
+  const confirmParts = {};
+  for (const id of ['confirm-action', 'confirm-action-title', 'confirm-action-message', 'confirm-action-submit']) {
+    confirmParts[id] = h.document.createElement(id === 'confirm-action' ? 'dialog' : 'div');
+  }
+  confirmParts['confirm-action'].open = false;
+  confirmParts['confirm-action'].showModal = () => { confirmParts['confirm-action'].open = true; };
+  const getById = h.document.getElementById;
+  h.document.getElementById = id => confirmParts[id] || getById(id);
+  h.confirmDialog = confirmParts['confirm-action'];
   h.openForm = (id = '1') => {
     const modal = h.document.createElement('div');
     const form = h.document.createElement('form');
@@ -1245,7 +1256,8 @@ function holdingMutationHarness() {
     form.matches = () => true;
     form.hasAttribute = () => false;
     form.closest = () => modal;
-    form.querySelector = () => error;
+    form.querySelector = selector => selector === '.form-error' ? error :
+      selector.includes('submit') ? form.elements.find(control => control.tagName === 'BUTTON') : null;
     form.error = error;
     form.elements = ['name', 'quantity', 'est_price', 'notes', 'asset_type', 'submit', 'locked'].map(name => {
       const control = h.document.createElement(name === 'notes' ? 'textarea' : name === 'asset_type' ? 'select' : name === 'submit' ? 'button' : 'input');
@@ -1258,6 +1270,7 @@ function holdingMutationHarness() {
     Object.defineProperty(form, 'formData', { get: () => form.elements.filter(control => !control.disabled && control.tagName !== 'BUTTON').map(control => [control.name, control.value]) });
     form.querySelectorAll = selector => selector === 'button' ? form.elements.filter(control => control.tagName === 'BUTTON') : form.elements;
     modal.form = form;
+    modal.querySelector = selector => selector === 'form' ? form : null;
     modal.contains = node => node === modal || node === form || form.elements.includes(node);
     modal.querySelectorAll = () => form.elements;
     h.currentModal = modal;
@@ -1365,10 +1378,15 @@ test('a pending detached modal write blocks both inline and newer modal success 
   for (const nextKind of ['inline', 'modal']) {
     const h = holdingMutationHarness();
     const first = h.openForm(); first.elements[0].value = 'Updated name'; h.submit(first); h.close();
+    assert.equal(h.currentModal.form, first, 'dismissal is guarded while the save is in flight');
     if (nextKind === 'inline') { const edit = h.edit(); h.save(edit, '20'); }
     else { const second = h.openForm('2'); second.elements[0].value = 'Updated second name'; h.submit(second); }
     h.pending[1].resolve({ ok: true }); await flush(); h.runTimers();
     assert.equal(h.reloads, 0);
+    // The harness opens the second editor while the first is still open,
+    // which the page itself prevents; return focus to the page as a user
+    // closing the second editor would before the first write settles.
+    if (nextKind === 'modal') h.document.activeElement = h.document.body;
     h.pending[0].resolve({ ok: true }); await flush(); h.runTimers();
     assert.equal(h.reloads, 1);
   }
@@ -1382,7 +1400,10 @@ test('failed modal writes preserve drafts and original disabled states; conflict
     h.pending[0].resolve({ ok: false, status, json: async () => ({ error: 'Save failed' }) }); await flush(); h.runTimers();
     assert.equal(h.currentModal, modal);
     assert.equal(form.elements[0].value, 'Keep my draft');
-    assert.ok(form.elements.slice(0, -1).every(control => !control.disabled));
+    assert.ok(form.elements.slice(0, -2).every(control => !control.disabled));
+    assert.equal(form.elements.at(-2).disabled, status !== 500,
+      'a conflicted form disables Save because it can never submit again');
+    if (status !== 500) assert.equal(form.elements.at(-2).textContent, 'Reload page to save');
     assert.equal(form.elements.at(-1).disabled, true);
     assert.equal(form.error.hidden, false);
     assert.equal(form.dataset.saving, undefined);
@@ -1413,7 +1434,7 @@ test('pull refresh completion does not reload during a detached modal write', as
   assert.equal(h.reloads, 1);
 });
 
-test('only the latest modal GET can swap and dismissal invalidates outstanding opens', () => {
+test('only the latest modal GET can swap and dismissal invalidates outstanding opens', async () => {
   const h = holdingMutationHarness();
   const request = id => ({ xhr: {}, target: h.modalContainer, requestConfig: { verb: 'get', path: `/partials/holding-form/${id}` }, shouldSwap: true });
   const first = request(1); const second = request(2);
@@ -1425,7 +1446,8 @@ test('only the latest modal GET can swap and dismissal invalidates outstanding o
   const pending = request(3); h.emit('htmx:beforeRequest', pending);
   h.emit('htmx:beforeSwap', pending); assert.equal(pending.shouldSwap, false, 'queued repeated opens must not replace an existing editor');
   pending.shouldSwap = true;
-  h.close(); h.emit('htmx:beforeSwap', pending);
+  h.close(); h.confirmDialog.dismiss('confirm'); await flush();
+  h.emit('htmx:beforeSwap', pending);
   assert.equal(pending.shouldSwap, false);
   const next = request(4); h.emit('htmx:beforeRequest', next); h.emit('htmx:beforeSwap', next);
   assert.equal(next.shouldSwap, true, 'a deliberate later open remains available');
@@ -1945,10 +1967,12 @@ test('EUR portfolio chart labels euros and leaves legacy snapshot gaps', async (
   await flush();
   const chart = app.state().charts.portfolio;
   assert.equal(chart.data.datasets[0].label, 'Portfolio Value (EUR)');
-  assert.deepEqual(Array.from(chart.data.datasets[0].data), [null, null, 3, 0]);
+  assert.deepEqual(Array.from(chart.data.datasets[0].data, point => point.y), [null, null, 3, 0]);
+  assert.deepEqual(Array.from(chart.data.datasets[0].data, point => point.x),
+    ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'].map(day => Date.parse(day)));
   assert.equal(chart.data.datasets[0].spanGaps, false);
   assert.match(status.children[0].textContent, /recorded EUR exchange rate/);
-  assert.match(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Portfolio' }, raw: 3 }), /€ 3.00/);
+  assert.match(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: 'Portfolio' }, parsed: { y: 3 } }), /€ 3.00/);
 });
 
 test('EUR history table displays recorded euros and unavailable legacy values and rates', async () => {

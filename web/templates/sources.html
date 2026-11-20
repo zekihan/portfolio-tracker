@@ -13,6 +13,19 @@
         </div>
     </header>
 
+    {{if .ProvidersError}}
+    <section class="card" role="alert">
+        <h2>Provider status unavailable</h2>
+        <p>We could not load provider status. Saved holdings and mappings are unchanged. <a class="btn btn-secondary btn-sm" href="/sources">Retry</a></p>
+    </section>
+    {{end}}
+    {{if .MappingError}}
+    <section class="card" role="alert">
+        <h2>Holding mappings unavailable</h2>
+        <p>We could not load holding-to-provider mappings. <a class="btn btn-secondary btn-sm" href="/sources">Retry</a></p>
+    </section>
+    {{end}}
+
     <!-- Provider Registry -->
     <section class="card" aria-labelledby="provider-registry-heading">
         <h2 id="provider-registry-heading">Provider Registry</h2>
@@ -47,16 +60,16 @@
                         <td>{{.Type}}</td>
                         <td>{{if .KeyRequired}}Yes{{else}}No{{end}}</td>
                         <td>
-                            <span class="status-badge {{if contains .Status "FAILED"}}status-error{{else if contains .Status "Errors"}}status-warning{{else}}status-ok{{end}}">
+                            <span class="status-badge {{if contains .Status "FAILED"}}status-error{{else if contains .Status "Errors"}}status-warning{{else if .LastOK.IsZero}}status-neutral{{else}}status-ok{{end}}">
                                 {{.Status}}
                             </span>
                         </td>
                         <td>{{if not .LastOK.IsZero}}{{formatTime .LastOK}}{{else}}Never{{end}}</td>
                         
                         <td>
-                            <input class="form-input provider-test-instrument" aria-label="Test instrument for {{.Name}}" placeholder="Instrument ID">
+                            {{if eq .Name "Manual"}}<span class="setting-note">Prices are entered on each holding.</span>{{else}}<input class="form-input provider-test-instrument" aria-label="Test instrument for {{.Name}}" placeholder="Instrument ID">
                             <button class="btn btn-ghost btn-sm" data-test-provider="{{.Name}}">Test</button>
-                            <output class="source-test-result" aria-live="polite"></output>
+                            <output class="source-test-result" aria-live="polite"></output>{{end}}
                         </td>
                     </tr>
                     {{end}}
@@ -83,17 +96,17 @@
                     <tr data-holding-id="{{.HoldingID}}">
                         <td>{{.HoldingName}}</td>
                         <td>
-                            <select class="form-select provider-select" aria-label="Provider for {{.HoldingName}}">
+                            <select class="form-select provider-select" aria-label="Provider for {{.HoldingName}}" {{if $.ProvidersError}}disabled{{end}}>
                                 <option value="">Select provider...</option>
                                 {{range $.Providers}}
                                 <option value="{{.Name}}" {{if eq .Name $mapping.Provider}}selected{{end}}>{{.Name}}</option>
                                 {{end}}
                             </select>
                         </td>
-                        <td><input type="text" class="form-input instrument-input" value="{{.InstrumentID}}" aria-label="Instrument for {{.HoldingName}}" placeholder="Instrument ID"></td>
+                        <td><input type="text" class="form-input instrument-input" value="{{.InstrumentID}}" aria-label="Instrument for {{.HoldingName}}" placeholder="Instrument ID" {{if $.ProvidersError}}disabled{{end}}></td>
                         <td>
-                            <button class="btn btn-secondary btn-sm" data-test-mapping>Test</button>
-                            <button class="btn btn-primary btn-sm" data-save-mapping>Save</button>
+                            <button class="btn btn-secondary btn-sm" data-test-mapping {{if $.ProvidersError}}disabled{{end}}>Test</button>
+                            <button class="btn btn-primary btn-sm" data-save-mapping {{if $.ProvidersError}}disabled{{end}}>Save</button>
                             <output class="source-test-result" aria-live="polite"></output>
                         </td>
                     </tr>
