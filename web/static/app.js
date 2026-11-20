@@ -1178,7 +1178,8 @@ const PortfolioApp = (function() {
       let visible = 0;
       table.querySelectorAll('tbody .holding-row').forEach(row => {
         const matches = filters.every(input => {
-          const value = row.querySelector(`[data-field="${input.dataset.filter}"]`)?.textContent.trim() || '';
+          const cell = row.querySelector(`[data-field="${input.dataset.filter}"]`);
+          const value = cell?.dataset.editValue ?? cell?.textContent ?? '';
           return input.tagName === 'SELECT' ? !input.value || value === input.value :
             value.toLocaleLowerCase().includes(input.value.trim().toLocaleLowerCase());
         });

@@ -6,7 +6,7 @@ const vm = require('node:vm');
 function loadApp(elements = {}, setTimer = callback => callback(), generation = '') {
   const source = fs.readFileSync('web/static/app.js', 'utf8').replace(
     '    init,\n    showToast,',
-    '    init,\n    safeStorage,\n    initDisplaySettings,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initModalHandling,\n    initHoldingMutationTracking,\n    initDisclosureKeyboard,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
+    '    init,\n    safeStorage,\n    initDisplaySettings,\n    saveDisplayCurrency,\n    initSources,\n    makeEditable,\n    initModalHandling,\n    initHoldingMutationTracking,\n    initDisclosureKeyboard,\n    initHoldingFilters,\n    initHistory,\n    initPullToRefresh,\n    updateChartColors,\n    getChartOptions,\n    snapshotChartValue,\n    sortTableRows,\n    showToast,');
   const pending = [];
   const listeners = {};
   const document = {
@@ -116,6 +116,41 @@ function element(value = '') {
     add(option) { this.children.push(option); }
   };
 }
+
+test('holding dropdown filters match the exact saved basket and location', () => {
+  const table = { tHead: { rows: [{ cells: [] }] } };
+  const basket = { ...element(), tagName: 'SELECT', dataset: { filter: 'basket' } };
+  const location = { ...element(), tagName: 'SELECT', dataset: { filter: 'location' } };
+  const name = { ...element(), tagName: 'INPUT', dataset: { filter: 'name' } };
+  const rows = [{ name: 'Cash', basket: 'Income ', location: ' Broker' },
+    { name: 'Savings', basket: 'Income', location: 'Broker' }].map((values, index) => ({
+    dataset: { id: String(index + 1) },
+    querySelector(selector) {
+      const value = values[selector.match(/\[data-field="(\w+)"\]/)[1]];
+      return { textContent: value, dataset: { editValue: value } };
+    }
+  }));
+  const cards = [element(), element()];
+  const status = element();
+  table.querySelectorAll = selector => selector === '[data-filter]' ? [name, basket, location] : rows;
+  const h = loadApp({ 'holdings-table': table, 'holdings-filter-status': status, 'column-toggle': element(),
+    'column-menu': element(), 'mobile-holding-search': element(), 'reset-holding-filters': element() });
+  h.document.querySelector = selector => cards[Number(selector.match(/\[data-id="(\d+)"\]/)[1]) - 1];
+  h.app.initHoldingFilters();
+
+  basket.value = 'Income ';
+  basket.input();
+  assert.deepEqual(rows.map(row => row.hidden), [false, true]);
+  assert.deepEqual(cards.map(card => card.hidden), [false, true]);
+  assert.equal(status.textContent, '1 matching holdings');
+
+  basket.value = '';
+  location.value = ' Broker';
+  location.input();
+  assert.deepEqual(rows.map(row => row.hidden), [false, true]);
+  assert.deepEqual(cards.map(card => card.hidden), [false, true]);
+});
+
 function historyApp() {
   const elements = Object.fromEntries(['date-range', 'filter-currency', 'holding-select', 'holding-basket', 'holding-location', 'reset-filters', 'first-page', 'prev-page', 'next-page', 'snapshot-value-heading', 'snapshot-rate-heading', 'snapshots-tbody', 'snapshots-status', 'page-info', 'clear-history', 'history-delete-status', 'confirm-action', 'confirm-action-title', 'confirm-action-message', 'confirm-action-submit', 'portfolio-chart', 'portfolio-chart-status', 'holding-chart', 'holding-chart-status'].map(id => [id, element()]));
   elements['date-range'].value = '365';
