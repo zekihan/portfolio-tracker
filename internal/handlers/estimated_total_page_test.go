@@ -100,7 +100,7 @@ func TestEstimatedTotalPagesAndAPIUseCurrentPriceFallback(t *testing.T) {
 				// Check both the desktop estimate cell and mobile estimate line.
 				formatted := formatCurrency(secondTotal/rate, currency)
 				if !strings.Contains(body, `class="numeric calculated-cell">`+formatted+"</td>") ||
-					!strings.Contains(body, `Est: `+formatted) {
+					!strings.Contains(body, `Est. total: `+formatted) {
 					t.Errorf(
 						"%s desktop/mobile missing estimated contribution %q",
 						currency,
@@ -109,8 +109,9 @@ func TestEstimatedTotalPagesAndAPIUseCurrentPriceFallback(t *testing.T) {
 				}
 
 				if test.partial &&
-					(!strings.Contains(body, "Estimated total covers 3 of 4 holdings") ||
-						!strings.Contains(body, "Est: Unavailable") || !strings.Contains(body, "Est: "+formatCurrency(0, currency))) {
+					(!strings.Contains(body, "Estimated prices set for 1 of 4 holdings") ||
+						!strings.Contains(body, "Est. total: Unavailable") ||
+						!strings.Contains(body, "Est. total: "+formatCurrency(0, currency))) {
 					t.Error(
 						"missing quote must be unavailable while zero quantity remains a known zero",
 					)

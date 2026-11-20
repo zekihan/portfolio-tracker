@@ -43,6 +43,8 @@ func TestFormatQuantityPreservesFractionalUnits(t *testing.T) {
 		{value: 0.00000001, want: "0.00000001"},
 		{value: 12.345678, want: "12.345678"},
 		{value: 100, want: "100"},
+		{value: 120000, want: "120,000"},
+		{value: 4500.5, want: "4,500.5"},
 		{value: 0, want: "0"},
 	} {
 		if got := formatQuantity(test.value); got != test.want {

@@ -147,6 +147,13 @@ key_required FROM provider_registry WHERE enabled = 1 ORDER BY name`,
 		status := "✓ Active"
 		errorMsg := ""
 
+		if provider.Name == "Manual" {
+			// Manual prices are entered on each holding; nothing is fetched.
+			status = "Entered by hand"
+		} else if !lastOK.Valid || lastOK.Time.IsZero() {
+			status = "○ No successful fetch yet"
+		}
+
 		if breaker {
 			status = "⚠ FAILED 3×"
 			errorMsg = "Circuit breaker open"

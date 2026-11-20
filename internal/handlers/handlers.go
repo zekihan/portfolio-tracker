@@ -73,7 +73,29 @@ func formatQuantity(num float64) string {
 		return "N/A"
 	}
 
-	return strconv.FormatFloat(num, 'f', -1, 64)
+	raw := strconv.FormatFloat(num, 'f', -1, 64)
+	intPart, fracPart, hasFrac := strings.Cut(raw, ".")
+	sign := ""
+
+	if strings.HasPrefix(intPart, "-") {
+		sign, intPart = "-", intPart[1:]
+	}
+
+	var grouped strings.Builder
+
+	for i, r := range intPart {
+		if i > 0 && (len(intPart)-i)%3 == 0 {
+			grouped.WriteString(",")
+		}
+
+		grouped.WriteRune(r)
+	}
+
+	if hasFrac {
+		return sign + grouped.String() + "." + fracPart
+	}
+
+	return sign + grouped.String()
 }
 
 func gt(a, b float64) bool {
@@ -920,6 +942,7 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 
 	coverage := 0
 	valued := 0
+	estPriceCount := 0
 
 	for i := range holdings {
 		if holdings[i].ValuationAvailable || holdings[i].Quantity == 0 {
@@ -929,6 +952,10 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 		if holdings[i].EstimatedValuationAvailable {
 			coverage++
 		}
+
+		if holdings[i].EstPrice > 0 {
+			estPriceCount++
+		}
 	}
 
 	handler.renderPageStatus(writer, request, status, "holdings.html", map[string]any{
@@ -936,6 +963,7 @@ func (handler *Handler) pageHoldings(writer http.ResponseWriter, request *http.R
 		"HoldingsUnavailable":  holdingsUnavailable,
 		"Holdings":             holdings,
 		"CoverageCount":        coverage,
+		"EstPriceCount":        estPriceCount,
 		"ValuedCount":          valued,
 		"UnvaluedCount":        len(holdings) - valued,
 		"TotalHoldings":        len(holdings),
@@ -1000,20 +1028,22 @@ func (handler *Handler) pageHistory(writer http.ResponseWriter, request *http.Re
 
 func (handler *Handler) pageSources(writer http.ResponseWriter, request *http.Request,
 ) {
-	providers, err := handler.priceSvc.GetProviderHealthContext(request.Context())
-	if err != nil {
+	providers, providersErr := handler.priceSvc.GetProviderHealthContext(request.Context())
+	if providersErr != nil {
 		providers = []models.ProviderHealth{}
 	}
 
-	mapping, err := handler.priceSvc.GetHoldingProviderMappingContext(request.Context())
-	if err != nil {
+	mapping, mappingErr := handler.priceSvc.GetHoldingProviderMappingContext(request.Context())
+	if mappingErr != nil {
 		mapping = []price.HoldingProviderMapping{}
 	}
 
 	handler.renderPage(writer, request, "sources.html", map[string]any{
-		"Providers": providers,
-		"Mapping":   mapping,
-		"Title":     titleSources,
+		"Providers":      providers,
+		"ProvidersError": providersErr != nil,
+		"Mapping":        mapping,
+		"MappingError":   mappingErr != nil,
+		"Title":          titleSources,
 	})
 }
 
