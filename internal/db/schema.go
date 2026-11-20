@@ -270,49 +270,71 @@ func Open(dbPath string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func migrate(db *sqlx.DB) error {
+func migrate(database *sqlx.DB) error {
 	ctx := context.Background()
 
-	tx, err := db.BeginTxx(ctx, nil)
+	conn, err := database.Connx(ctx)
+	if err != nil {
+		return fmt.Errorf("connect for migration: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	version, err := schemaVersion(ctx, conn)
+	if err != nil || version == len(Migrations) {
+		return err
+	}
+
+	// Acquire the writer lock before reading the version again. An upgrade
+	// from a read transaction can fail immediately even with a busy timeout.
+	_, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE")
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 
 	defer func() {
-		//nolint:errcheck // Rollback error is not critical in defer
-		_ = tx.Rollback()
+		//nolint:errcheck // Best effort after a migration failure.
+		_, _ = conn.ExecContext(ctx, "ROLLBACK")
 	}()
 
-	var version int
-
-	err = tx.GetContext(ctx, &version, "PRAGMA user_version")
-	if err != nil && !strings.Contains(err.Error(), "no such table") {
-		return fmt.Errorf("get user_version: %w", err)
-	}
-
-	if version < 0 || version > len(Migrations) {
-		return fmt.Errorf("%w: %d (supported: 0-%d)",
-			errUnsupportedSchemaVersion, version, len(Migrations))
+	version, err = schemaVersion(ctx, conn)
+	if err != nil {
+		return err
 	}
 
 	for i := version; i < len(Migrations); i++ {
-		_, execErr := tx.ExecContext(ctx, Migrations[i])
+		_, execErr := conn.ExecContext(ctx, Migrations[i])
 		if execErr != nil {
 			return fmt.Errorf("migration %d: %w", i+1, execErr)
 		}
 
-		_, pragmaErr := tx.ExecContext(ctx, "PRAGMA user_version = "+strconv.Itoa(i+1))
+		_, pragmaErr := conn.ExecContext(ctx, "PRAGMA user_version = "+strconv.Itoa(i+1))
 		if pragmaErr != nil {
 			return fmt.Errorf("set user_version: %w", pragmaErr)
 		}
 	}
 
-	commitErr := tx.Commit()
-	if commitErr != nil {
-		return fmt.Errorf("commit: %w", commitErr)
+	_, err = conn.ExecContext(ctx, "COMMIT")
+	if err != nil {
+		return fmt.Errorf("commit: %w", err)
 	}
 
 	return nil
+}
+
+func schemaVersion(ctx context.Context, conn *sqlx.Conn) (int, error) {
+	var version int
+
+	err := conn.GetContext(ctx, &version, "PRAGMA user_version")
+	if err != nil {
+		return 0, fmt.Errorf("get user_version: %w", err)
+	}
+
+	if version < 0 || version > len(Migrations) {
+		return 0, fmt.Errorf("%w: %d (supported: 0-%d)",
+			errUnsupportedSchemaVersion, version, len(Migrations))
+	}
+
+	return version, nil
 }
 
 func GetSetting(db *sqlx.DB, key string) (string, error) {
