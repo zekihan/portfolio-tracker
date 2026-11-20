@@ -33,7 +33,19 @@
         <input type="search" id="mobile-holding-search" class="form-input" placeholder="Holding name">
     </div>
     <p id="holdings-filter-status" role="status" aria-live="polite"></p>
+    <div class="active-filters" id="active-filters" aria-label="Active filters"></div>
     <button type="button" class="btn btn-secondary btn-sm" id="reset-holding-filters" hidden>Reset filters</button>
+
+    <div class="table-toolbar desktop-only">
+        <span id="coverage-badge">{{if .ValuationUnavailable}}Estimated totals unavailable{{else}}Estimated prices set for {{.EstPriceCount}} of {{.TotalHoldings}} holdings; estimated totals use current prices where no estimate is set{{end}}</span>
+        <div class="table-toolbar-actions">
+            <button class="btn btn-secondary btn-sm" id="column-toggle" aria-expanded="false" aria-controls="column-menu">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                Columns
+            </button>
+            <div id="column-menu" class="dropdown-menu column-menu" role="menu" aria-hidden="true"></div>
+        </div>
+    </div>
 
     <!-- Desktop Table -->
     <div class="table-container desktop-only" role="region" aria-label="Holdings table" tabindex="0">
@@ -41,10 +53,10 @@
             <thead>
                 <tr>
                     <th scope="col" data-sort="name" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by name">Name <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button></th>
-                    <th scope="col" data-sort="ticker" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by ticker">Ticker</button></th>
-                    <th scope="col" data-sort="quantity" class="numeric" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by quantity">#</button></th>
-                    <th scope="col" data-sort="current_price" class="numeric" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by price">Price</button></th>
-                    <th scope="col" data-sort="est_price" class="numeric editable" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by estimated price">Est. Price</button></th>
+                    <th scope="col" data-sort="ticker" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by ticker">Ticker <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button></th>
+                    <th scope="col" data-sort="quantity" class="numeric" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by quantity"># <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button></th>
+                    <th scope="col" data-sort="current_price" class="numeric" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by price">Price <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button></th>
+                    <th scope="col" data-sort="est_price" class="numeric editable" aria-sort="none"><button type="button" class="sort-button" aria-label="Sort by estimated price">Est. Price <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button></th>
                     <th scope="col">Curr</th>
                     <th scope="col" class="numeric">Total ({{.DisplayCurrency}})</th>
                     <th scope="col" class="numeric">Est. Total ({{.DisplayCurrency}})</th>
@@ -84,7 +96,7 @@
                         {{if .ValuationAvailable}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}Unavailable{{end}}
                         {{if and .ValuationAvailable .IsFailed}}<span class="badge badge-error">Refresh failed</span>{{end}}
                         {{if .IsStale}}<span class="badge badge-warning">Stale price or FX</span>{{end}}
-                        {{if and .ValuationAvailable (not .PriceFetchedAt.IsZero)}}<small>Quote as of {{formatTime .PriceFetchedAt}}</small>{{end}}
+                        {{if and .ValuationAvailable (not .PriceFetchedAt.IsZero)}}<small>{{if eq .PriceSource "Manual"}}Manually set {{formatTime .PriceFetchedAt}}{{else}}Quote as of {{formatTime .PriceFetchedAt}}{{end}}</small>{{end}}
                     </td>
                     <td class="numeric editable-cell" tabindex="0" data-field="est_price" data-base-currency="{{.BaseCurrency}}" data-sort-value="{{.EstPrice}}">{{if gt .EstPrice 0}}{{formatCurrency .EstPrice .BaseCurrency}}{{else}}—{{end}}</td>
                     <td>{{.BaseCurrency}}</td>
@@ -125,20 +137,6 @@
                 <tr><td colspan="14"><div class="empty-state"><h3>No holdings yet</h3><p>Add your first holding to start tracking your portfolio.</p></div></td></tr>
                 {{end}}
             </tbody>
-            <tfoot>
-                <tr>
-                    <td colspan="14" class="table-footer">
-                        <div class="table-footer-content">
-                        <span id="coverage-badge">{{if .ValuationUnavailable}}Estimated totals unavailable{{else}}Estimated total covers {{.CoverageCount}} of {{.TotalHoldings}} holdings; uses current prices where no estimate is set{{end}}</span>
-                        <button class="btn btn-ghost btn-sm" id="column-toggle" aria-expanded="false" aria-controls="column-menu">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-                            Columns
-                        </button>
-                        <div id="column-menu" class="dropdown-menu column-menu" role="menu" aria-hidden="true"></div>
-                        </div>
-                    </td>
-                </tr>
-            </tfoot>
         </table>
     </div>
 
@@ -151,7 +149,7 @@
             <header class="card-header">
                 <div>
                     <h3>{{.Name}} {{if .Ticker}}<span class="ticker">({{.Ticker}})</span>{{end}}</h3>
-                    <p class="meta">{{formatQuantity .Quantity}} × {{if .ValuationAvailable}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}Unavailable{{end}} = {{if .ValuationAvailable}}{{formatCurrency $total $.DisplayCurrency}}{{else}}Unavailable{{end}}</p>
+                    <p class="meta">{{formatQuantity .Quantity}} × {{if .ValuationAvailable}}{{formatCurrency .CurrentPrice .CurrentCurrency}}{{else}}Unavailable{{end}}{{if eq .PriceSource "Manual"}} · Manually set{{if not .PriceFetchedAt.IsZero}} <span class="nowrap">{{formatTime .PriceFetchedAt}}</span>{{end}}{{end}}</p>
                 </div>
                 <div class="dropdown">
                     <button class="btn btn-ghost btn-sm dropdown-toggle" aria-label="Actions for {{.Name}}" aria-expanded="false" aria-haspopup="true">
@@ -166,15 +164,11 @@
                 </div>
             </header>
             <div class="card-body">
-                <p class="meta">Est: {{if and (not $.ValuationUnavailable) .EstimatedValuationAvailable}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}Unavailable{{end}} {{if and .ValuationAvailable (gt .EstPrice 0)}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
+                <p class="card-total">{{if .ValuationAvailable}}{{formatCurrency $total $.DisplayCurrency}}{{else}}Unavailable{{end}}</p>
+                <p class="meta">Est. total: {{if and (not $.ValuationUnavailable) .EstimatedValuationAvailable}}{{formatCurrency $estimate $.DisplayCurrency}}{{else}}Unavailable{{end}} {{if and .ValuationAvailable (gt .EstPrice 0)}}{{if gt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▲{{else if lt (sub .NormEstTotalTRY .NormTotalTRY) 0}}▼{{end}}{{end}}</p>
                 {{if not .ValuationAvailable}}<p class="meta">Valuation unavailable. Edit this holding or set a manual price; <a href="/sources">check price sources</a>.</p>{{end}}
-                {{if .IsStale}}<p class="meta">Stale price or exchange rate. Quote{{if not .PriceFetchedAt.IsZero}} as of {{formatTime .PriceFetchedAt}}{{end}}</p>{{end}}
-                <p class="meta">Basket: {{.Basket}} • Location: {{.Location}}</p>
-                <div class="card-actions">
-                    <button class="btn btn-sm btn-secondary" hx-get="/partials/holding-form/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Edit</button>
-                    <button class="btn btn-sm btn-secondary" hx-get="/partials/manual-price/{{.ID}}" hx-target="#modal-container" hx-swap="innerHTML">Manual Price</button>
-                    <button class="btn btn-sm btn-danger" hx-delete="/api/holdings/{{.ID}}" hx-confirm="Delete {{.Name}}?" hx-target="closest .holding-card" hx-swap="outerHTML swap:1s">Delete</button>
-                </div>
+                {{if .IsStale}}<p class="meta">{{if eq .PriceSource "Manual"}}Exchange rate may be stale. Price manually set{{if not .PriceFetchedAt.IsZero}} {{formatTime .PriceFetchedAt}}{{end}}.{{else}}Stale price or exchange rate. Quote{{if not .PriceFetchedAt.IsZero}} as of {{formatTime .PriceFetchedAt}}{{end}}{{end}}</p>{{end}}
+                <p class="meta">Basket: {{if .Basket}}{{.Basket}}{{else}}—{{end}} • Location: {{if .Location}}{{.Location}}{{else}}—{{end}}</p>
             </div>
         </article>
         {{else}}
@@ -192,14 +186,6 @@
     </div>
 
     {{end}}
-
-    <!-- Floating Action Button for mobile -->
-    <button class="fab mobile-only" hx-get="/partials/holding-form" hx-target="#modal-container" hx-swap="innerHTML" aria-label="Add holding">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
-    </button>
 </div>
 {{end}}
 {{template "layout" .}}

@@ -1,5 +1,6 @@
 {{define "content"}}
 <div class="dashboard" hx-ext="json-body">
+    <h1 class="visually-hidden">Overview</h1>
     {{if .ValuationUnavailable}}
     <section class="card" role="alert">
         <h1>Portfolio valuation unavailable</h1>
@@ -89,6 +90,7 @@
                 <div class="chart-container" style="height: 300px;">
                     <canvas id="portfolio-chart" aria-label="Portfolio value over time"></canvas>
                 </div>
+                <p class="chart-data-link"><a id="snapshot-table-link" href="/history#snapshots-heading">View this data as a snapshot table</a></p>
             </article>
 
             <!-- Allocation Charts -->
@@ -105,6 +107,7 @@
                 <div class="chart-container" style="height: 300px;">
                     <canvas id="allocation-chart" aria-label="Allocation breakdown"></canvas>
                 </div>
+                <ul class="allocation-legend" id="allocation-legend" aria-label="Allocation values"></ul>
             </article>
         </div>
     </section>
@@ -117,12 +120,15 @@
             <article class="card">
                 <header class="card-header">
                     <h3>Price Source Health</h3>
+                    <div class="card-header-actions">
+                    <a class="btn btn-sm btn-ghost" href="/sources">All price sources</a>
                     <button class="btn btn-sm btn-ghost" id="refresh-provider-health" aria-label="Refresh provider health">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="23 4 23 10 17 10"></polyline>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                         </svg>
                     </button>
+                    </div>
                 </header>
                 <div class="provider-health" id="provider-health">
                     {{range .Data.ProviderHealth}}

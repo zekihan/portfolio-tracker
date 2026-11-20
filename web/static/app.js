@@ -567,6 +567,30 @@ const PortfolioApp = (function() {
     document.querySelectorAll('.alloc-tab').forEach(tab => {
       tab.addEventListener('click', () => loadAllocationChart(tab.dataset.alloc));
     });
+    // Roving tabindex: one tab stop per tablist, arrows move and activate.
+    document.querySelectorAll('[role="tablist"]').forEach(list => {
+      const tabs = [...list.querySelectorAll('[role="tab"]')];
+      if (!tabs.length) return;
+      const sync = () => tabs.forEach(tab => {
+        tab.tabIndex = tab.getAttribute('aria-selected') === 'true' ? 0 : -1;
+      });
+      sync();
+      list.addEventListener('click', sync);
+      list.addEventListener('keydown', event => {
+        const current = tabs.indexOf(document.activeElement);
+        if (current < 0) return;
+        let next = null;
+        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % tabs.length;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current - 1 + tabs.length) % tabs.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = tabs.length - 1;
+        if (next === null) return;
+        event.preventDefault();
+        tabs[next].focus();
+        tabs[next].click();
+        sync();
+      });
+    });
   }
 
   function chartStatus(id, message, retry) {
@@ -604,7 +628,21 @@ const PortfolioApp = (function() {
     if (!document.getElementById('portfolio-chart')) return;
     const daysMap = { '1y': 365, '6m': 180, '3m': 90, '1m': 30 };
     const days = document.getElementById('date-range')?.value || daysMap[range] || 365;
-    
+    if (range) {
+      document.querySelectorAll('.chart-tab').forEach(tab => {
+        const active = tab.dataset.range === range;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active);
+        tab.tabIndex = active ? 0 : -1;
+      });
+    }
+    // The snapshot table must match the requested range even if loading fails.
+    const snapshotLink = document.getElementById('snapshot-table-link');
+    if (snapshotLink) {
+      const linkCurrency = document.getElementById('filter-currency')?.value || state.displayCurrency;
+      snapshotLink.href = `/history?days=${days}&currency=${linkCurrency}#snapshots-heading`;
+    }
+
     const request = ++portfolioRequest;
     state.charts.portfolio?.destroy();
     state.charts.portfolio = null;
@@ -629,9 +667,12 @@ const PortfolioApp = (function() {
       state.charts.portfolio.destroy();
     }
 
-    const labels = data.map(d => new Date(d.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
     const currency = document.getElementById('filter-currency')?.value || state.displayCurrency;
-    const values = data.map(d => snapshotChartValue(d, currency));
+    const points = data.map(d => ({
+      x: new Date(d.timestamp).getTime(),
+      y: snapshotChartValue(d, currency)
+    })).sort((a, b) => a.x - b.x);
+    const spanDays = points.length > 1 ? (points[points.length - 1].x - points[0].x) / 86400000 : 0;
     const missingEUR = currency === 'EUR' && data.some(d => d.value_eur == null);
     const hasFailures = data.some(d => d.failed_count > 0 || d.valuation_complete === false);
     chartStatus('portfolio-chart', hasFailures ?
@@ -642,29 +683,36 @@ const PortfolioApp = (function() {
     state.charts.portfolio = new Chart(ctx, {
       type: 'line',
       data: {
-        labels,
         datasets: [{
           label: `Portfolio Value (${currency})`,
-          data: values,
+          data: points,
           borderColor: CHART_COLORS[0],
           backgroundColor: 'transparent',
           borderWidth: 2,
           fill: false,
           tension: 0.1,
-          pointRadius: values.map((value, index) =>
-            value !== null && values[index - 1] == null && values[index + 1] == null ? 3 : 0),
+          pointRadius: points.map((point, index) =>
+            point.y !== null && points[index - 1]?.y == null && points[index + 1]?.y == null ? 3 : 0),
           pointHoverRadius: 4,
           spanGaps: false
         }]
       },
-      options: getChartOptions(currency)
+      options: getChartOptions(currency, true, spanDays <= 7)
     });
 
-    // Update active tab
+    // Update active tab (selection, focus stop, and data stay in sync)
     document.querySelectorAll('.chart-tab').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.range === range);
-      tab.setAttribute('aria-selected', tab.dataset.range === range);
+      const active = tab.dataset.range === range;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active);
+      tab.tabIndex = active ? 0 : -1;
     });
+    const snapshotLink = document.getElementById('snapshot-table-link');
+    if (snapshotLink) {
+      const days = document.getElementById('date-range')?.value ||
+        { '1y': 365, '6m': 180, '3m': 90, '1m': 30 }[range] || 365;
+      snapshotLink.href = `/history?days=${days}&currency=${currency}#snapshots-heading`;
+    }
   }
 
   function loadAllocationChart(type) {
@@ -673,6 +721,17 @@ const PortfolioApp = (function() {
     const request = ++allocationRequest;
     state.charts.allocation?.destroy();
     state.charts.allocation = null;
+    document.querySelectorAll('.alloc-tab').forEach(tab => {
+      const active = tab.dataset.alloc === type;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active);
+      tab.tabIndex = active ? 0 : -1;
+    });
+    // The text legend must not describe a previous breakdown while loading.
+    const legend = document.getElementById('allocation-legend');
+    if (legend) legend.replaceChildren();
+    const canvas = document.getElementById('allocation-chart');
+    if (canvas?.setAttribute) canvas.setAttribute('aria-label', 'Allocation breakdown: loading');
     chartStatus('allocation-chart', 'Loading allocation…');
     fetch(`/api/dashboard/allocation?${params}`)
       .then(response => {
@@ -681,8 +740,12 @@ const PortfolioApp = (function() {
       })
       .then(data => { if (request === allocationRequest) renderAllocationChart(data, type); })
       .catch(() => {
-        if (request === allocationRequest) chartStatus('allocation-chart',
-          'Allocation unavailable. ', () => loadAllocationChart(type));
+        if (request === allocationRequest) {
+          const canvas = document.getElementById('allocation-chart');
+          if (canvas?.setAttribute) canvas.setAttribute('aria-label', 'Allocation breakdown: unavailable');
+          chartStatus('allocation-chart',
+            'Allocation unavailable. ', () => loadAllocationChart(type));
+        }
       });
   }
 
@@ -735,6 +798,9 @@ const PortfolioApp = (function() {
         maintainAspectRatio: false,
         plugins: {
           legend: {
+            // The HTML legend under the chart is the single legend; the
+            // canvas legend would toggle slices out of sync with it.
+            display: false,
             position: 'right',
             labels: {
               usePointStyle: true,
@@ -764,10 +830,30 @@ const PortfolioApp = (function() {
       }
     });
 
-    // Update active tab
+    // Text equivalent of the doughnut: values and percentages without hover.
+    const legend = document.getElementById('allocation-legend');
+    if (legend) {
+      legend.replaceChildren(...chartLabels.map((label, i) => {
+        const item = document.createElement('li');
+        const swatch = document.createElement('span');
+        swatch.className = 'swatch';
+        swatch.style.background = CHART_COLORS[i % CHART_COLORS.length];
+        const text = document.createElement('span');
+        text.textContent = `${label}: ${formatCurrency(chartValues[i], state.displayCurrency)} (${percentages[i]}%)`;
+        item.append(swatch, text);
+        return item;
+      }));
+    }
+    ctx.setAttribute('aria-label', chartLabels.length ?
+      `Allocation breakdown: ${chartLabels.map((label, i) => `${label} ${percentages[i]} percent`).join(', ')}` :
+      'Allocation breakdown: no valued holdings');
+
+    // Update active tab (selection, focus stop, and data stay in sync)
     document.querySelectorAll('.alloc-tab').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.alloc === type);
-      tab.setAttribute('aria-selected', tab.dataset.alloc === type);
+      const active = tab.dataset.alloc === type;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active);
+      tab.tabIndex = active ? 0 : -1;
     });
   }
 
@@ -814,10 +900,13 @@ const PortfolioApp = (function() {
       const request = ++holdingRequest;
       state.charts.holding?.destroy();
       state.charts.holding = null;
+      const wrap = document.getElementById('holding-chart-wrap');
       if (!select.value) {
+        if (wrap) wrap.hidden = true;
         chartStatus('holding-chart', 'Select a holding to view its history.');
         return;
       }
+      if (wrap) wrap.hidden = false;
       chartStatus('holding-chart', 'Loading holding history…');
       try {
         const response = await fetch(`/api/history/holding/${select.value}?days=${range.value}`);
@@ -827,15 +916,20 @@ const PortfolioApp = (function() {
         chartStatus('holding-chart', data.some(point => snapshotChartValue(point, currency.value) === null) ?
           'Unavailable historical valuations are shown as gaps.' :
           data.length ? '' : 'No snapshots for this holding in this date range.');
+        const holdingPoints = data.map(point => ({
+          x: new Date(point.timestamp).getTime(),
+          y: snapshotChartValue(point, currency.value)
+        })).sort((a, b) => a.x - b.x);
+        const holdingSpanDays = holdingPoints.length > 1 ?
+          (holdingPoints[holdingPoints.length - 1].x - holdingPoints[0].x) / 86400000 : 0;
         state.charts.holding = new Chart(document.getElementById('holding-chart'), {
           type: 'line',
           data: {
-            labels: data.map(point => new Date(point.timestamp).toLocaleDateString()),
             datasets: [{ label: `Holding value (${currency.value})`,
-              data: data.map(point => snapshotChartValue(point, currency.value)),
+              data: holdingPoints,
               borderColor: CHART_COLORS[0], tension: 0.1, spanGaps: false }]
           },
-          options: getChartOptions(currency.value)
+          options: getChartOptions(currency.value, true, holdingSpanDays <= 7)
         });
       } catch {
         if (request === holdingRequest) chartStatus('holding-chart',
@@ -998,7 +1092,14 @@ const PortfolioApp = (function() {
     loadSnapshots(0);
   }
 
-  function getChartOptions(currency) {
+  function chartTickLabel(ms, withTime) {
+    const date = new Date(ms);
+    return withTime ?
+      date.toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }) :
+      date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+
+  function getChartOptions(currency, timeAxis = false, withTime = false) {
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
     const textColor = isDark ? '#94a3b8' : '#64748b';
@@ -1021,14 +1122,30 @@ const PortfolioApp = (function() {
           padding: 12,
           displayColors: false,
           callbacks: {
+            ...(timeAxis ? {
+              title: function(items) {
+                if (!items.length) return '';
+                const date = new Date(items[0].parsed.x);
+                return `${date.toLocaleString('en-GB', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })} UTC`;
+              }
+            } : {}),
             label: function(context) {
-              return `${context.dataset.label}: ${formatCurrency(context.raw, currency)}`;
+              const value = timeAxis ? context.parsed.y : context.raw;
+              return `${context.dataset.label}: ${formatCurrency(value, currency)}`;
             }
           }
         }
       },
       scales: {
-        x: {
+        x: timeAxis ? {
+          type: 'linear',
+          grid: { display: false },
+          ticks: {
+            color: textColor,
+            maxTicksLimit: 10,
+            callback: function(value) { return chartTickLabel(value, withTime); }
+          }
+        } : {
           grid: { display: false },
           ticks: { color: textColor, maxTicksLimit: 10 }
         },
@@ -1183,8 +1300,29 @@ const PortfolioApp = (function() {
         if (matches) visible++;
       });
       const active = filters.some(input => input.value);
-      document.getElementById('holdings-filter-status').textContent = active ? `${visible} matching holdings` : '';
+      document.getElementById('holdings-filter-status').textContent = active ?
+        (visible === 1 ? '1 matching holding' : `${visible} matching holdings`) : '';
       reset.hidden = !active;
+      // Active filters stay visible (and individually clearable) even when
+      // their column is hidden or the card layout replaces the table.
+      const chips = document.getElementById('active-filters');
+      if (chips) {
+        const labels = { name: 'Name', ticker: 'Ticker', basket: 'Basket', location: 'Location', notes: 'Notes' };
+        chips.replaceChildren(...filters.filter(input => input.value).map(input => {
+          const chip = document.createElement('span');
+          chip.className = 'filter-chip';
+          const text = document.createElement('span');
+          text.textContent = `${labels[input.dataset.filter] || input.dataset.filter}: ${input.value}`;
+          const clear = document.createElement('button');
+          clear.type = 'button';
+          clear.className = 'filter-chip-clear';
+          clear.textContent = '×';
+          clear.setAttribute('aria-label', `Clear ${labels[input.dataset.filter] || input.dataset.filter} filter`);
+          clear.addEventListener('click', () => { input.value = ''; apply(); });
+          chip.append(text, clear);
+          return chip;
+        }));
+      }
       mobileSearch.value = filters.find(input => input.dataset.filter === 'name').value;
       sessionPreferences.setItem('portfolio-holding-filters', JSON.stringify(Object.fromEntries(
         filters.map(input => [input.dataset.filter, input.value]))));
@@ -1204,14 +1342,18 @@ const PortfolioApp = (function() {
       const label = document.createElement('label');
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
-      checkbox.checked = true;
+      // Secondary metadata stays one Columns toggle away instead of pushing
+      // prices and row actions offscreen at desktop widths.
+      checkbox.checked = !['Basket', 'Location', 'Notes', 'Est. Unit'].includes(header.textContent.trim());
       label.append(checkbox, document.createTextNode(header.textContent.trim()));
       menu.appendChild(label);
-      checkbox.addEventListener('change', () => {
+      const applyColumn = () => {
         [...table.rows].forEach(row => {
           if (row.cells.length === headers.length) row.cells[index].hidden = !checkbox.checked;
         });
-      });
+      };
+      checkbox.addEventListener('change', applyColumn);
+      applyColumn();
     });
     toggle.addEventListener('click', () => {
       const open = toggle.getAttribute('aria-expanded') !== 'true';
@@ -1462,6 +1604,7 @@ const PortfolioApp = (function() {
     if (!container) return;
     let previousFocus;
     let modalRequest = 0;
+    let modalTrigger;
     const modalRequests = new WeakMap();
     const formBaselines = new WeakMap();
     const captureBaseline = form => {
@@ -1471,6 +1614,7 @@ const PortfolioApp = (function() {
       const config = event.detail.requestConfig;
       if (event.detail.target === container && config?.verb?.toLowerCase() === 'get') {
         modalRequests.set(event.detail.xhr, ++modalRequest);
+        modalTrigger = event.detail.elt;
       }
     });
     document.body.addEventListener('htmx:beforeSwap', event => {
@@ -1480,8 +1624,23 @@ const PortfolioApp = (function() {
         event.detail.shouldSwap = false;
       }
     });
-    const close = (modal = container.querySelector('.modal-overlay')) => {
+    const isDirty = (form) => {
+      const baseline = form ? formBaselines.get(form) : undefined;
+      if (!form || !baseline) return false;
+      const current = Object.fromEntries(new FormData(form));
+      const keys = new Set([...Object.keys(baseline), ...Object.keys(current)]);
+      return [...keys].some(key => (baseline[key] ?? '') !== (current[key] ?? ''));
+    };
+    const close = (modal = container.querySelector('.modal-overlay'), force = false) => {
       if (!modal || container.querySelector('.modal-overlay') !== modal) return;
+      // A submission in flight owns the editor; only its own forced
+      // success close may dismiss it before the save settles.
+      if (!force && modal.querySelector('form')?.dataset.saving) return;
+      if (!force && isDirty(modal.querySelector('form'))) {
+        confirmAction('Discard unsaved changes? The edits in this form will be lost.', 'Discard changes')
+          .then(confirmed => { if (confirmed) close(modal, true); });
+        return;
+      }
       ++modalRequest; // A dismissed dialog must not be reopened by an older partial.
       const returnFocus = modal.contains(document.activeElement) || document.activeElement === document.body;
       container.replaceChildren();
@@ -1492,14 +1651,26 @@ const PortfolioApp = (function() {
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.detail.target !== container || !container.querySelector('.modal-overlay')) return;
       captureBaseline(container.querySelector('[data-holding-form], [data-manual-price-form]'));
-      previousFocus = document.activeElement;
+      // Menu items disappear with their menu; refocus the visible toggle instead.
+      let trigger = modalTrigger;
+      if (trigger?.closest?.('.dropdown-menu')) {
+        trigger = trigger.closest('.dropdown')?.querySelector('.dropdown-toggle') || trigger;
+      }
+      previousFocus = trigger || document.activeElement;
       document.body.classList.add('modal-open');
-      container.querySelector('input:not([type="hidden"]), button')?.focus();
+      (container.querySelector('input:not([type="hidden"]), select, textarea') ||
+        container.querySelector('button'))?.focus();
     });
     document.addEventListener('keydown', (event) => {
       const modal = container.querySelector('.modal-overlay');
       if (!modal) return;
-      if (event.key === 'Escape' && !event.target.matches('select')) close();
+      if (event.key === 'Escape') {
+        // The confirm dialog handles its own Escape; preventDefault keeps
+        // this event from cancelling a dialog the dismissal itself opens.
+        if (document.getElementById('confirm-action')?.open) return;
+        event.preventDefault?.();
+        close();
+      }
       if (event.key === 'Tab') {
         const controls = [...modal.querySelectorAll('button, input, select, textarea, a[href]')]
           .filter(control => !control.disabled && control.offsetParent !== null);
@@ -1534,6 +1705,8 @@ const PortfolioApp = (function() {
       const data = Object.fromEntries(new FormData(form));
       const error = form.querySelector('.form-error');
       error.hidden = true;
+      const footerError = form.querySelector('.form-footer-error');
+      if (footerError) footerError.hidden = true;
       if (!manual && id) {
         const baseline = formBaselines.get(form);
         if (!baseline) {
@@ -1545,7 +1718,7 @@ const PortfolioApp = (function() {
         Object.keys(data).forEach(field => {
           if (data[field] === baseline[field]) delete data[field];
         });
-        if (!Object.keys(data).length) { close(modal); return; }
+        if (!Object.keys(data).length) { close(modal, true); return; }
       }
       if (!manual && !id && data.initial_manual_price !== undefined) {
         const value = data.initial_manual_price;
@@ -1555,6 +1728,10 @@ const PortfolioApp = (function() {
       const numericFields = manual ? ['price'] : ['quantity', 'est_price'];
       for (const field of numericFields) if (field in data) data[field] = Number(data[field]);
       form.dataset.saving = 'true';
+      form.setAttribute('aria-busy', 'true');
+      const submitButton = form.querySelector('button[type="submit"]');
+      const submitText = submitButton?.textContent;
+      if (submitButton) submitButton.textContent = 'Saving…';
       const controls = [...form.elements].map(control => [control, control.disabled]);
       controls.forEach(([control]) => { control.disabled = true; });
       holdingWritesPending++;
@@ -1582,15 +1759,33 @@ const PortfolioApp = (function() {
         holdingRefreshNeeded = true;
         // A dismissed form may have been replaced by an entirely new modal.
         // Only retire the submitted form while it still owns the current modal.
-        if (modal && modal.contains(form)) close(modal);
+        if (modal && modal.contains(form)) close(modal, true);
       } catch (err) {
         holdingWriteFailed = true;
         error.textContent = err.message;
         error.hidden = false;
+        // The footer stays visible while the form scrolls; mirror the
+        // guidance there so it is readable next to the actions.
+        if (footerError) {
+          footerError.textContent = err.message;
+          footerError.hidden = false;
+        }
         if (!container.contains(form)) showToast(err.message, 'error');
       } finally {
         delete form.dataset.saving;
+        form.removeAttribute('aria-busy');
+        if (submitButton) submitButton.textContent = submitText;
         controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+        // A conflicted form can never submit again; say so on the actions
+        // themselves instead of leaving enabled buttons that do nothing.
+        if (form.dataset.reloadRequired) {
+          if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Reload page to save';
+          }
+          const clearButton = form.querySelector('[data-clear-manual-price]');
+          if (clearButton) clearButton.disabled = true;
+        }
         holdingWritesPending--;
         scheduleHoldingRefresh();
       }

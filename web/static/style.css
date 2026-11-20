@@ -12,20 +12,20 @@
   
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-tertiary: #94a3b8;
+  --text-tertiary: #64748b;
   --text-inverse: #ffffff;
-  
+
   --border-primary: #e2e8f0;
   --border-secondary: #cbd5e1;
-  --border-focus: #3b82f6;
-  
-  --accent-primary: #3b82f6;
-  --accent-primary-hover: #2563eb;
+  --border-focus: #2563eb;
+
+  --accent-primary: #2563eb;
+  --accent-primary-hover: #1d4ed8;
   --accent-secondary: #64748b;
-  --accent-success: #10b981;
-  --accent-warning: #f59e0b;
-  --accent-error: #ef4444;
-  --accent-info: #06b6d4;
+  --accent-success: #047857;
+  --accent-warning: #b45309;
+  --accent-error: #dc2626;
+  --accent-info: #0e7490;
   
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
@@ -67,7 +67,7 @@
   
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
-  --text-tertiary: #64748b;
+  --text-tertiary: #94a3b8;
   --text-inverse: #0f172a;
   
   --border-primary: #334155;
@@ -464,7 +464,8 @@ img, svg {
   font-size: 2rem;
   font-weight: 700;
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 
@@ -472,7 +473,8 @@ img, svg {
   font-size: 0.875rem;
   color: var(--text-secondary);
   margin-top: var(--space-1);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Charts Row */
@@ -560,7 +562,8 @@ img, svg {
 .provider-time {
   font-size: 0.75rem;
   color: var(--text-tertiary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Bottom Row */
@@ -759,7 +762,7 @@ tbody tr.stale {
 
 td.numeric {
   text-align: right;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -769,7 +772,7 @@ td.calculated-cell {
 }
 
 td.editable-cell {
-  background: var(--bg-primary);
+  background: var(--bg-card);
   cursor: pointer;
 }
 
@@ -810,6 +813,29 @@ td.price-stale {
 
 .actions-cell {
   white-space: nowrap;
+}
+
+.holdings-table td.actions-cell {
+  position: sticky;
+  right: 0;
+  background: var(--bg-card);
+  box-shadow: -10px 0 12px -12px rgb(0 0 0 / 0.45);
+  z-index: 5;
+}
+
+.holdings-table tbody tr:hover td.actions-cell {
+  background: var(--bg-hover);
+}
+
+.holdings-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--bg-card);
+  z-index: 4;
+}
+
+.holdings-table tbody tr:hover td:first-child {
+  background: var(--bg-hover);
 }
 
 .dropdown {
@@ -913,10 +939,19 @@ td.price-stale {
 }
 
 .holding-card .meta {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
   margin: 2px 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.holding-card .card-total {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--space-1);
 }
 
 .card-actions {
@@ -1117,6 +1152,8 @@ td.price-stale {
 .modal-close {
   width: 32px;
   height: 32px;
+  padding: 0;
+  flex-shrink: 0;
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
@@ -1298,10 +1335,11 @@ body.modal-open {
     display: flex;
   }
   
+  /* Bottom nav already carries every destination at this width. */
   .mobile-menu-toggle.btn {
-    display: flex;
+    display: none;
   }
-  
+
   .desktop-only {
     display: none;
   }
@@ -1613,4 +1651,197 @@ select option {
   select option::checkmark {
     color: var(--accent-primary);
   }
+}
+
+/* Council R1: toolbar, chart data affordances, focus visibility */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.table-toolbar-actions {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chart-data-link {
+  padding: 0 var(--space-5) var(--space-4);
+  font-size: 0.8125rem;
+}
+
+.allocation-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: 0 var(--space-5) var(--space-4);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.allocation-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.allocation-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-neutral { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+/* Badge text is measured against its tinted fill, not the card behind it. */
+html:not([data-theme="dark"]) .status-ok { color: #065f46; }
+html:not([data-theme="dark"]) .badge-info { color: #084c61; }
+html:not([data-theme="dark"]) .badge-success { color: #065f46; }
+html:not([data-theme="dark"]) .badge-warning,
+html:not([data-theme="dark"]) .status-warning { color: #92400e; }
+html:not([data-theme="dark"]) .badge-error,
+html:not([data-theme="dark"]) .status-error { color: #b91c1c; }
+
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.chart-tab:focus-visible,
+.alloc-tab:focus-visible,
+.sort-button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.holdings-table th,
+.holdings-table td {
+  padding: var(--space-2) var(--space-3);
+}
+
+@media (max-width: 1023px) {
+  .table-toolbar-actions { display: none; }
+}
+
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.active-filters:empty {
+  display: none;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 4px 2px 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.filter-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.filter-chip-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Keep modal actions reachable while long forms scroll. The footer sits
+   inside the padded scroller, so stretch it flush to the modal edges. */
+.modal .modal-footer {
+  position: sticky;
+  bottom: calc(-1 * var(--space-5));
+  margin: 0 calc(-1 * var(--space-5)) calc(-1 * var(--space-5));
+  z-index: 2;
+}
+
+.form-footer-error {
+  margin-right: auto;
+  color: var(--accent-error);
+  font-size: 0.8125rem;
+}
+
+/* Grok round: sort state, price provenance line, mobile card header */
+.sort-icon {
+  visibility: hidden;
+}
+
+th.sort-asc .sort-icon {
+  visibility: visible;
+}
+
+th.sort-desc .sort-icon {
+  visibility: visible;
+  transform: rotate(180deg);
+}
+
+.holdings-table td[data-field="price"] small {
+  display: block;
+  margin-top: 2px;
+}
+
+.holding-card .card-header {
+  flex-wrap: nowrap;
+}
+
+.holding-card .card-header > div:first-child {
+  min-width: 0;
+}
+
+.holding-card .dropdown {
+  flex-shrink: 0;
+}
+
+.modal-body .setting-note {
+  margin-bottom: var(--space-4);
+}
+
+[data-theme="dark"] .badge-error,
+[data-theme="dark"] .status-error {
+  color: #fca5a5;
+}
+
+@media (max-width: 639px) {
+  .chart-container {
+    height: 176px !important;
+  }
+
+  .chart-tabs,
+  .allocation-tabs {
+    margin-bottom: var(--space-1);
+  }
+}
+
+.nowrap {
+  white-space: nowrap;
 }
