@@ -61,3 +61,39 @@ func TestFXRateRejectsInvalidPrices(t *testing.T) {
 		})
 	}
 }
+
+func TestCachedFXRatesRespectSafetyBounds(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		primary  float64
+		fallback float64
+		want     float64
+	}{
+		{name: "primary below minimum", primary: minFXRate / 2, fallback: 40, want: 40},
+		{name: "primary above maximum", primary: maxProviderQuote * 2, fallback: 40, want: 40},
+		{name: "both out of bounds", primary: minFXRate / 2, fallback: maxProviderQuote * 2},
+		{name: "minimum accepted", primary: minFXRate, fallback: 40, want: minFXRate},
+		{name: "maximum accepted", primary: maxProviderQuote, fallback: 40, want: maxProviderQuote},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			primary := &regressionFXGetter{name: "Frankfurter", ttl: time.Minute}
+			fallback := &regressionFXGetter{name: "Yahoo Finance", ttl: time.Minute}
+			service := newRefreshTestService(t, primary, fallback)
+			ctx := WithCachedQuotesOnly(t.Context())
+
+			for _, currency := range []string{"USD", "EUR"} {
+				seedRecoveryFX(t, service, primary.Name(), currency, test.primary, 0)
+				seedRecoveryFX(t, service, fallback.Name(), currency+"TRY=X", test.fallback, 0)
+
+				quote, err := service.getFXTRYQuote(ctx, currency, false)
+				if quote.Value != test.want || (err != nil) != (test.want == 0) {
+					t.Errorf("%s/TRY rate = %g, %v; want %g", currency, quote.Value, err, test.want)
+				}
+			}
+		})
+	}
+}
