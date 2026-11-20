@@ -778,7 +778,7 @@ const PortfolioApp = (function() {
     const select = document.getElementById('holding-select');
     const basket = document.getElementById('holding-basket');
     const location = document.getElementById('holding-location');
-    let holdings = [];
+    const [placeholder, ...holdings] = select.options;
     let offset = 0;
     let holdingRequest = 0;
     let snapshotRequest = 0;
@@ -798,22 +798,16 @@ const PortfolioApp = (function() {
     });
     const updateHoldings = () => {
       const selected = select.value;
-      select.replaceChildren(new Option('Select a holding...', ''));
-      holdings.filter(holding => (!basket.value || holding.basket === basket.value) &&
-        (!location.value || holding.location === location.value)).forEach(holding => {
-        select.add(new Option(holding.name, String(holding.id)));
-      });
-      select.value = selected;
+      const matching = holdings.filter(option => (!basket.value || option.dataset.basket === basket.value) &&
+        (!location.value || option.dataset.location === location.value));
+      select.replaceChildren(placeholder, ...matching);
+      select.value = matching.some(option => option.value === selected) ? selected : '';
       loadHolding();
     };
     basket.addEventListener('change', updateHoldings);
     location.addEventListener('change', updateHoldings);
     select.addEventListener('change', loadHolding);
-    fetch('/api/holdings').then(response => {
-      if (!response.ok) throw new Error('Unable to load holdings');
-      return response.json();
-    }).then(data => { holdings = data || []; updateHoldings(); })
-      .catch(error => showToast(error.message, 'error'));
+    updateHoldings();
 
     async function loadHolding() {
       if (historyMutationActive) return;

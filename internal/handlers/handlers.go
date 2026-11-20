@@ -961,6 +961,17 @@ func (handler *Handler) pageHistory(writer http.ResponseWriter, request *http.Re
 		chartData = []services.ChartPoint{}
 	}
 
+	holdings, holdingsErr := handler.holdingSvc.GetAll(requestCtx)
+	if holdingsErr != nil {
+		slog.ErrorContext(
+			requestCtx,
+			"History holdings unavailable",
+			slog.Any("error", holdingsErr),
+		)
+
+		holdings = nil
+	}
+
 	baskets, err := handler.holdingSvc.GetUniqueBaskets(requestCtx)
 	if err != nil {
 		baskets = []string{}
@@ -975,13 +986,15 @@ func (handler *Handler) pageHistory(writer http.ResponseWriter, request *http.Re
 	assetTypes := []string{"Stock", "ETF", "TR Fund", "Crypto", "Gold", "Cash"}
 
 	handler.renderPage(writer, request, "history.html", map[string]any{
-		"ChartData":       chartData,
-		"DisplayCurrency": displayCurrency,
-		"Days":            days,
-		"Baskets":         baskets,
-		"Locations":       locations,
-		"AssetTypes":      assetTypes,
-		"Title":           titleHistory,
+		"ChartData":           chartData,
+		"DisplayCurrency":     displayCurrency,
+		"Days":                days,
+		"Holdings":            holdings,
+		"HoldingsUnavailable": holdingsErr != nil,
+		"Baskets":             baskets,
+		"Locations":           locations,
+		"AssetTypes":          assetTypes,
+		"Title":               titleHistory,
 	})
 }
 

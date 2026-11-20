@@ -21,7 +21,6 @@ function loadApp(elements = {}, setTimer = callback => callback(), generation = 
   };
   const context = { document, setTimeout: setTimer, window: { crypto: require('node:crypto').webcrypto, scrollY: 0, location: { href: 'https://portfolio.test/holdings?basket=one', assign() {}, reload() {} } }, URL, URLSearchParams,
     getComputedStyle: node => ({ overflowY: node.overflowY || 'visible', getPropertyValue: () => '#123456' }),
-    Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     FormData: class { constructor(form) { if (form) return form.formData; } append() {} },
     Chart: class { constructor(canvas, config) { this.config = config; this.options = config.options; this.data = config.data; } destroy() {} update() {} },
     fetch: (url, options) => new Promise((resolve, reject) => pending.push({ url, options, resolve, reject })) };
@@ -112,8 +111,7 @@ function element(value = '') {
     focus() { this.focused = true; },
     showModal() { this.open = true; },
     dismiss(value) { this.returnValue = value; this.open = false; this.close(); },
-    insertRow() { const row = { dataset: {}, cells: [], remove: () => { row.cells.forEach(cell => cell.children.forEach(child => { child.isConnected = false; })); this.children = this.children.filter(child => child !== row); }, insertCell() { const cell = element(); this.cells.push(cell); return cell; } }; this.children.push(row); return row; },
-    add(option) { this.children.push(option); }
+    insertRow() { const row = { dataset: {}, cells: [], remove: () => { row.cells.forEach(cell => cell.children.forEach(child => { child.isConnected = false; })); this.children = this.children.filter(child => child !== row); }, insertCell() { const cell = element(); this.cells.push(cell); return cell; } }; this.children.push(row); return row; }
   };
 }
 
@@ -151,16 +149,48 @@ test('holding dropdown filters match the exact saved basket and location', () =>
   assert.deepEqual(cards.map(card => card.hidden), [false, true]);
 });
 
-function historyApp() {
+function historyApp(holdings = []) {
   const elements = Object.fromEntries(['date-range', 'filter-currency', 'holding-select', 'holding-basket', 'holding-location', 'reset-filters', 'first-page', 'prev-page', 'next-page', 'snapshot-value-heading', 'snapshot-rate-heading', 'snapshots-tbody', 'snapshots-status', 'page-info', 'clear-history', 'history-delete-status', 'confirm-action', 'confirm-action-title', 'confirm-action-message', 'confirm-action-submit', 'portfolio-chart', 'portfolio-chart-status', 'holding-chart', 'holding-chart-status'].map(id => [id, element()]));
   elements['date-range'].value = '365';
   elements['filter-currency'].value = 'USD';
+  const select = elements['holding-select'];
+  select.replaceChildren(element(), ...holdings);
+  Object.defineProperty(select, 'options', { get: () => select.children });
   const harness = loadApp(elements);
   harness.app.initHistory();
   return { ...harness, elements, requests: () => harness.pending.filter(p => p.url.includes('/snapshots?')) };
 }
 const snapshots = count => Array.from({ length: count }, (_, index) => ({ id: index + 1, timestamp: '2026-10-01', total_value_usd: 10, total_value_try: 300 }));
 const respond = (request, count) => request.resolve({ ok: true, json: async () => snapshots(count) });
+
+test('holding history uses saved choices and filters without requesting current valuations', () => {
+  const holdings = [
+    { value: '7', dataset: { basket: 'Income ', location: 'Broker' } },
+    { value: '8', dataset: { basket: 'Income ', location: 'Bank' } },
+    { value: '9', dataset: { basket: 'Savings', location: 'Broker' } }
+  ];
+  const h = historyApp(holdings);
+  const { 'holding-select': select, 'holding-basket': basket, 'holding-location': location } = h.elements;
+
+  assert.ok(!h.pending.some(request => request.url === '/api/holdings'));
+  select.value = '7';
+  select.change();
+  assert.equal(h.pending.at(-1).url, '/api/history/holding/7?days=365');
+
+  basket.value = 'Income ';
+  basket.change();
+  assert.deepEqual(Array.from(select.options, option => option.value), ['', '7', '8']);
+  assert.equal(select.value, '7');
+
+  location.value = 'Bank';
+  location.change();
+  assert.deepEqual(Array.from(select.options, option => option.value), ['', '8']);
+  assert.equal(select.value, '');
+
+  basket.value = location.value = '';
+  location.change();
+  assert.deepEqual(Array.from(select.options, option => option.value), ['', '7', '8', '9']);
+});
 
 test('theme colors preserve USD portfolio and holding callbacks while default currency is TRY', () => {
   const { app, document } = loadApp();
