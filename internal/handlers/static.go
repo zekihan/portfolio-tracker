@@ -78,7 +78,14 @@ func staticFiles(root string) http.Handler {
 	server := http.StripPrefix("/static", http.FileServer(filesystem))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		file, err := filesystem.Open(strings.TrimPrefix(request.URL.Path, "/static"))
+		name := strings.TrimPrefix(request.URL.Path, "/static")
+		if path.Clean("/"+name) == "/offline.html" {
+			// The service worker stores the offline document explicitly. A normal
+			// navigation must check the server and its authentication proxy.
+			writer.Header().Set("Cache-Control", "no-store")
+		}
+
+		file, err := filesystem.Open(name)
 		if err != nil {
 			writer.WriteHeader(http.StatusNotFound)
 

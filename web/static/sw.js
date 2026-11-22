@@ -1,10 +1,9 @@
 const CACHE_PREFIX = 'portfolio-tracker-offline-';
 // Bump this version when changing the offline document so installed apps refresh it.
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const OFFLINE_URL = '/static/offline.html';
 const OFFLINE_MARKER = '<meta name="application-name" content="Portfolio Tracker Offline">';
 const PAGE_PATHS = new Set(['/', '/holdings', '/history', '/sources', '/settings']);
-const NETWORK_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -36,20 +35,10 @@ async function offlinePage() {
 }
 
 async function networkFirst(request) {
-  let timer;
   try {
-    const response = await Promise.race([
-      fetch(request),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Network timeout')), NETWORK_TIMEOUT_MS); })
-    ]);
-    if (response.status >= 500 && response.headers.get('X-Portfolio-Page') !== 'unavailable') {
-      return offlinePage();
-    }
-    return response;
+    return await fetch(request);
   } catch (_) {
     return offlinePage();
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -58,9 +47,7 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET' || request.mode !== 'navigate') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname === OFFLINE_URL) {
-    event.respondWith(offlinePage());
-  } else if (PAGE_PATHS.has(url.pathname.replace(/\/$/, '') || '/')) {
+  if (url.pathname === OFFLINE_URL || PAGE_PATHS.has(url.pathname.replace(/\/$/, '') || '/')) {
     event.respondWith(networkFirst(request));
   }
 });

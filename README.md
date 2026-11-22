@@ -29,9 +29,11 @@ Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite us
 
 ### Install and use offline
 
-Open the tracker over HTTPS or on localhost and choose **Install app** or **Add to Home Screen** in your browser. Visit Overview and Holdings while connected to save their displayed values on this device. If the server becomes unreachable, the app opens a read-only view with a saved time for each section. Use the retry link to return to the live portfolio.
+Open the tracker over HTTPS or on localhost and choose **Install app** or **Add to Home Screen** in your browser. Visit Overview and Holdings while connected to save the main valuation totals and holding names, tickers, quantities, prices and totals. When a network request fails, the app can open a read-only view with a saved time for each section. Use the retry link to return to the live portfolio.
 
-The browser keeps this portfolio data in local site storage, including after you close the app. Clearing site data removes the offline copy.
+The browser keeps the saved values in local site storage for this origin, including after you close the app. Clear All Data and Restore Backup discard earlier saved values in that browser. A live tab also discards older data when it detects a newer portfolio generation.
+
+Offline access is shared by anyone using the same browser profile and origin. The app can discard saved values when a live tab detects a proxy denial or sign-in redirect. Proxy logout or session expiry can go undetected while the app is closed or disconnected. Clear the tracker's site data when signing out on a shared browser.
 
 ### Environment Variables
 

@@ -19,6 +19,23 @@ function safeStorage(name) {
 }
 const localPreferences = safeStorage('localStorage');
 const sessionPreferences = safeStorage('sessionStorage');
+const offlineSnapshotKey = 'portfolio-offline-snapshot-v1';
+// Keep the generation fence even when there is no saved view. A delayed page
+// can still write its old values to the snapshot key after a reset.
+const offlineMinGenerationKey = 'portfolio-offline-min-generation';
+
+function discardOfflineSnapshotBefore(generation) {
+  try {
+    const storage = window.localStorage;
+    const saved = JSON.parse(storage.getItem(offlineSnapshotKey));
+    if (saved && BigInt(saved.generation) < generation) storage.removeItem(offlineSnapshotKey);
+    const minimum = storage.getItem(offlineMinGenerationKey);
+    if (minimum === null || BigInt(minimum) < generation) {
+      storage.setItem(offlineMinGenerationKey, generation.toString());
+    }
+  } catch (_) { /* Storage is optional. */ }
+}
+
 // Settings writes can outlive a currency request (restore lives below the app).
 let settingsWritesPending = 0;
 
@@ -195,8 +212,10 @@ const PortfolioApp = (function() {
       settingsWritesPending++;
       try {
         const response = await fetch('/api/settings/clear-all', { method: 'DELETE', headers: portfolioHeaders() });
-        if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to clear data'));
-        localPreferences.removeItem('portfolio-offline-snapshot-v1');
+        if (!response.ok || response.headers.get('HX-Refresh') !== 'true') {
+          throw new Error(portfolioErrorMessage(response, 'Unable to clear data'));
+        }
+        discardOfflineSnapshotBefore(BigInt(portfolioGeneration) + 1n);
         localPreferences.removeItem('theme');
         sessionPreferences.removeItem('portfolio-holding-filters');
         window.location.assign('/settings');
@@ -1968,8 +1987,10 @@ window.PortfolioApp = PortfolioApp;
         method: 'POST', body: form, headers: portfolioHeaders({ 'X-Restore-Confirm': 'restore' })
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(portfolioErrorMessage(response, body.error || `Restore failed: HTTP ${response.status}`));
-      localPreferences.removeItem('portfolio-offline-snapshot-v1');
+      if (!response.ok || body?.success !== true) {
+        throw new Error(portfolioErrorMessage(response, body?.error || 'Unable to confirm backup restore'));
+      }
+      discardOfflineSnapshotBefore(BigInt(portfolioGeneration) + 1n);
       localPreferences.removeItem('theme');
       sessionPreferences.removeItem('portfolio-holding-filters');
       sessionPreferences.setItem('portfolio-restore-success', 'Backup restored successfully.');

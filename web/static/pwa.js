@@ -1,7 +1,6 @@
 (function () {
   'use strict';
 
-  const key = 'portfolio-offline-snapshot-v1';
   const offlineURL = '/static/offline.html';
   const generation = document.documentElement.dataset.portfolioGeneration;
   const currency = document.documentElement.dataset.currency || '';
@@ -18,8 +17,10 @@
     const holdings = document.querySelector('.holdings-page');
     if (!generation) return;
     try {
+      const minimum = localStorage.getItem(offlineMinGenerationKey);
+      if (minimum !== null && BigInt(generation) < BigInt(minimum)) return;
       let saved;
-      try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (_) { saved = null; }
+      try { saved = JSON.parse(localStorage.getItem(offlineSnapshotKey)); } catch (_) { saved = null; }
       if (saved && saved.generation !== generation) {
         // A tab opened before a restore must not overwrite a newer saved view.
         if (/^\d+$/.test(saved.generation) && /^\d+$/.test(generation) &&
@@ -28,7 +29,7 @@
       }
       if (!saved) saved = { generation: generation };
       if (!dashboard && !holdings) {
-        localStorage.setItem(key, JSON.stringify(saved));
+        localStorage.setItem(offlineSnapshotKey, JSON.stringify(saved));
         return;
       }
       const section = { capturedAt: new Date().toISOString(), currency: currency };
@@ -63,7 +64,7 @@
         }) : [];
         saved.holdings = section;
       }
-      localStorage.setItem(key, JSON.stringify(saved));
+      localStorage.setItem(offlineSnapshotKey, JSON.stringify(saved));
     } catch (_) { /* Storage is optional. */ }
   }
 
@@ -85,11 +86,18 @@
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch('/sw.js', { method: 'HEAD', cache: 'no-store', redirect: 'manual', signal: controller.signal });
-      if (response.status >= 500) goOffline();
-      else editNotice.hidden = true;
+      const response = await fetch('/api/settings', { cache: 'no-store', redirect: 'manual', signal: controller.signal });
+      editNotice.hidden = true;
+      if (response.status === 401 || response.status === 403 || response.type === 'opaqueredirect') {
+        localPreferences.removeItem(offlineSnapshotKey);
+      } else if (response.ok) {
+        const currentGeneration = response.headers.get('X-Portfolio-Generation');
+        if (currentGeneration !== null && /^\d+$/.test(currentGeneration)) {
+          discardOfflineSnapshotBefore(BigInt(currentGeneration));
+        }
+      }
     } catch (_) {
-      goOffline();
+      if (!controller.signal.aborted) goOffline();
     } finally {
       clearTimeout(timeout);
       checking = false;

@@ -31,6 +31,8 @@
 <script>
 (function () {
   'use strict';
+  const snapshotKey = 'portfolio-offline-snapshot-v1';
+  const generationKey = 'portfolio-offline-min-generation';
   function add(parent, tag, value, className) {
     const element = document.createElement(tag);
     element.textContent = value || '';
@@ -47,7 +49,11 @@
   }
   function render() {
     let saved;
-    try { saved = JSON.parse(localStorage.getItem('portfolio-offline-snapshot-v1')); } catch { /* Storage is optional. */ }
+    try {
+      const snapshot = JSON.parse(localStorage.getItem(snapshotKey));
+      const minimum = localStorage.getItem(generationKey);
+      if (snapshot && (minimum === null || BigInt(snapshot.generation) >= BigInt(minimum))) saved = snapshot;
+    } catch { /* Storage is optional. */ }
     const content = document.getElementById('content');
     content.replaceChildren();
     document.getElementById('empty').hidden = Boolean(saved?.overview || saved?.holdings);
@@ -83,7 +89,7 @@
     }
   }
   window.addEventListener('storage', event => {
-    if (event.key === null || event.key === 'portfolio-offline-snapshot-v1') render();
+    if (event.key === null || event.key === snapshotKey || event.key === generationKey) render();
   });
   window.addEventListener('pageshow', render);
 })();
