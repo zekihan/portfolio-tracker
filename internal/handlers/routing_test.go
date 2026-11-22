@@ -160,3 +160,25 @@ func TestRecoveryReturnsAnEmptyServerError(t *testing.T) {
 		t.Errorf("response = %d %q, want empty 500", response.Code, response.Body.String())
 	}
 }
+
+func TestOfflineRoutesBypassHTTPCache(t *testing.T) {
+	t.Chdir("../..")
+
+	router := New(nil, nil, nil, nil).SetupRoutes()
+
+	for _, target := range []string{"/sw.js", "/static/offline.html"} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequestWithContext(t.Context(), method, target, http.NoBody)
+			router.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Errorf("%s %s status = %d, want 200", method, target, response.Code)
+			}
+
+			if cache := response.Header().Get("Cache-Control"); cache != "no-store" {
+				t.Errorf("%s %s Cache-Control = %q, want no-store", method, target, cache)
+			}
+		}
+	}
+}

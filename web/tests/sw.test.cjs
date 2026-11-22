@@ -72,7 +72,7 @@ test('activation deletes only old portfolio offline caches', async () => {
   assert.deepEqual([...w.stores.keys()].sort(), ['other-app', 'portfolio-tracker-offline-v1']);
 });
 
-test('pages use network first, fall back on failure, timeout, or server error, and preserve auth errors', async () => {
+test('page and offline-link navigations preserve all reachable server responses', async () => {
   let response = new Response('online');
   const w = worker(async url => typeof url === 'string' ? new Response(marker, { headers: { 'content-type': 'text/html' } }) : response);
   await w.lifecycle('install');
@@ -81,11 +81,24 @@ test('pages use network first, fall back on failure, timeout, or server error, a
   assert.equal((await w.navigation('/settings')).status, 401);
   response = new Response('forbidden', { status: 403 });
   assert.equal((await w.navigation('/')).status, 403);
-  response = new Response('Editable holdings', { status: 503, headers: { 'X-Portfolio-Page': 'unavailable' } });
+  response = Response.redirect('https://login.test/');
+  assert.equal((await w.navigation('/')).headers.get('Location'), 'https://login.test/');
+  response = new Response('Editable holdings', { status: 503 });
   assert.equal(await (await w.navigation('/holdings')).text(), 'Editable holdings');
   response = new Response('failure', { status: 500 });
-  assert.equal(await (await w.navigation('/history')).text(), marker);
-  assert.equal(w.stores.get('portfolio-tracker-offline-v1').size, 1);
+  assert.equal(await (await w.navigation('/history')).text(), 'failure');
+  assert.deepEqual([...w.stores.values()].map(store => [...store.keys()]), [['/static/offline.html']]);
+});
+
+test('opening the offline link still honors a reachable authentication proxy', async () => {
+  const w = worker(async url => typeof url === 'string' ?
+    new Response(marker, { headers: { 'content-type': 'text/html' } }) :
+    new Response('forbidden', { status: 403 }));
+  await w.lifecycle('install');
+  assert.equal((await w.navigation('/static/offline.html')).status, 403);
+});
+
+test('navigation falls back on network rejection and awaits a slow authentication response', async () => {
 
   const offline = worker(async url => {
     if (typeof url === 'string') return new Response(marker, { headers: { 'content-type': 'text/html' } });
@@ -93,11 +106,16 @@ test('pages use network first, fall back on failure, timeout, or server error, a
   });
   await offline.lifecycle('install');
   assert.equal(await (await offline.navigation('/sources/')).text(), marker);
-  const slow = worker(async url => typeof url === 'string' ? new Response(marker, { headers: { 'content-type': 'text/html' } }) : new Promise(() => {}));
+  assert.equal(await (await offline.navigation('/static/offline.html')).text(), marker);
+  let respond;
+  const slow = worker(async url => typeof url === 'string' ?
+    new Response(marker, { headers: { 'content-type': 'text/html' } }) :
+    new Promise(resolve => { respond = resolve; }));
   await slow.lifecycle('install');
   const pending = slow.navigation('/');
-  [...slow.timers.values()][0]();
-  assert.equal(await (await pending).text(), marker);
+  for (const timer of slow.timers.values()) timer();
+  respond(new Response('unauthorized', { status: 401 }));
+  assert.equal((await pending).status, 401);
 });
 
 test('ignores non-page requests, cross-origin requests and mutations', () => {

@@ -85,11 +85,10 @@
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch('/sw.js', { method: 'HEAD', cache: 'no-store', redirect: 'manual', signal: controller.signal });
-      if (response.status >= 500) goOffline();
-      else editNotice.hidden = true;
+      await fetch('/sw.js', { method: 'HEAD', cache: 'no-store', redirect: 'manual', signal: controller.signal });
+      editNotice.hidden = true;
     } catch (_) {
-      goOffline();
+      if (!controller.signal.aborted) goOffline();
     } finally {
       clearTimeout(timeout);
       checking = false;

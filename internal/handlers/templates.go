@@ -78,11 +78,6 @@ func (renderer *pageRenderer) render(
 		return
 	}
 
-	if status == http.StatusServiceUnavailable {
-		// The PWA can display this rendered page even when its valuation is unavailable.
-		writer.Header().Set("X-Portfolio-Page", "unavailable")
-	}
-
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(status)
 

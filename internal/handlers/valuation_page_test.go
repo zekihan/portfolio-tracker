@@ -115,10 +115,6 @@ func checkUnavailableValuationResponse(
 	t.Helper()
 
 	body := response.Body.String()
-	if response.Header().Get("X-Portfolio-Page") != "unavailable" {
-		t.Error("missing service worker marker on rendered unavailable page")
-	}
-
 	if response.Code != http.StatusServiceUnavailable {
 		t.Errorf("%s status = %d, want 503", path, response.Code)
 	}
