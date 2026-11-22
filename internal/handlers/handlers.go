@@ -36,10 +36,6 @@ func formatNumber(num float64) string {
 		return "N/A"
 	}
 
-	if num == 0 {
-		return "0.00"
-	}
-
 	neg := num < 0
 	if neg {
 		num = -num
@@ -48,6 +44,11 @@ func formatNumber(num float64) string {
 	parts := strings.Split(fmt.Sprintf("%.2f", num), ".")
 	intPart := parts[0]
 	fracPart := parts[1]
+
+	// Dust below half a cent rounds to zero and must not keep a minus sign.
+	if intPart == "0" && fracPart == "00" {
+		return "0.00"
+	}
 
 	var resultSb strings.Builder
 
