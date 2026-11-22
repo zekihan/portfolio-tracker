@@ -70,7 +70,7 @@ var Migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_price_cache_expires ON price_cache(expires_at);
 	`,
 
-	// Schema v3 - Snapshots table.
+	// Schema v4 - Snapshots table.
 	`
 	CREATE TABLE IF NOT EXISTS snapshots (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,7 +87,7 @@ var Migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
 	`,
 
-	// Schema v4 - Settings table.
+	// Schema v5 - Settings table.
 	`
 	CREATE TABLE IF NOT EXISTS settings (
 		key TEXT PRIMARY KEY,
@@ -100,7 +100,7 @@ var Migrations = []string{
 	INSERT OR IGNORE INTO settings (key, value) VALUES ('refresh_interval', '60');
 	`,
 
-	// Schema v5 - Provider registry table.
+	// Schema v6 - Provider registry table.
 	`
 	CREATE TABLE IF NOT EXISTS provider_registry (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,7 +130,7 @@ var Migrations = []string{
 		('Manual', 'Manual', 0, '', '', 0, 1);
 	`,
 
-	// Schema v6 - Snapshot lock table for leader election.
+	// Schema v7 - Snapshot lock table for leader election.
 	`CREATE TABLE IF NOT EXISTS snapshot_lock (
 		id INTEGER PRIMARY KEY,
 		acquired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
