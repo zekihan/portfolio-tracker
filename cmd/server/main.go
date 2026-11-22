@@ -224,8 +224,8 @@ func serve(ctx context.Context, server *http.Server, listener net.Listener,
 const (
 	snapshotSchedule = "CRON_TZ=UTC @hourly"
 	snapshotTimeout  = 5 * time.Minute
-	// snapshotLockTimeout is the maximum age of a snapshot lock before it is
-	// considered stale and reclaimed. It is twice the snapshot timeout so a
+	// The snapshot lock is considered stale and reclaimed after
+	// snapshotLockTimeout. It is twice the snapshot timeout so a
 	// healthy snapshot (which should finish within snapshotTimeout) is never
 	// falsely reclaimed, while a crashed process does not block snapshots
 	// indefinitely.
