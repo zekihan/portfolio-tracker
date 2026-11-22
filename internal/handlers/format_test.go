@@ -53,6 +53,32 @@ func TestFormatQuantityPreservesFractionalUnits(t *testing.T) {
 	}
 }
 
+func TestFormatPercentAndToJSON(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		want  string
+		value float64
+	}{
+		{value: 0, want: "0.00%"},
+		{value: -1.234, want: "-1.23%"},
+		{value: 99.999, want: "100.00%"},
+	} {
+		if got := formatPercent(test.value); got != test.want {
+			t.Errorf("formatPercent(%v) = %q, want %q", test.value, got, test.want)
+		}
+	}
+
+	if got := toJSON(map[string]int{"a": 1}); got != `{"a":1}` {
+		t.Errorf("toJSON(map) = %q, want %q", got, `{"a":1}`)
+	}
+
+	// Unmarshalable values render as empty so a template cannot emit broken JSON.
+	if got := toJSON(make(chan int)); got != "" {
+		t.Errorf("toJSON(chan) = %q, want empty", got)
+	}
+}
+
 func TestFormatCurrencyIncludesEuro(t *testing.T) {
 	t.Parallel()
 

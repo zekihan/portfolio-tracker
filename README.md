@@ -293,8 +293,8 @@ the prebuilt binary for the target architecture and includes the `web/` assets.
 
 ## Development
 
-Install [golangci-lint](https://golangci-lint.run/) v2.14.0 and
-[GoReleaser](https://goreleaser.com/) v2.18.3 to match CI. Node.js 24.19.0 runs the dependency-free browser-logic tests.
+Install [golangci-lint](https://golangci-lint.run/) v2.15.0 and
+[GoReleaser](https://goreleaser.com/) v2.20.2 to match CI. Node.js 24.22.1 runs the dependency-free browser-logic tests.
 
 ```sh
 make fmt tidy         # format source and tidy modules
@@ -315,22 +315,23 @@ before checking; CI rejects uncommitted changes produced by those steps.
 
 ## Releases
 
-PR checks cross-compile every supported platform, run native Go tests on macOS
-and Windows, and are reused by the release workflows. Stable `vX.Y.Z` tags must
-match `VERSION` and pass checks before publishing releases. Every push to `main`
-(or a manual run on `main`) publishes development Docker images after checks.
-GoReleaser cross-compiles Linux, macOS, and Windows binaries for amd64 and arm64
+PR checks run on Ubuntu (workflow policy, lint, Go and JavaScript tests, release
+configuration check, and a single-target GoReleaser build) and are reused by the
+release workflows. Container smoke checks and release cross-compilation run only
+before publication, on the captured source commit. Stable `vX.Y.Z` tags must
+match `VERSION` and pass checks before publishing releases. Pushes to `main` do
+not publish; the Publish workflow runs nightly or manually on `main` to update
+the multi-architecture `edge` image. GoReleaser cross-compiles Linux, macOS, and
+Windows binaries for amd64 and arm64
 with `CGO_ENABLED=0`, plus a universal macOS binary. Releases contain tar.gz
 archives (zip on Windows) and `checksums.txt`. Archives include `web/`; extract
 the entire archive and run from that directory.
 
-The container workflow publishes Linux amd64 and arm64 images to
+The publish workflow publishes Linux amd64 and arm64 images to
 `ghcr.io/zekihan/portfolio-tracker` and `docker.io/zekihan/portfolio-tracker`.
-Main publishes `latest` and `sha-<full-commit>` images with development version
-metadata. Matching release tags publish full version, major/minor and major
-aliases (with and without `v`), plus their commit tag; ordinary main commits no
-longer overwrite versioned release aliases. CI builds the appropriate development
-or release binary before Docker copies it from `dist/`. The final image uses
+Nightly/manual runs on `main` update `edge`; matching release tags publish
+immutable versioned images and move `latest` forward. CI builds the appropriate
+development or release binary before Docker copies it from `dist/`. The final image uses
 `zekihan/distroless`, runs as UID 25110, and stores its database in `/data`.
 Bind mounts must be writable by that UID. The image has no shell; container
 smoke tests use a separate BusyBox container sharing its isolated network.
@@ -348,7 +349,8 @@ zeroes, a clean checkout, passing lint/tests, and configured Git signing. They n
 Repository secrets `DOCKER_USERNAME` and `DOCKER_PASSWORD` are required for
 Docker Hub publication and README updates. GHCR and GitHub releases use the
 workflow's `GITHUB_TOKEN`. README changes on `main` update the Docker Hub description.
-`make release` publishes a release and requires an appropriate token.
+`make release` prepares local release assets only (`--skip=publish,announce`);
+publication uses the tagged Publish workflow.
 
 ## License
 
