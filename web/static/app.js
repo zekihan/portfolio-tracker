@@ -196,6 +196,7 @@ const PortfolioApp = (function() {
       try {
         const response = await fetch('/api/settings/clear-all', { method: 'DELETE', headers: portfolioHeaders() });
         if (!response.ok) throw new Error(portfolioErrorMessage(response, 'Unable to clear data'));
+        localPreferences.removeItem('portfolio-offline-snapshot-v1');
         localPreferences.removeItem('theme');
         sessionPreferences.removeItem('portfolio-holding-filters');
         window.location.assign('/settings');
@@ -419,11 +420,7 @@ const PortfolioApp = (function() {
       closeDropdown();
       // A user can start editing after the request began. Keep this page's
       // currency labels truthful until a safe navigation actually replaces it.
-      const restoreReview = document.getElementById('restore-review');
-      if (sourceRequestsPending || sourceDraftsPending() || priceRefreshActive ||
-          historyMutationActive || settingsWritesPending ||
-          (restoreReview && !restoreReview.hidden) ||
-          pageNavigationIsBlocked(true)) {
+      if (hasPendingEdits(true)) {
         showToast(`Currency preference saved as ${currency}. This page still shows ${state.displayCurrency}. Finish editing, then select ${currency} again to apply it.`, 'info');
       } else {
         reloadWithSavedCurrency();
@@ -1410,6 +1407,13 @@ const PortfolioApp = (function() {
     return currencyUpdateActive || holdingWriteFailed || pageNavigationIsBlocked();
   }
 
+  function hasPendingEdits(ignoreCurrencyControl = false) {
+    return sourceRequestsPending || sourceDraftsPending() || priceRefreshActive ||
+      historyMutationActive || settingsWritesPending ||
+      document.getElementById('restore-review')?.hidden === false ||
+      pageNavigationIsBlocked(ignoreCurrencyControl);
+  }
+
   function pageNavigationIsBlocked(ignoreCurrencyControl = false) {
     if (inlineEditors.size || holdingWritesPending || holdingHtmxRequests.size) return true;
     if (document.body.classList.contains('modal-open') ||
@@ -1905,6 +1909,7 @@ const PortfolioApp = (function() {
   return {
     init,
     showToast,
+    hasPendingEdits,
     loadPortfolioChart,
     loadAllocationChart,
     formatCurrency,
@@ -1964,8 +1969,9 @@ window.PortfolioApp = PortfolioApp;
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(portfolioErrorMessage(response, body.error || `Restore failed: HTTP ${response.status}`));
+      localPreferences.removeItem('portfolio-offline-snapshot-v1');
       localPreferences.removeItem('theme');
-        sessionPreferences.removeItem('portfolio-holding-filters');
+      sessionPreferences.removeItem('portfolio-holding-filters');
       sessionPreferences.setItem('portfolio-restore-success', 'Backup restored successfully.');
       window.location.assign('/settings');
     } catch (err) {

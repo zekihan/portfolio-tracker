@@ -66,7 +66,7 @@ func (handler *Handler) capturePortfolioGeneration(next http.Handler) http.Handl
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet || strings.HasPrefix(request.URL.Path, "/static") ||
-			read == nil {
+			request.URL.Path == "/sw.js" || read == nil {
 			next.ServeHTTP(writer, request)
 
 			return
