@@ -18,6 +18,11 @@ func TestRoutingPreservesExistingHTTPBehavior(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	worker, err := os.ReadFile("web/static/sw.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	for _, test := range []struct {
 		method, path, contentType, location, body string
 		status                                    int
@@ -56,6 +61,8 @@ func TestRoutingPreservesExistingHTTPBehavior(t *testing.T) {
 			method: http.MethodGet, path: "/holdings/../settings", status: 404,
 			contentType: "text/plain", body: "404 page not found", securityHeaders: true,
 		},
+		{method: http.MethodGet, path: "/sw.js", status: 200, body: string(worker), securityHeaders: true},
+		{method: http.MethodHead, path: "/sw.js", status: 200, securityHeaders: true},
 		{method: http.MethodGet, path: "/static", status: 301, location: "/static/"},
 		{method: http.MethodGet, path: "/static/nope", status: 404, securityHeaders: true},
 		{

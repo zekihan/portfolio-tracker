@@ -27,6 +27,12 @@ DB_PATH=./portfolio.db PORT=8080 ./dist/portfolio-tracker_$(go env GOOS)_$(go en
 Then visit http://localhost:8080. Requires the Go version in `go.mod`. SQLite uses the pure-Go
 [modernc driver](https://pkg.go.dev/modernc.org/sqlite), so builds need no C compiler. Run from the repository root so `./web` is available.
 
+### Install and use offline
+
+Open the tracker over HTTPS or on localhost and choose **Install app** or **Add to Home Screen** in your browser. Visit Overview and Holdings while connected to save their displayed values on this device. If the server becomes unreachable, the app opens a read-only view with a saved time for each section. Use the retry link to return to the live portfolio.
+
+The browser keeps this portfolio data in local site storage, including after you close the app. Clearing site data removes the offline copy.
+
 ### Environment Variables
 
 | Variable | Default | Description |

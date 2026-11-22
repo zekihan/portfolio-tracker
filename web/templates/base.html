@@ -4,10 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
     <title>{{.Title}} - Portfolio Tracker</title>
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     
     <!-- HTMX -->
-    <script src="https://unpkg.com/htmx.org@1.9.10" integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC" crossorigin="anonymous"></script>
+    <script src="/static/htmx-1.9.10.min.js" integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC" crossorigin="anonymous"></script>
     
     <!-- Chart.js -->
     <script src="{{assetURL "chart.min.js"}}"></script>
@@ -139,7 +142,12 @@
     </main>
 
     <!-- Toast container -->
-    <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
+    <div id="toast-container" class="toast-container" role="status" aria-live="polite">
+        <div class="toast info" id="offline-edit-notice" hidden>
+            Connection lost. Your edit is still open.
+            <a href="/static/offline.html" target="_blank" rel="noopener">Open the read-only view in a new tab</a>
+        </div>
+    </div>
 
     <!-- Modal container -->
     <div id="modal-container"></div>
@@ -157,6 +165,7 @@
 
     <!-- Scripts -->
     <script src="{{assetURL "app.js"}}"></script>
+    <script src="{{assetURL "pwa.js"}}" defer></script>
 </body>
 </html>
 {{end}}

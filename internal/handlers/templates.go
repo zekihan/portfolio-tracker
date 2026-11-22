@@ -28,7 +28,7 @@ type pageRenderer struct {
 func newPageRenderer(funcs template.FuncMap) *pageRenderer {
 	assets := make(map[string]string)
 
-	for _, name := range []string{"app.js", "style.css", "chart.min.js"} {
+	for _, name := range []string{"app.js", "pwa.js", "style.css", "chart.min.js"} {
 		content, err := os.ReadFile(filepath.Join("web", "static", name))
 		if err != nil {
 			panic(err)
@@ -76,6 +76,11 @@ func (renderer *pageRenderer) render(
 		writer.WriteHeader(http.StatusInternalServerError)
 
 		return
+	}
+
+	if status == http.StatusServiceUnavailable {
+		// The PWA can display this rendered page even when its valuation is unavailable.
+		writer.Header().Set("X-Portfolio-Page", "unavailable")
 	}
 
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")

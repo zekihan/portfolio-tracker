@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="application-name" content="Portfolio Tracker Offline">
+  <title>Offline - Portfolio Tracker</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #f4f6fa; color: #172033; }
+    main { max-width: 72rem; margin: auto; padding: 2rem 1rem; }
+    h1 { margin-bottom: .5rem; } h2 { margin-top: 0; }
+    .notice, section { background: white; border: 1px solid #dce2ec; border-radius: .75rem; padding: 1.25rem; margin: 1rem 0; }
+    .notice { border-left: 4px solid #b76b00; }
+    .muted { color: #526078; } .values { display: flex; gap: 2rem; flex-wrap: wrap; }
+    .values strong { display: block; font-size: 1.3rem; margin-top: .25rem; }
+    .table-wrap { overflow-x: auto; } table { border-collapse: collapse; width: 100%; text-align: left; }
+    th, td { padding: .65rem; border-bottom: 1px solid #dce2ec; vertical-align: top; }
+    a { display: inline-block; color: #fff; background: #2855b8; border-radius: .4rem; padding: .7rem 1rem; text-decoration: none; }
+    @media (prefers-color-scheme: dark) { body { background: #101725; color: #e6eaf1; } .notice, section { background: #1b2638; border-color: #39475a; } .muted { color: #b0bccd; } th, td { border-color: #39475a; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Portfolio Tracker is offline</h1>
+  <div class="notice"><strong>Read-only saved view.</strong> Values may be out of date. Changes cannot be made while offline.</div>
+  <p><a href="/">Retry connection</a></p>
+  <p id="empty">No saved portfolio data is available on this device. Open Overview or Holdings while connected to save a view.</p>
+  <div id="content"></div>
+</main>
+<script>
+(function () {
+  'use strict';
+  function add(parent, tag, value, className) {
+    const element = document.createElement(tag);
+    element.textContent = value || '';
+    if (className) element.className = className;
+    parent.appendChild(element);
+    return element;
+  }
+  function header(section, title, data) {
+    add(section, 'h2', title);
+    const date = new Date(data.capturedAt);
+    add(section, 'p', 'Saved ' + (isNaN(date.getTime()) ? 'at an unknown time' : date.toLocaleString()) + (data.currency ? ' · Display currency: ' + data.currency : ''), 'muted');
+    if (data.notice) add(section, 'p', data.notice);
+    if (data.detail) add(section, 'p', data.detail, 'muted');
+  }
+  function render() {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem('portfolio-offline-snapshot-v1')); } catch { /* Storage is optional. */ }
+    const content = document.getElementById('content');
+    content.replaceChildren();
+    document.getElementById('empty').hidden = Boolean(saved?.overview || saved?.holdings);
+    if (!saved) return;
+    if (saved.overview) {
+      const data = saved.overview;
+      const section = add(content, 'section');
+      header(section, 'Overview', data);
+      const values = add(section, 'div', '', 'values');
+      const current = add(values, 'div', data.currentLabel);
+      add(current, 'strong', data.current);
+      const estimated = add(values, 'div', data.estimatedLabel);
+      add(estimated, 'strong', data.estimated);
+      if (data.calculated) add(section, 'p', data.calculated, 'muted');
+    }
+    if (saved.holdings) {
+      const data = saved.holdings;
+      const section = add(content, 'section');
+      header(section, 'Holdings', data);
+      if (!data.available) add(section, 'p', 'Holdings were unavailable when this view was saved.');
+      else if (!Array.isArray(data.rows) || !data.rows.length) add(section, 'p', 'No holdings in this saved view.');
+      else {
+        const wrap = add(section, 'div', '', 'table-wrap');
+        const table = add(wrap, 'table');
+        const head = add(add(table, 'thead'), 'tr');
+        ['Name', 'Ticker', 'Quantity', 'Price', 'Total', 'Estimated total'].forEach(label => add(head, 'th', label));
+        const body = add(table, 'tbody');
+        data.rows.forEach(row => {
+          const tr = add(body, 'tr');
+          ['name', 'ticker', 'quantity', 'price', 'total', 'estimated'].forEach(field => add(tr, 'td', row[field]));
+        });
+      }
+    }
+  }
+  window.addEventListener('storage', event => {
+    if (event.key === null || event.key === 'portfolio-offline-snapshot-v1') render();
+  });
+  window.addEventListener('pageshow', render);
+})();
+</script>
+</body>
+</html>

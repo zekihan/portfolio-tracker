@@ -191,6 +191,11 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	// Each page owns its content block; sharing one template tree overwrites it.
 	handler.renderer = newPageRenderer(funcs)
 	static := staticFiles("./web/static")
+	serveWorker := func(writer http.ResponseWriter, request *http.Request) {
+		http.ServeFile(writer, request, "./web/static/sw.js")
+	}
+	router.HandleFunc("GET /sw.js", serveWorker)
+	router.HandleFunc("HEAD /sw.js", serveWorker)
 	router.Handle("GET /static/{path...}", static)
 	router.Handle("HEAD /static/{path...}", static)
 	router.Handle("GET /api/holdings", requireJSONBody()(http.HandlerFunc(handler.getHoldings)))
