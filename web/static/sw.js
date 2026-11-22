@@ -1,6 +1,6 @@
 const CACHE_PREFIX = 'portfolio-tracker-offline-';
 // Bump this version when changing the offline document so installed apps refresh it.
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const OFFLINE_URL = '/static/offline.html';
 const OFFLINE_MARKER = '<meta name="application-name" content="Portfolio Tracker Offline">';
 const PAGE_PATHS = new Set(['/', '/holdings', '/history', '/sources', '/settings']);

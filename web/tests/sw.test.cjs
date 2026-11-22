@@ -67,9 +67,10 @@ test('install validates and caches only the intended offline document', async ()
 
 test('activation deletes only old portfolio offline caches', async () => {
   const w = worker();
-  for (const name of ['portfolio-tracker-offline-v1', 'portfolio-tracker-offline-v0', 'other-app']) w.stores.set(name, new Map());
+  for (const name of ['portfolio-tracker-offline-v1', 'other-app']) w.stores.set(name, new Map());
+  await w.lifecycle('install');
   await w.lifecycle('activate');
-  assert.deepEqual([...w.stores.keys()].sort(), ['other-app', 'portfolio-tracker-offline-v1']);
+  assert.deepEqual([...w.stores.keys()].sort(), ['other-app', 'portfolio-tracker-offline-v2']);
 });
 
 test('page and offline-link navigations preserve all reachable server responses', async () => {

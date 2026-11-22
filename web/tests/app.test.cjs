@@ -1813,13 +1813,13 @@ function enablePull(h) {
   return h;
 }
 
-function settingsPullHarness() {
+function settingsPullHarness(generation = '') {
   const ids = ['restore-review', 'restore-filename', 'restore-error', 'backup-status',
     'restore-cancel', 'restore-btn', 'restore-confirm', 'clear-all-data', 'confirm-action',
     'confirm-action-title', 'confirm-action-message', 'confirm-action-submit'];
   const elements = Object.fromEntries(ids.map(id => [id, Object.assign(element(), { id })]));
   elements['restore-review'].hidden = true;
-  const h = enablePull(loadApp(elements));
+  const h = enablePull(loadApp(elements, undefined, generation));
   h.elements = elements;
   h.app.initDisplaySettings();
   h.chooseBackup = () => h.dispatch('change', { target: {
@@ -1913,7 +1913,14 @@ test('mobile pull waits for individual and full history deletion, then permits n
 
 test('pull guards preserve successful restore and destructive clear navigation', async () => {
   for (const operation of ['restore', 'clear-all', 'clear-history']) {
-    const h = operation === 'clear-history' ? enablePull(historyApp()) : settingsPullHarness();
+    const h = operation === 'clear-history' ? enablePull(historyApp()) : settingsPullHarness('4');
+    const snapshotKey = 'portfolio-offline-snapshot-v1';
+    const storage = new Map([[snapshotKey, JSON.stringify({ generation: '4', overview: {} })]]);
+    h.window.localStorage = {
+      getItem: key => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, String(value)),
+      removeItem: key => storage.delete(key)
+    };
     let destination;
     h.window.location.assign = value => { destination = value; };
     h.gesture();
@@ -1933,12 +1940,46 @@ test('pull guards preserve successful restore and destructive clear navigation',
     h.refreshRequests()[0].resolve({ ok: true }); await flush();
     assert.equal(h.reloads, 0);
     assert.equal(destination, undefined);
-    mutation.resolve({ ok: true, json: async () => ({}) }); await flush();
+    mutation.resolve({
+      ok: true,
+      headers: new Headers({ 'HX-Refresh': 'true' }),
+      json: async () => ({ success: true })
+    }); await flush();
     if (operation === 'clear-history') {
       assert.match(destination, /days=365/);
       assert.match(destination, /currency=USD/);
       respond(h.requests()[1], 0); await flush();
-    } else assert.equal(destination, '/settings');
+    } else {
+      assert.equal(destination, '/settings');
+      assert.equal(storage.has(snapshotKey), false);
+      assert.equal(storage.get('portfolio-offline-min-generation'), '5');
+    }
+  }
+});
+
+test('a sign-in page does not confirm a reset or advance the offline generation', async () => {
+  for (const operation of ['restore', 'clear-all']) {
+    const h = settingsPullHarness('4');
+    const storage = new Map();
+    h.window.localStorage = {
+      getItem: key => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, String(value)),
+      removeItem: key => storage.delete(key)
+    };
+    let navigated = false;
+    h.window.location.assign = () => { navigated = true; };
+    if (operation === 'restore') {
+      h.chooseBackup();
+      h.restoreClick('restore-confirm');
+    } else {
+      h.elements['clear-all-data'].click();
+      h.elements['confirm-action'].dismiss('confirm'); await flush();
+    }
+    h.pending.find(request => request.url === '/api/settings/' + operation)
+      .resolve(new Response('<html>Sign in</html>', { headers: { 'Content-Type': 'text/html' } }));
+    await flush();
+    assert.equal(navigated, false, operation);
+    assert.equal(storage.has('portfolio-offline-min-generation'), false, operation);
   }
 });
 
