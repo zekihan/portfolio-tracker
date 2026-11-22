@@ -28,21 +28,20 @@ This is a self-hosted personal portfolio tracker with HTMX + Go server-rendered 
 
 **Packages:**
 - `cmd/server` — Entry point, net/http server, cron scheduler, graceful shutdown
-- `internal/db` — SQLite schema, migrations (v1-v2), connection management
+- `internal/db` — SQLite schema, migrations (v1-v12 in `Migrations`), connection management
 - `internal/models` — Domain types (Holding, Price, Snapshot, Provider, DashboardData)
 - `internal/handlers` — HTTP handlers (REST API + server-rendered pages)
-- `internal/price` — 12 price providers + service with caching, circuit breaker, leader election
+- `internal/price` — 12 price providers + service with caching and circuit breaker
 - `internal/services` — Business logic (HoldingService, SnapshotService, SettingsService)
-- `internal/charts` — Chart.js configuration helpers
-- `web/templates` — Go HTML templates (base, dashboard, holdings, history, sources, settings)
+- `web/templates` — Go HTML templates (base, dashboard, holdings, history, sources, settings, partials)
 - `web/static` — CSS, JS, Chart.js (served from disk at ./web/static; the Docker image copies ./web)
 
 **Key Design Decisions:**
 - **Single binary** that reads templates and static assets from `./web` at runtime
 - **HTMX** for interactivity — minimal JS, server-rendered HTML
-- **SQLite** via the pure-Go modernc driver with migrations (v2 fixes NULL manual_price with DEFAULT 0)
+- **SQLite** via the pure-Go modernc driver with migrations v1-v12 (see `Migrations` in `internal/db/schema.go`)
 - **In-app cron** (robfig/cron/v3) for hourly snapshots
-- **Leader election** via SQLite advisory lock for cron
+- **Leader election** via the SQLite `snapshot_lock` table in `cmd/server` for cron
 - **Price cache** with TTL per provider + circuit breaker (3 failures = open)
 - **Currency normalization** — all values stored in base currency, displayed in user's selected currency via Frankfurter FX rates
 - **12 price providers**: Yahoo Finance, Alpha Vantage, Twelve Data, Finnhub, Pusula Portföy, Garanti BBVA, İZKO Gold, TradingView BIST, TradingView Crypto, CoinGecko, Frankfurter, Manual

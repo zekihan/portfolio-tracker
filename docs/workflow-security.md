@@ -28,7 +28,7 @@ python3 -m venv /tmp/workflow-policy-venv
 | Action release | Verified commit |
 | --- | --- |
 | [actions/checkout@v7.0.1](https://github.com/actions/checkout/tree/v7.0.1) | [3d3c42e5aac5ba805825da76410c181273ba90b1](https://github.com/actions/checkout/commit/3d3c42e5aac5ba805825da76410c181273ba90b1) |
-| [actions/setup-go@v7.0.0](https://github.com/actions/setup-go/tree/v7.0.0) | [b7ad1dad31e06c5925ef5d2fc7ad053ef454303e](https://github.com/actions/setup-go/commit/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e) |
+| [actions/setup-go@v7.1.0](https://github.com/actions/setup-go/tree/v7.1.0) | [d8cbb8045d7f43706b9177cceb36c1f91a6644d5](https://github.com/actions/setup-go/commit/d8cbb8045d7f43706b9177cceb36c1f91a6644d5) |
 | [actions/setup-node@v7.1.0](https://github.com/actions/setup-node/tree/v7.1.0) | [949feb2413d6458794dcd2491c4babbbce0c15c1](https://github.com/actions/setup-node/commit/949feb2413d6458794dcd2491c4babbbce0c15c1) |
 | [docker/build-push-action@v7.4.0](https://github.com/docker/build-push-action/tree/v7.4.0) | [c3c9e263c25d99ce0380d002d59b67737d91b0dc](https://github.com/docker/build-push-action/commit/c3c9e263c25d99ce0380d002d59b67737d91b0dc) |
 | [docker/login-action@v4.6.0](https://github.com/docker/login-action/tree/v4.6.0) | [dbcb813823bdd20940b903addbd779551569679f](https://github.com/docker/login-action/commit/dbcb813823bdd20940b903addbd779551569679f) |
