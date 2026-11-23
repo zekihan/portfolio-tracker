@@ -10,6 +10,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	commonsmetrics "github.com/zekihan/go-commons/metrics"
 )
 
 func writeJSON(writer http.ResponseWriter, status int, data any) {
@@ -88,7 +90,11 @@ func notFound(writer http.ResponseWriter, request *http.Request) {
 // Preserve the existing method and trailing-slash behavior instead of ServeMux's
 // implicit HEAD handlers and method-not-allowed responses.
 func compatibleRoutes(router *http.ServeMux, static http.Handler) http.Handler {
-	next := protectBrowserRequests()(router)
+	// CapturePattern sits directly around the mux: capturePortfolioGeneration
+	// and cachedPriceReads replace the request with a copy (Request.WithContext),
+	// so the mux sets Pattern only on the copy and the metrics middleware would
+	// otherwise label every request route="unknown".
+	next := protectBrowserRequests()(commonsmetrics.CapturePattern(router))
 	missing := protectBrowserRequests()(http.HandlerFunc(notFound))
 	serveStatic := protectBrowserRequests()(static)
 
