@@ -19,6 +19,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	commonsmetrics "github.com/zekihan/go-commons/metrics"
+
 	"github.com/zekihan/portfolio-tracker/internal/db"
 	"github.com/zekihan/portfolio-tracker/internal/handlers"
 	"github.com/zekihan/portfolio-tracker/internal/price"
@@ -55,12 +57,18 @@ func main() {
 		Str("gitTreeState", gitTreeState).
 		Msg("Starting portfolio tracker")
 
+	metricsAddr := ":9090"
+	if configuredMetricsAddr, ok := os.LookupEnv("METRICS_ADDR"); ok {
+		metricsAddr = configuredMetricsAddr
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	err := run(
 		ctx,
 		getEnv("DB_PATH", "/data/portfolio.db"),
 		getEnv("BIND_ADDRESS", defaultBindAddress),
 		getEnv("PORT", "8080"),
+		metricsAddr,
 	)
 
 	stop()
@@ -74,7 +82,7 @@ func main() {
 // run owns every resource and returns only after its users have stopped.
 //
 //nolint:contextcheck // Database migration API predates context-aware startup.
-func run(ctx context.Context, dbPath, bindAddress, port string) error {
+func run(ctx context.Context, dbPath, bindAddress, port, metricsAddr string) error {
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
@@ -120,7 +128,26 @@ func run(ctx context.Context, dbPath, bindAddress, port string) error {
 	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
 
-	tracked := &activeHandlers{handler: handler.SetupRoutes()}
+	registry := commonsmetrics.New()
+	tracked := &activeHandlers{handler: registry.Middleware(handler.SetupRoutes())}
+
+	metricsCtx, cancelMetrics := context.WithCancel(ctx)
+	metricsDone := make(chan error, 1)
+
+	if metricsAddr != "" {
+		go func() { metricsDone <- registry.ListenAndServe(metricsCtx, metricsAddr) }()
+	} else {
+		close(metricsDone)
+	}
+
+	defer func() {
+		cancelMetrics()
+
+		err := <-metricsDone
+		if err != nil {
+			log.Error().Err(err).Msg("metrics server failed")
+		}
+	}()
 	//nolint:exhaustruct // http.Server has many optional fields
 	server := &http.Server{
 		Handler:           tracked,

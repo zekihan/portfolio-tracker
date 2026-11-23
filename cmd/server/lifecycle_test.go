@@ -27,7 +27,7 @@ func TestRunStartupFailures(t *testing.T) {
 	err = run(
 		t.Context(),
 		filepath.Join(t.TempDir(), "absent", "db.sqlite"),
-		"127.0.0.1", "0",
+		"127.0.0.1", "0", "",
 	)
 	if err == nil ||
 		!strings.Contains(err.Error(), "open database") {
@@ -52,7 +52,7 @@ func TestRunStartupFailures(t *testing.T) {
 	err = run(
 		ctx,
 		filepath.Join(t.TempDir(), "db.sqlite"),
-		"127.0.0.1", portString,
+		"127.0.0.1", portString, "",
 	)
 	if err == nil ||
 		!strings.Contains(err.Error(), "listen") {

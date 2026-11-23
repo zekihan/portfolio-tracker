@@ -13,7 +13,7 @@ COPY --from=build /portfolio-tracker /usr/local/bin/portfolio-tracker
 COPY web ./web
 COPY LICENSE /usr/share/licenses/portfolio-tracker/LICENSE
 USER 25110:25110
-EXPOSE 8080
+EXPOSE 8080 9090
 VOLUME ["/data"]
 ENV DB_PATH=/data/portfolio.db PORT=8080
 ENTRYPOINT ["portfolio-tracker"]

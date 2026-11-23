@@ -41,6 +41,7 @@ Offline access is shared by anyone using the same browser profile and origin. Th
 |----------|---------|-------------|
 | `DB_PATH` | `/data/portfolio.db` | SQLite database path |
 | `PORT` | `8080` | HTTP server port |
+| `METRICS_ADDR` | `:9090` | Internal Prometheus listener address; set empty to disable |
 | `BIND_ADDRESS` | `127.0.0.1` | Literal listener IP; use `::1` for IPv6 loopback. Wildcard `0.0.0.0` or `::` requires explicit opt-in and proxy-only networking. |
 | `ALPHA_VANTAGE_KEY` | - | Alpha Vantage API key |
 | `TWELVE_DATA_KEY` | - | Twelve Data API key |
