@@ -1,13 +1,9 @@
 package handlers
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"log/slog"
 	"mime"
 	"net/http"
-	"time"
 
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
@@ -65,97 +61,21 @@ func protectBrowserRequests() func(http.Handler) http.Handler {
 	}
 }
 
-func recoverRequests(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		response := &responseStatus{ResponseWriter: writer}
-
-		defer func(requestCtx context.Context) {
+// normalizeAbort preserves net/http's abort behavior for wrapped abort errors.
+func normalizeAbort(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
 			if recovered := recover(); recovered != nil {
 				err, ok := recovered.(error)
 				if ok && errors.Is(err, http.ErrAbortHandler) {
 					panic(http.ErrAbortHandler)
 				}
 
-				slog.ErrorContext(
-					requestCtx,
-					"Request panicked",
-					slog.Any("panic", recovered),
-				)
-
-				if response.status != 0 {
-					// A partial response cannot be repaired; let net/http abort the stream.
-					panic(http.ErrAbortHandler)
-				}
-
-				response.WriteHeader(http.StatusInternalServerError)
+				panic(recovered)
 			}
-		}(request.Context())
+		}()
 
-		next.ServeHTTP(response, request)
-	})
-}
-
-type responseStatus struct {
-	http.ResponseWriter
-
-	status int
-}
-
-func (response *responseStatus) WriteHeader(status int) {
-	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
-		response.ResponseWriter.WriteHeader(status)
-
-		return
-	}
-
-	if response.status == 0 {
-		response.status = status
-		response.ResponseWriter.WriteHeader(status)
-	}
-}
-
-func (response *responseStatus) Write(body []byte) (int, error) {
-	response.WriteHeader(http.StatusOK)
-
-	written, err := response.ResponseWriter.Write(body)
-	if err != nil {
-		return written, fmt.Errorf("write response: %w", err)
-	}
-
-	return written, nil
-}
-
-func (response *responseStatus) FlushError() error {
-	response.WriteHeader(http.StatusOK)
-
-	err := http.NewResponseController(response.ResponseWriter).Flush()
-	if err != nil {
-		return fmt.Errorf("flush response: %w", err)
-	}
-
-	return nil
-}
-
-func (response *responseStatus) Unwrap() http.ResponseWriter {
-	return response.ResponseWriter
-}
-
-func logRequests(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		started := time.Now()
-		response := &responseStatus{ResponseWriter: writer}
-		next.ServeHTTP(response, request)
-
-		status := response.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-
-		slog.InfoContext(request.Context(), "HTTP request",
-			slog.String("method", request.Method),
-			slog.String("path", request.URL.Path),
-			slog.Int("status", status),
-			slog.Duration("duration", time.Since(started)))
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/zekihan/go-commons/middleware"
 )
 
 func TestRoutingPreservesExistingHTTPBehavior(t *testing.T) {
@@ -144,20 +146,27 @@ func TestRedirectPreservesForwardedPrefix(t *testing.T) {
 	}
 }
 
-func TestRecoveryReturnsAnEmptyServerError(t *testing.T) {
+func TestRecoveryReturnsAServerError(t *testing.T) {
 	t.Parallel()
 
-	endpoint := recoverRequests(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		panic("private panic detail")
-	}))
+	endpoint := middleware.RecoverHandler(
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			panic("private panic detail")
+		}),
+	)
 	response := httptest.NewRecorder()
 	endpoint.ServeHTTP(
 		response,
 		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody),
 	)
 
-	if response.Code != http.StatusInternalServerError || response.Body.Len() != 0 {
-		t.Errorf("response = %d %q, want empty 500", response.Code, response.Body.String())
+	if response.Code != http.StatusInternalServerError ||
+		strings.Contains(response.Body.String(), "private panic detail") {
+		t.Errorf(
+			"response = %d %q, want 500 without panic details",
+			response.Code,
+			response.Body.String(),
+		)
 	}
 }
 

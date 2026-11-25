@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zekihan/go-commons/middleware"
+
 	"github.com/zekihan/portfolio-tracker/internal/models"
 	"github.com/zekihan/portfolio-tracker/internal/price"
 	"github.com/zekihan/portfolio-tracker/internal/services"
@@ -317,9 +319,13 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.HandleFunc("GET /settings", handler.pageSettings)
 	router.HandleFunc("/", notFound)
 
-	return logRequests(
-		recoverRequests(
-			handler.capturePortfolioGeneration(cachedPriceReads(compatibleRoutes(router, static))),
+	return middleware.Logging(
+		middleware.RecoverHandler(
+			normalizeAbort(
+				handler.capturePortfolioGeneration(
+					cachedPriceReads(compatibleRoutes(router, static)),
+				),
+			),
 		),
 	)
 }
