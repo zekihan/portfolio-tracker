@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -16,8 +17,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/robfig/cron/v3"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/zekihan/go-commons/utils"
 
 	commonsmetrics "github.com/zekihan/go-commons/metrics"
 
@@ -35,27 +35,17 @@ var (
 )
 
 func main() {
-	// Setup structured logging.
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	//nolint:exhaustruct // zerolog.ConsoleWriter has many optional fields
-	log.Logger = log.Output(zerolog.ConsoleWriter{
-		Out:          os.Stderr,
-		TimeFormat:   time.RFC3339,
-		NoColor:      false,
-		TimeLocation: time.UTC,
-		PartsOrder: []string{
-			zerolog.TimestampFieldName,
-			zerolog.LevelFieldName,
-			zerolog.MessageFieldName,
-		},
-	})
+	utils.InitLogger(
+		&utils.LoggerConfig{Writer: os.Stderr, Level: slog.LevelInfo, AddSource: false},
+	)
 
-	log.Info().
-		Str("version", version).
-		Str("buildDate", buildDate).
-		Str("commitHash", commitHash).
-		Str("gitTreeState", gitTreeState).
-		Msg("Starting portfolio tracker")
+	slog.Info(
+		"Starting portfolio tracker",
+		slog.String("version", version),
+		slog.String("buildDate", buildDate),
+		slog.String("commitHash", commitHash),
+		slog.String("gitTreeState", gitTreeState),
+	)
 
 	metricsAddr := ":9090"
 	if configuredMetricsAddr, ok := os.LookupEnv("METRICS_ADDR"); ok {
@@ -74,7 +64,7 @@ func main() {
 	stop()
 
 	if err != nil {
-		log.Error().Err(err).Msg("server failed")
+		slog.Error("Server failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
@@ -90,7 +80,7 @@ func run(ctx context.Context, dbPath, bindAddress, port, metricsAddr string) err
 	defer func() {
 		closeErr := database.Close()
 		if closeErr != nil {
-			log.Error().Err(closeErr).Msg("failed to close database")
+			slog.ErrorContext(ctx, "Failed to close database", slog.Any("error", closeErr))
 		}
 	}()
 
@@ -98,7 +88,7 @@ func run(ctx context.Context, dbPath, bindAddress, port, metricsAddr string) err
 	defer func() {
 		closeErr := priceService.Close()
 		if closeErr != nil {
-			log.Error().Err(closeErr).Msg("failed to stop price refreshes")
+			slog.ErrorContext(ctx, "Failed to stop price refreshes", slog.Any("error", closeErr))
 		}
 	}()
 
@@ -145,7 +135,7 @@ func run(ctx context.Context, dbPath, bindAddress, port, metricsAddr string) err
 
 		err := <-metricsDone
 		if err != nil {
-			log.Error().Err(err).Msg("metrics server failed")
+			slog.ErrorContext(ctx, "Metrics server failed", slog.Any("error", err))
 		}
 	}()
 	//nolint:exhaustruct // http.Server has many optional fields
@@ -159,7 +149,7 @@ func run(ctx context.Context, dbPath, bindAddress, port, metricsAddr string) err
 	}
 
 	cronScheduler.Start()
-	log.Info().Str("address", listener.Addr().String()).Msg("starting server")
+	slog.InfoContext(ctx, "Starting server", slog.String("address", listener.Addr().String()))
 
 	return serve(ctx, server, listener, tracked, cancelRequests,
 		cronScheduler, cancelSnapshots, shutdownTimeout)
@@ -219,7 +209,7 @@ func serve(ctx context.Context, server *http.Server, listener net.Listener,
 
 	jobsStopped := scheduler.Stop()
 
-	log.Info().Msg("shutting down server...")
+	slog.InfoContext(ctx, "Shutting down server...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
@@ -291,7 +281,7 @@ func createScheduledSnapshotAt(
 
 	owner, ok := acquireSnapshotLock(ctx, database)
 	if !ok {
-		log.Debug().Msg("snapshot lock not acquired, skipping")
+		slog.DebugContext(parent, "Snapshot lock not acquired, skipping")
 
 		return
 	}
@@ -306,19 +296,19 @@ func createScheduledSnapshotAt(
 
 	err := create(db.WithSnapshotClaim(ctx, slot, owner))
 	if err != nil {
-		log.Error().Err(err).Msg("failed to create snapshot")
+		slog.ErrorContext(parent, "Failed to create snapshot", slog.Any("error", err))
 	} else {
 		// Production persistence completes this in the insertion transaction.
 		// This is idempotent and also supports alternate snapshot callbacks.
 		_, err = database.ExecContext(ctx,
 			"UPDATE snapshot_runs SET completed = 1 WHERE slot = ? AND owner = ?", slot, owner)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to complete snapshot slot")
+			slog.ErrorContext(parent, "Failed to complete snapshot slot", slog.Any("error", err))
 
 			return
 		}
 
-		log.Info().Msg("snapshot created successfully")
+		slog.InfoContext(parent, "Snapshot created successfully")
 	}
 }
 
@@ -388,7 +378,7 @@ func releaseSnapshotLock(parent context.Context, database *sqlx.DB, owner string
 	_, err := database.ExecContext(ctx,
 		"DELETE FROM snapshot_lock WHERE id = 1 AND owner = ?", owner)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to release snapshot lock")
+		slog.ErrorContext(parent, "Failed to release snapshot lock", slog.Any("error", err))
 	}
 }
 
@@ -407,7 +397,7 @@ func claimSnapshotSlot(
 		WHERE snapshot_runs.completed = 0 AND snapshot_runs.acquired_at <= ?`,
 		slot, owner, now.Unix(), now.Add(-snapshotLockTimeout).Unix())
 	if err != nil {
-		log.Error().Err(err).Msg("failed to claim snapshot slot")
+		slog.ErrorContext(ctx, "Failed to claim snapshot slot", slog.Any("error", err))
 
 		return false
 	}
@@ -424,7 +414,7 @@ func releaseSnapshotSlot(parent context.Context, database *sqlx.DB, slot int64, 
 	_, err := database.ExecContext(ctx,
 		"DELETE FROM snapshot_runs WHERE slot = ? AND owner = ? AND completed = 0", slot, owner)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to release snapshot slot")
+		slog.ErrorContext(parent, "Failed to release snapshot slot", slog.Any("error", err))
 	}
 }
 

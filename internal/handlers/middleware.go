@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
-	"time"
 
 	"github.com/zekihan/portfolio-tracker/internal/price"
 )
@@ -138,25 +137,6 @@ func (response *responseStatus) FlushError() error {
 
 func (response *responseStatus) Unwrap() http.ResponseWriter {
 	return response.ResponseWriter
-}
-
-func logRequests(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		started := time.Now()
-		response := &responseStatus{ResponseWriter: writer}
-		next.ServeHTTP(response, request)
-
-		status := response.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-
-		slog.InfoContext(request.Context(), "HTTP request",
-			slog.String("method", request.Method),
-			slog.String("path", request.URL.Path),
-			slog.Int("status", status),
-			slog.Duration("duration", time.Since(started)))
-	})
 }
 
 // A custom header cannot be sent by cross-site forms or subresource loads.
