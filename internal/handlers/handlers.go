@@ -320,8 +320,12 @@ func (handler *Handler) SetupRoutes() http.Handler {
 	router.HandleFunc("/", notFound)
 
 	return middleware.Logging(
-		recoverRequests(
-			handler.capturePortfolioGeneration(cachedPriceReads(compatibleRoutes(router, static))),
+		middleware.RecoverHandler(
+			normalizeAbort(
+				handler.capturePortfolioGeneration(
+					cachedPriceReads(compatibleRoutes(router, static)),
+				),
+			),
 		),
 	)
 }

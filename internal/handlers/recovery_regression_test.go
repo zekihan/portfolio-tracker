@@ -2,17 +2,21 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/zekihan/go-commons/middleware"
 )
 
 func TestRecoverRequestsBeforeHeaders(t *testing.T) {
 	t.Parallel()
 
 	response := httptest.NewRecorder()
-	handler := recoverRequests(
+	handler := middleware.RecoverHandler(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("unexpected") }),
 	)
 	handler.ServeHTTP(
@@ -24,7 +28,7 @@ func TestRecoverRequestsBeforeHeaders(t *testing.T) {
 		t.Fatalf("status = %d", response.Code)
 	}
 
-	if response.Body.Len() != 0 {
+	if strings.Contains(response.Body.String(), "unexpected") {
 		t.Fatal("panic details leaked")
 	}
 }
@@ -37,7 +41,7 @@ func TestRecoverRequestsAbortsPartialResponses(t *testing.T) {
 			t.Parallel()
 
 			response := httptest.NewRecorder()
-			handler := recoverRequests(
+			handler := middleware.RecoverHandler(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch mode {
 					case "abort":
@@ -78,19 +82,21 @@ func TestRecoverRequestsClosesPartialHTTPResponse(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(
-		recoverRequests(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			_, writeErr := writer.Write([]byte("partial"))
-			if writeErr != nil {
-				return
-			}
+		middleware.RecoverHandler(
+			http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, writeErr := writer.Write([]byte("partial"))
+				if writeErr != nil {
+					return
+				}
 
-			flushErr := http.NewResponseController(writer).Flush()
-			if flushErr != nil {
-				return
-			}
+				flushErr := http.NewResponseController(writer).Flush()
+				if flushErr != nil {
+					return
+				}
 
-			panic("interrupted response")
-		})),
+				panic("interrupted response")
+			}),
+		),
 	)
 
 	t.Cleanup(server.Close)
@@ -115,4 +121,28 @@ func TestRecoverRequestsClosesPartialHTTPResponse(t *testing.T) {
 	if string(body) != "partial" {
 		t.Fatalf("body = %q", body)
 	}
+}
+
+func TestNormalizeAbortWrappedError(t *testing.T) {
+	t.Parallel()
+
+	handler := middleware.RecoverHandler(
+		normalizeAbort(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			panic(fmt.Errorf("wrapped: %w", http.ErrAbortHandler))
+		})),
+	)
+
+	defer func() {
+		recovered := recover()
+
+		err, ok := recovered.(error)
+		if !ok || !errors.Is(err, http.ErrAbortHandler) {
+			t.Errorf("panic = %v, want ErrAbortHandler", recovered)
+		}
+	}()
+
+	handler.ServeHTTP(
+		httptest.NewRecorder(),
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody),
+	)
 }

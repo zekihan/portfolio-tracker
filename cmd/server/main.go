@@ -17,8 +17,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/robfig/cron/v3"
-	"github.com/zekihan/go-commons/utils"
 
+	commonslog "github.com/zekihan/go-commons/log"
 	commonsmetrics "github.com/zekihan/go-commons/metrics"
 
 	"github.com/zekihan/portfolio-tracker/internal/db"
@@ -35,8 +35,13 @@ var (
 )
 
 func main() {
-	utils.InitLogger(
-		&utils.LoggerConfig{Writer: os.Stderr, Level: slog.LevelInfo, AddSource: false},
+	commonslog.InitLogger(
+		&commonslog.LoggerConfig{
+			Writer:    os.Stderr,
+			Format:    commonslog.FormatText,
+			Level:     slog.LevelInfo,
+			AddSource: false,
+		},
 	)
 
 	slog.Info(
